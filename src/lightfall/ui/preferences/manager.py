@@ -39,6 +39,7 @@ GLOBAL_ONLY_PREFS = {
     # Login & Session settings
     "session_duration",
     # Device backend settings
+    "device_backends",
     "device_backend",
     "device_mock_enabled",
     "device_mock_include_noisy",

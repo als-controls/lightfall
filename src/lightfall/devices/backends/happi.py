@@ -255,6 +255,21 @@ class HappiBackend(DeviceBackend):
     def is_editable(self) -> bool:
         return True
 
+    def _make_client(self) -> Any:
+        """Build the ``happi.Client`` this backend reads from.
+
+        The single construction point for :meth:`connect`, :meth:`reload`
+        and :meth:`load_metadata`. Subclasses that read from a different
+        happi database (e.g. CSM) override this.
+        """
+        import happi
+
+        if self._path:
+            from happi.backends.json_db import JSONBackend
+
+            return happi.Client(database=JSONBackend(self._path))
+        return happi.Client.from_config()
+
     def connect(self) -> bool:
         """Establish the happi JSON client and populate the in-memory device cache.
 
@@ -274,7 +289,7 @@ class HappiBackend(DeviceBackend):
             return True
 
         try:
-            import happi
+            import happi  # noqa: F401
         except ImportError:
             logger.error("happi package not installed. Install with: pip install lightfall[happi]")
             return False
@@ -303,14 +318,7 @@ class HappiBackend(DeviceBackend):
                     except Exception:
                         pass  # Notification is best-effort
 
-            if self._path:
-                from happi.backends.json_db import JSONBackend
-
-                db = JSONBackend(self._path)
-                self._client = happi.Client(database=db)
-            else:
-                # Use default happi config (env vars, etc.)
-                self._client = happi.Client.from_config()
+            self._client = self._make_client()
 
             self._connected = True
 
@@ -608,17 +616,12 @@ class HappiBackend(DeviceBackend):
             return False
 
         try:
-            import happi as _happi
-            from happi.backends.json_db import JSONBackend
+            import happi  # noqa: F401
         except ImportError:
             return False
 
         try:
-            if self._path:
-                db = JSONBackend(self._path)
-                self._client = _happi.Client(database=db)
-            else:
-                self._client = _happi.Client.from_config()
+            self._client = self._make_client()
         except Exception as e:
             logger.error("Failed to reload happi client: {}", e)
             return False
@@ -693,14 +696,7 @@ class HappiBackend(DeviceBackend):
         client = self._client
         if client is None:
             try:
-                import happi
-                from happi.backends.json_db import JSONBackend
-
-                if self._path:
-                    db = JSONBackend(self._path)
-                    client = happi.Client(database=db)
-                else:
-                    client = happi.Client.from_config()
+                client = self._make_client()
             except Exception as e:
                 logger.warning("load_metadata: could not create happi client: {}", e)
                 return []

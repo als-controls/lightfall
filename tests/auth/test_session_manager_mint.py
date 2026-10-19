@@ -14,6 +14,12 @@ from lightfall.auth.session import AuthState, Session, SessionManager, User
 
 
 @pytest.fixture(autouse=True)
+def _no_csm_mint(monkeypatch):
+    """These tests pin the tiled/logbook mint round; the always-on CSM mint has its own."""
+    monkeypatch.setattr("lightfall.devices.backend_types.csm.csm_mint_targets", lambda: [])
+
+
+@pytest.fixture(autouse=True)
 def reset_singleton():
     SessionManager.reset()
     yield

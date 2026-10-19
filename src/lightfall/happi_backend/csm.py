@@ -28,7 +28,12 @@ A CSM instantiable looks like::
 
 and is translated into a happi document as follows:
 
-* ``name`` -> happi's ``name`` *and* ``_id`` (happi identifies items by name).
+* ``name`` -> happi's ``name`` *and* ``_id`` (happi identifies items by name),
+  made a Python identifier by :func:`happi_name`: CSM names are labels ("Det
+  Translate") and happi's containers refuse anything else, so every such row
+  came back from ``Client.search()`` as an ``InvalidResult``. CSM's own name
+  is kept as ``csm_name``, and it is the ``display_name`` unless the row's
+  display metadata sets one.
 * The recipe whose ``system == "python"`` (if any) supplies
   ``device_class`` (from ``target``), ``args``, and ``kwargs``. The
   ``{{...}}`` placeholders inside those recipes are happi's own templating
@@ -57,15 +62,14 @@ is missing ``device_class``.
 
 Authentication
 ---------------
-CSM's ``/api/instantiables`` routes (search, find, choices, create, update,
-delete) are *all* gated behind ``require_admin`` -- see
-``app/routers/instantiables.py`` in the CSM repo. There is no anonymous or
-read-only route. A client of this backend MUST supply a bearer token for a
-CSM user with the admin role; there is no API-key path available on these
-routes (CSM's ``X-API-Key`` header is a separate mechanism scoped to PC
-registration, not instantiables). Be honest with yourself about this: if
-you don't have an admin JWT, this backend cannot be used at all, not even
-for read-only access.
+CSM's read routes (``GET /api/instantiables``, ``/find``, ``/choices``)
+require any authenticated user with a reader role (admin, maintainer, or
+reader); writes (create, update, delete) require admin -- see
+``app/routers/instantiables.py`` in the CSM repo. There is no anonymous
+route. Lightfall authenticates with the personal CSM API key it mints at
+login (auth-v2: ``Authorization: Apikey <secret>`` via ``auth=``); the
+Keycloak bearer is used only for that mint, so CSM must accept Lightfall's
+client id ``LUCID`` in its ``KEYCLOAK_ACCEPTED_CLIENT_IDS``.
 
 Configuration
 -------------
@@ -84,11 +88,8 @@ deliberately does not do. The supported route is direct construction::
     backend = CSMBackend(url="https://csm.example.org", token="<admin JWT>")
     client = happi.Client(database=backend)
 
-or, to reuse Lightfall's existing happi device backend unchanged::
-
-    from lightfall.devices.backends.happi import HappiBackend
-    happi_client = happi.Client(database=CSMBackend(url=..., token=...))
-    backend = HappiBackend(client=happi_client)
+To use it as a Lightfall device backend, see
+:class:`lightfall.devices.backends.csm.CSMDeviceBackend`.
 
 Configuration is deliberately minimal: a base URL and an (optional, but in
 practice required by the server) bearer token. Both may also be supplied
@@ -99,6 +100,7 @@ itself favors environment-driven configuration (``$HAPPI_CFG``).
 
 from __future__ import annotations
 
+import keyword
 import os
 import re
 from collections.abc import Iterator
@@ -109,7 +111,56 @@ from happi.backends.core import ItemMeta, ItemMetaGen, _Backend
 from happi.errors import DuplicateError, SearchError
 from loguru import logger
 
-__all__ = ["CSMBackend"]
+__all__ = ["DISPLAY_KEYS", "CSMBackend", "happi_name"]
+
+#: What Lightfall may change on a CSM instantiable: how it is shown, never what it is.
+#: Must equal CSM's app.services.instantiable_display.DISPLAY_KEYS.
+DISPLAY_KEYS: frozenset[str] = frozenset(
+    {"display_name", "icon_override", "group", "synoptic", "lightfall_scope", "scope_metadata"}
+)
+
+#: Keys happi or this module add to a document that are not CSM data, ignored when
+#: deciding whether an update touches anything beyond display metadata.
+_BOOKKEEPING_KEYS: frozenset[str] = frozenset({"_id", "type", "creation", "last_edit"})
+
+
+def happi_name(csm_name: str, csm_id: Any = None) -> str:
+    """The happi name for a CSM instantiable: its CSM name made an identifier.
+
+    happi's containers require ``name`` to be a Python identifier that is not
+    a keyword; CSM's names are human labels. Runs of anything but letters,
+    digits and ``_`` become one ``_``, the result is lower-cased, and a
+    leading digit gets a ``_`` in front, so ``"Det Translate"`` is
+    ``"det_translate"``. A name that is already an identifier is kept as it
+    is, so a row Lightfall itself created round-trips unchanged.
+
+    Args:
+        csm_name: The instantiable's name in CSM.
+        csm_id: Its CSM id, for a name with nothing usable in it.
+
+    Returns:
+        A valid, non-keyword Python identifier.
+    """
+    if csm_name.isidentifier() and not keyword.iskeyword(csm_name):
+        return csm_name
+    name = re.sub(r"[^0-9A-Za-z_]+", "_", csm_name).strip("_").lower()
+    if not name:
+        return f"instantiable_{csm_id}"
+    if name[0].isdigit():
+        name = f"_{name}"
+    if keyword.iskeyword(name):
+        name = f"{name}_"
+    return name
+
+
+def _blank_as_none(value: Any) -> Any:
+    """Treat empty values as absent.
+
+    happi writes Lightfall's standard device fields (``beamline``, ``location``,
+    ...) as ``""``/``None`` even where CSM never had them; writing nothing over
+    nothing is not a change.
+    """
+    return None if value in (None, "", [], {}) else value
 
 
 def _first_python_recipe(instantiators: list[dict[str, Any]] | None) -> dict[str, Any] | None:
@@ -152,6 +203,9 @@ def entry_to_happi_document(entry: dict[str, Any]) -> dict[str, Any]:
         doc["device_class"] = python_recipe.get("target")
         doc["args"] = python_recipe.get("args", [])
         doc["kwargs"] = python_recipe.get("kwargs", {})
+    # happi picks the container class from "type"; without it every entry
+    # comes back from Client.search() as an InvalidResult.
+    doc["type"] = "OphydItem" if python_recipe is not None else "HappiItem"
 
     doc["documentation"] = entry.get("documentation")
     doc["active"] = entry.get("active", True)
@@ -163,10 +217,18 @@ def entry_to_happi_document(entry: dict[str, Any]) -> dict[str, Any]:
     doc["csm_beamline_name"] = entry.get("beamline_name")
     doc["csm_ioc_runtime_status"] = entry.get("ioc_runtime_status")
 
+    # Display-only metadata (CSM instantiable_display) sits at top level like fields.
+    doc.update(entry.get("display") or {})
+
+    # CSM's name is a label; happi's must be an identifier (see happi_name).
+    # The label stays as the name people see unless a display name is set.
+    doc["csm_name"] = entry["name"]
+    if not doc.get("display_name"):
+        doc["display_name"] = entry["name"]
+
     # Set identity keys last so nothing above (in particular a stray
     # "name" inside `fields`) can shadow them.
-    doc["name"] = entry["name"]
-    doc["_id"] = entry["name"]
+    doc["name"] = doc["_id"] = happi_name(entry["name"], entry.get("id"))
     return doc
 
 
@@ -179,10 +241,9 @@ class CSMBackend(_Backend):
         Base URL of the CSM API, e.g. ``"https://csm.example.org"``. The
         ``/api/instantiables`` suffix is added automatically.
     token : str, optional
-        Bearer token for a CSM user with the admin role. All of CSM's
-        instantiables routes require this -- see the module docstring.
-        Read from ``LIGHTFALL_CSM_TOKEN`` by :meth:`from_env` if not given
-        directly.
+        Static bearer token (tests, scripts). Mutually exclusive with
+        ``auth``. Read from ``LIGHTFALL_CSM_TOKEN`` by
+        :meth:`from_env` if not given directly.
     timeout : float, optional
         Per-request timeout in seconds, passed to ``httpx``. Defaults to 10.
     client : httpx.Client, optional
@@ -194,6 +255,18 @@ class CSMBackend(_Backend):
         backends (``backend(**cfg_section, cfg_path=cfg)``) should CSM ever
         be registered into ``happi.backends.BACKENDS``. See the module
         docstring for why that route isn't wired up today.
+    auth : httpx.Auth, optional
+        Per-request authentication, e.g. Lightfall's
+        ``ServiceKeyAuth("csm:<url>")``, which reads the minted key on every
+        request. Mutually exclusive with ``token``.
+    base_params : dict, optional
+        CSM search filters (e.g. ``beamline_id``, ``ioc_id``) merged into
+        every search; see :meth:`_merge_params`.
+    transport : httpx.BaseTransport, optional
+        Transport for the constructed ``httpx.Client`` (mainly for tests).
+    proxy : str, optional
+        Proxy URL for the constructed ``httpx.Client`` (e.g. Lightfall's SOCKS
+        proxy for *.lbl.gov hosts reached from off-site).
     """
 
     def __init__(
@@ -203,15 +276,29 @@ class CSMBackend(_Backend):
         timeout: float = 10.0,
         client: httpx.Client | None = None,
         cfg_path: str | None = None,
+        *,
+        auth: httpx.Auth | None = None,
+        base_params: dict[str, Any] | None = None,
+        transport: httpx.BaseTransport | None = None,
+        proxy: str | None = None,
     ) -> None:
         del cfg_path  # unused; see class docstring
+        if token and auth is not None:
+            raise ValueError("Pass either token= or auth=, not both")
         self._base_url = url.rstrip("/")
         self._instantiables_url = f"{self._base_url}/api/instantiables"
+        self._base_params: dict[str, Any] = dict(base_params or {})
+        # happi name -> CSM name, for every document this backend has handed
+        # out. Lookups by happi name (get_by_id, find on "name") must ask CSM
+        # for the CSM name, and happi_name() cannot be inverted.
+        self._csm_names: dict[str, str] = {}
         if client is not None:
             self._client = client
         else:
             headers = {"Authorization": f"Bearer {token}"} if token else {}
-            self._client = httpx.Client(headers=headers, timeout=timeout)
+            self._client = httpx.Client(
+                headers=headers, auth=auth, timeout=timeout, transport=transport, proxy=proxy
+            )
 
     @classmethod
     def from_env(cls, **kwargs: Any) -> CSMBackend:
@@ -256,9 +343,14 @@ class CSMBackend(_Backend):
                 deliberately not remapped, as happi's interface makes no
                 promise about it.
         """
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             raise PermissionError(
-                f"CSM refused to {context}: {response.status_code} {response.text}"
+                f"CSM rejected Lightfall's key (401) on {context}. Was a CSM key minted at login? "
+                f"Look in the log for 'mint failed for service=csm:'. {response.text}"
+            )
+        if response.status_code == 403:
+            raise PermissionError(
+                f"CSM: no reader role for this user (403) on {context}. {response.text}"
             )
         if response.status_code in (404, 409):
             raise SearchError(f"CSM could not {context}: {response.status_code} {response.text}")
@@ -270,6 +362,19 @@ class CSMBackend(_Backend):
         self._raise_for_status(response, context=f"GET {path}")
         return response.json()
 
+    def _merge_params(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Lay a search's own params over this backend's base filters.
+
+        The caller's keys win (an explicit ``name`` lookup beats a base name
+        filter), except ``include_inactive``: the base value, when set, is the
+        row's configured scope and overrides the ``"true"`` every happi search
+        method sends.
+        """
+        merged = {**self._base_params, **params}
+        if "include_inactive" in self._base_params:
+            merged["include_inactive"] = self._base_params["include_inactive"]
+        return merged
+
     def _iter_search(self, params: dict[str, Any]) -> Iterator[dict[str, Any]]:
         """Run a search against ``/api/instantiables`` and yield happi documents.
 
@@ -279,9 +384,40 @@ class CSMBackend(_Backend):
         Yields:
             One happi document per matching instantiable.
         """
-        entries = self._get_json("/api/instantiables", params=params)
+        entries = self._get_json("/api/instantiables", params=self._merge_params(params))
         for entry in entries:
-            yield entry_to_happi_document(entry)
+            yield self._document(entry)
+
+    def _document(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """Translate one entry and remember which CSM name its happi name stands for.
+
+        Two CSM names can make the same identifier ("M202 Mirror" and
+        "m202_mirror"); the second one seen takes its CSM id as a suffix, so
+        happi never sees two items under one name.
+        """
+        doc = entry_to_happi_document(entry)
+        known = self._csm_names.get(doc["name"])
+        if known is not None and known != entry["name"]:
+            doc["name"] = doc["_id"] = f"{doc['name']}_{entry.get('id')}"
+            logger.warning(
+                "CSM instantiables {!r} and {!r} share the happi name; the second is {!r}",
+                known,
+                entry["name"],
+                doc["name"],
+            )
+        self._csm_names[doc["name"]] = entry["name"]
+        return doc
+
+    def _csm_name(self, happi_id: str) -> str:
+        """The CSM name behind a happi name this backend has handed out, else the name itself."""
+        return self._csm_names.get(happi_id, happi_id)
+
+    def _find_one(self, csm_name: str) -> httpx.Response:
+        """``GET /find`` for one CSM name, inactive rows included."""
+        return self._client.get(
+            f"{self._instantiables_url}/find",
+            params={"name": csm_name, "include_inactive": "true"},
+        )
 
     # -- _Backend interface ----------------------------------------------
 
@@ -297,7 +433,7 @@ class CSMBackend(_Backend):
         """Look up one instantiable by name.
 
         Args:
-            id_: The happi ``_id`` == CSM instantiable ``name``.
+            id_: The happi ``_id``: :func:`happi_name` of the CSM name.
 
         Returns:
             The matching happi document, or ``None`` if there is no match.
@@ -306,14 +442,13 @@ class CSMBackend(_Backend):
             SearchError: If more than one CSM instantiable shares this name
                 (CSM's ``/find`` endpoint 409s on ambiguity).
         """
-        response = self._client.get(
-            f"{self._instantiables_url}/find",
-            params={"name": id_, "include_inactive": "true"},
-        )
+        # A name this backend has not handed out is asked for as it is: a scope
+        # row's or a new row's name is already the CSM name.
+        response = self._find_one(self._csm_name(id_))
         if response.status_code == 404:
             return None
         self._raise_for_status(response, context=f"get_by_id {id_!r}")
-        return entry_to_happi_document(response.json())
+        return self._document(response.json())
 
     @staticmethod
     def _to_field_params(to_match: dict[str, Any]) -> dict[str, Any]:
@@ -352,7 +487,16 @@ class CSMBackend(_Backend):
         Yields:
             Matching happi documents.
         """
-        yield from self._iter_search(self._to_field_params(to_match))
+        yield from self._iter_search(self._to_field_params(self._by_csm_name(to_match)))
+
+    def _by_csm_name(self, to_match: dict[str, Any]) -> dict[str, Any]:
+        """``to_match`` with a happi name swapped for the CSM name it stands for."""
+        return {
+            key: self._csm_name(value)
+            if key in ("name", "_id") and isinstance(value, str)
+            else value
+            for key, value in to_match.items()
+        }
 
     def find_range(
         self,
@@ -373,7 +517,7 @@ class CSMBackend(_Backend):
         Yields:
             Matching happi documents.
         """
-        params = self._to_field_params(to_match)
+        params = self._to_field_params(self._by_csm_name(to_match))
         params["range"] = f"{key}:{start}:{stop if stop is not None else ''}"
         yield from self._iter_search(params)
 
@@ -411,11 +555,11 @@ class CSMBackend(_Backend):
     def save(self, _id: str, post: dict[str, Any], insert: bool = True) -> None:
         """Create or update a CSM instantiable.
 
-        On insert, this issues ``POST /api/instantiables``; CSM forces
-        ``origin=manual`` server-side regardless of what's in ``post``. On
-        update, this issues ``PATCH /api/instantiables/{id}``, which
-        de-syncs a manifest-origin row exactly as an edit through the CSM
-        UI would.
+        On insert, this issues ``POST /api/instantiables`` (CSM forces
+        ``origin=manual``; its create gate applies), with display keys sent
+        separately as ``display``. On update, only :data:`DISPLAY_KEYS` may
+        change: those go to ``PUT /api/instantiables/{id}/display``, and any
+        other difference raises before anything is sent.
 
         Args:
             _id: happi ``_id`` == CSM instantiable name.
@@ -445,17 +589,34 @@ class CSMBackend(_Backend):
                 }
             )
         reserved = {
-            "name", "_id", "device_class", "args", "kwargs", "documentation", "active",
-            "csm_id", "csm_origin", "csm_is_synced", "csm_ioc_name", "csm_beamline_name",
+            "name",
+            "_id",
+            "type",
+            "device_class",
+            "args",
+            "kwargs",
+            "documentation",
+            "active",
+            "csm_id",
+            "csm_origin",
+            "csm_is_synced",
+            "csm_ioc_name",
+            "csm_beamline_name",
             "csm_ioc_runtime_status",
+            "csm_name",
         }
-        fields = {key: value for key, value in post.items() if key not in reserved}
+        fields = {
+            key: value
+            for key, value in post.items()
+            if key not in reserved and key not in DISPLAY_KEYS and key not in _BOOKKEEPING_KEYS
+        }
         body = {
             "name": _id,
             "instantiators": instantiators,
             "fields": fields,
             "documentation": post.get("documentation"),
             "active": post.get("active", True),
+            "display": {key: post[key] for key in DISPLAY_KEYS if key in post},
         }
 
         if insert:
@@ -469,23 +630,40 @@ class CSMBackend(_Backend):
         existing_doc = self.get_by_id(_id)
         if existing_doc is None:
             raise SearchError(f"No item found {_id}")
-        csm_id = existing_doc["csm_id"]
-        response = self._client.patch(f"{self._instantiables_url}/{csm_id}", json=body)
-        self._raise_for_status(response, context=f"update {_id}")
+        changed = {
+            key
+            for key in set(post) | set(existing_doc)
+            if key not in _BOOKKEEPING_KEYS
+            and not key.startswith("csm_")
+            and _blank_as_none(post.get(key)) != _blank_as_none(existing_doc.get(key))
+        }
+        not_display = sorted(changed - DISPLAY_KEYS)
+        if not_display:
+            raise PermissionError(
+                f"CSM rows are read-only except display metadata; refused change to {not_display}"
+            )
+        if not changed:
+            return
+        patch = {key: _blank_as_none(post.get(key)) for key in sorted(changed)}
+        self.put_display(existing_doc, patch)
+
+    def put_display(self, doc: dict[str, Any], patch: dict[str, Any]) -> None:
+        """Send ``patch`` (display keys only; ``None`` removes) to ``doc``'s instantiable."""
+        not_display = sorted(set(patch) - DISPLAY_KEYS)
+        if not_display:
+            raise PermissionError(f"Not display metadata: {not_display}")
+        response = self._client.put(
+            f"{self._instantiables_url}/{doc['csm_id']}/display", json={"display": patch}
+        )
+        self._raise_for_status(response, context=f"update display of {doc.get('name')}")
 
     def delete(self, _id: str) -> None:
-        """Delete a CSM instantiable by happi ``_id`` (== CSM name).
+        """Refuse: Lightfall never deletes CSM instantiables.
 
         Args:
             _id: happi ``_id`` == CSM instantiable name.
 
         Raises:
-            SearchError: No instantiable named ``_id`` exists.
-            PermissionError: CSM rejected the request (401/403).
+            PermissionError: Always; nothing is sent to CSM.
         """
-        existing_doc = self.get_by_id(_id)
-        if existing_doc is None:
-            raise SearchError(f"ID not found in database: {_id!r}")
-        csm_id = existing_doc["csm_id"]
-        response = self._client.delete(f"{self._instantiables_url}/{csm_id}")
-        self._raise_for_status(response, context=f"delete {_id}")
+        raise PermissionError("Lightfall does not delete CSM instantiables")

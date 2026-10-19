@@ -21,7 +21,7 @@ from lightfall.utils import crash_diagnostics  # noqa: E402
 
 crash_diagnostics.install()
 
-from typing import TYPE_CHECKING, Any  # noqa: E402
+from typing import TYPE_CHECKING  # noqa: E402
 
 
 def _configure_remote_display() -> None:
@@ -85,7 +85,15 @@ from lightfall.auth.session import AuthState, SessionManager  # noqa: E402
 from lightfall.config import ConfigManager  # noqa: E402
 from lightfall.core import LFApplication  # noqa: E402
 from lightfall.devices import DeviceCatalog  # noqa: E402
-from lightfall.devices.backends import BCSBackend, HappiBackend, MockBackend  # noqa: E402
+from lightfall.devices.backend_types import BackendTypeRegistry  # noqa: E402
+from lightfall.devices.backend_types.rows import (  # noqa: E402
+    build_context,
+    load_or_migrate,
+)
+from lightfall.devices.backend_types.rows import (  # noqa: E402
+    resolve_enabled_backends as _resolve_enabled_backends,  # noqa: F401  (re-export for tests)
+)
+from lightfall.devices.backend_types.startup import install_backend_rows  # noqa: E402
 from lightfall.ui import LFMainWindow  # noqa: E402
 from lightfall.ui.panels.registry import PanelRegistry  # noqa: E402
 from lightfall.ui.preferences import PreferencesManager  # noqa: E402
@@ -321,101 +329,36 @@ def _setup_ca_tunnel() -> None:
         logger.error("Failed to start CA tunnel for gateway={}", gateway)
 
 
-_UNSET = object()
-
-
-def _resolve_enabled_backends(get: Any) -> tuple[bool, bool, bool]:
-    """Decide which built-in device backends are enabled, from a prefs ``get``.
-
-    ``get`` is a ``prefs.get(key, default)``-style callable. Returns
-    ``(mock_enabled, bcs_enabled, happi_enabled)``.
-
-    Rules:
-    * Explicit ``device_{mock,bcs,happi}_enabled`` flags win verbatim.
-    * Absent flags fall back to legacy ``device_backend`` ("mock"/"bcs").
-    * The mock fallback fires ONLY for a fresh config where the user has
-      expressed no backend preference at all (no flags AND no legacy key) — so a
-      deliberate all-off (e.g. relying solely on a plugin-contributed backend
-      like the CMS happi backend) is honored instead of being forced back to
-      mock. This is the bug fix: previously an explicit all-false re-enabled mock.
-    """
-    legacy_backend = get("device_backend", _UNSET)
-    legacy_is_mock = legacy_backend == "mock" if legacy_backend is not _UNSET else False
-    legacy_is_bcs = legacy_backend == "bcs" if legacy_backend is not _UNSET else False
-    mock_enabled = bool(get("device_mock_enabled", legacy_is_mock))
-    bcs_enabled = bool(get("device_bcs_enabled", legacy_is_bcs))
-    happi_enabled = bool(get("device_happi_enabled", False))
-
-    no_preference = (
-        legacy_backend is _UNSET
-        and get("device_mock_enabled", _UNSET) is _UNSET
-        and get("device_bcs_enabled", _UNSET) is _UNSET
-        and get("device_happi_enabled", _UNSET) is _UNSET
-    )
-    if no_preference and not any([mock_enabled, bcs_enabled, happi_enabled]):
-        mock_enabled = True
-    return mock_enabled, bcs_enabled, happi_enabled
-
-
 def _setup_devices() -> None:
     """Setup the device catalog based on user preferences.
 
-    Initializes the DeviceCatalog with all enabled backends.
-    Multiple backends can be active simultaneously — their devices
-    are merged into a single unified catalog.
+    Builds the DeviceCatalog from the ``device_backends`` rows
+    (Settings -> Devices). Multiple backends, including several of one
+    type, are merged into a single unified catalog; rows that need a login
+    (CSM) load once the user is authenticated.
     """
     catalog = DeviceCatalog.get_instance()
     prefs = PreferencesManager.get_instance()
 
-    mock_enabled, bcs_enabled, happi_enabled = _resolve_enabled_backends(prefs.get)
+    rows = load_or_migrate(prefs)
+    deferred = install_backend_rows(
+        rows,
+        registry=BackendTypeRegistry.get_instance(),
+        catalog=catalog,
+        ctx=build_context(prefs.get),
+        session=SessionManager.get_instance(),
+    )
 
-    if mock_enabled:
-        include_noisy = prefs.get("device_mock_include_noisy", True)
-        catalog.add_backend(MockBackend(include_noisy=include_noisy))
-        logger.info("Mock backend enabled (include_noisy={})", include_noisy)
-
-    if bcs_enabled:
-        host = prefs.get("device_bcs_host", "localhost")
-        port = prefs.get("device_bcs_port", 5577)
-        timeout_ms = prefs.get("device_bcs_timeout_ms", 5000)
-        beamline = prefs.get("device_bcs_beamline") or None
-        catalog.add_backend(BCSBackend(
-            host=host, port=port, timeout_ms=timeout_ms, beamline=beamline,
-        ))
-        logger.info("BCS backend enabled ({}:{})", host, port)
-
-    if happi_enabled:
-        happi_path = prefs.get("device_happi_path", "") or None
-        happi_beamline = prefs.get("device_happi_beamline", "") or None
-
-        # Get instantiation mode (new setting) with fallback to legacy bool
-        instantiate_mode = prefs.get("device_instantiate_mode", None)
-        if instantiate_mode is None:
-            # Legacy fallback: convert bool to mode string
-            legacy_instantiate = prefs.get("device_happi_instantiate", False)
-            instantiate_mode = "blocking" if legacy_instantiate else "none"
-
-        # Get connection timeout
-        connection_timeout = prefs.get("device_connection_timeout", 5.0)
-
-        catalog.add_backend(HappiBackend(
-            path=happi_path,
-            beamline=happi_beamline,
-            instantiate=instantiate_mode,
-            connection_timeout=connection_timeout,
-        ))
-        logger.info(
-            "Happi backend enabled (path={}, mode={}, timeout={}s)",
-            happi_path or "default",
-            instantiate_mode,
-            connection_timeout,
-        )
-
-    if catalog.connect_backends():
-        backends_str = ", ".join(catalog.backends.keys())
-        logger.info("Device catalog loading from [{}] (devices connect in the background)", backends_str)
-    else:
-        logger.error("Failed to connect device catalog")
+    if catalog.backends:
+        if catalog.connect_backends():
+            backends_str = ", ".join(catalog.backends.keys())
+            logger.info(
+                "Device catalog loading from [{}] (devices connect in the background)", backends_str
+            )
+        else:
+            logger.error("Failed to connect device catalog")
+    elif not deferred:
+        logger.warning("No device backends enabled (Settings -> Devices)")
 
 
 def _setup_bluesky(app: LFApplication) -> None:
