@@ -43,6 +43,8 @@ from typing import IO, Any
 __all__ = [
     "install",
     "install_qt_bridge",
+    "install_gui_thread_gc",
+    "uninstall_gui_thread_gc",
     "dump_all_threads",
     "assert_gui_thread",
     "assert_object_thread",
@@ -56,6 +58,7 @@ __all__ = [
 
 _installed = False
 _qt_bridge_installed = False
+_gui_gc: Any | None = None
 _fault_log_file: IO[str] | None = None
 _diag_dir: Path | None = None
 
@@ -153,6 +156,70 @@ def install_qt_bridge() -> None:
 
     qInstallMessageHandler(_qt_message_handler)
     _qt_bridge_installed = True
+
+
+# Opt out (restore Python's automatic, any-thread collection) for debugging.
+GC_OPT_OUT_ENV = "LIGHTFALL_AUTO_GC"
+# A collection pausing the GUI thread for longer than this is logged.
+SLOW_GC_MS = 50.0
+
+
+def install_gui_thread_gc(interval: float = 1.0) -> Any | None:
+    """Run Python's cyclic garbage collector only on the GUI thread.
+
+    The cyclic GC runs on whichever thread crosses the allocation threshold.
+    Busy worker threads (the image-view poll thread, Bluesky's engine, QThreadFutures)
+    can therefore free closed panels' widgets that sit in reference cycles, running
+    Qt destructors off the GUI thread, and Qt crashes at some arbitrary later point.
+
+    This uses pyqtgraph's ``GarbageCollector`` (``pyqtgraph/util/garbage_collector.py``:
+    "Disable automatic garbage collection and instead collect manually on a timer ...
+    to ensure that garbage collection only happens in the GUI thread, as otherwise Qt
+    can crash"). It disables automatic collection and collects each generation from a
+    GUI-thread QTimer once its threshold is exceeded, as CPython would. Collections
+    slower than ``SLOW_GC_MS`` are logged.
+
+    Call once, after the QApplication exists. Returns the collector (keep it alive), or
+    None when ``LIGHTFALL_AUTO_GC=1`` opts out. Idempotent.
+    """
+    global _gui_gc
+    if _gui_gc is not None:
+        return _gui_gc
+    from lightfall.utils.logging import logger
+
+    if os.environ.get(GC_OPT_OUT_ENV, "").strip().lower() in ("1", "true", "yes"):
+        logger.info("{} set: Python's automatic garbage collection left on",
+                       GC_OPT_OUT_ENV)
+        return None
+
+    import time
+
+    from pyqtgraph.util.garbage_collector import GarbageCollector
+
+    class _TimedGarbageCollector(GarbageCollector):
+        def check(self) -> None:
+            started = time.perf_counter()
+            super().check()
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            if elapsed_ms > SLOW_GC_MS:
+                logger.debug("GUI-thread garbage collection took {:.0f} ms", elapsed_ms)
+
+    _gui_gc = _TimedGarbageCollector(interval=interval)
+    logger.debug("Cyclic garbage collection moved to the GUI thread (every {} s)",
+                    interval)
+    return _gui_gc
+
+
+def uninstall_gui_thread_gc() -> None:
+    """Undo ``install_gui_thread_gc`` (tests): stop the timer, re-enable automatic GC."""
+    global _gui_gc
+    if _gui_gc is None:
+        return
+    import gc
+
+    _gui_gc.timer.stop()
+    _gui_gc = None
+    gc.enable()
 
 
 def dump_all_threads(file: IO[str] | None = None) -> None:

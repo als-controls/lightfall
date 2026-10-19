@@ -861,6 +861,10 @@ def main() -> int:
     # PySide6.QtCore is importable, which app.initialize() guarantees.
     crash_diagnostics.install_qt_bridge()
 
+    # Collect cyclic garbage only on the GUI thread, so worker threads never run Qt
+    # destructors (pyqtgraph's GarbageCollector; LIGHTFALL_AUTO_GC=1 opts out).
+    crash_diagnostics.install_gui_thread_gc()
+
     # Get config manager
     config: ConfigManager = app.services.get(ConfigManager)
 
