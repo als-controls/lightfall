@@ -14,13 +14,14 @@ import pytest
 from PySide6.QtWidgets import QLabel, QWidget
 
 from lightfall.agents.backends import info as info_mod
-from lightfall.agents.backends.info import BackendCaps, ModelOption
+from lightfall.agents.backends.info import AuthStatus, BackendCaps, ModelOption
 from lightfall.claude import widget as widget_mod
 from lightfall.claude.widgets.question_request import QuestionRequestWidget
 
 
 class _Desc:
-    def __init__(self, name, caps, models):
+    def __init__(self, kind, name, caps, models):
+        self.kind = kind
         self.display_name = name
         self.caps = caps
         self._models = models
@@ -33,6 +34,9 @@ class _Desc:
         self.list_calls.append(refresh)
         return list(self._models)
 
+    def auth_status(self, refresh=False):
+        return AuthStatus(True, "signed in")
+
     def current_model(self):
         return ""
 
@@ -44,12 +48,12 @@ class _Desc:
 
 
 def _claude():
-    return _Desc("Claude", BackendCaps(cost=True, live_set_model=True, subagents=True),
+    return _Desc("claude-code", "Claude", BackendCaps(cost=True, live_set_model=True, subagents=True),
                  [ModelOption("", "Default (CLI)"), ModelOption("claude-opus", "claude-opus")])
 
 
 def _gemini():
-    return _Desc("Gemini", BackendCaps(cost=False, live_set_model=False, subagents=True,
+    return _Desc("agy", "Gemini", BackendCaps(cost=False, live_set_model=False, subagents=True,
                                        live_set_effort=True),
                  [ModelOption("", "Default (agy)"), ModelOption("gemini-3-pro", "Gemini 3 Pro")])
 

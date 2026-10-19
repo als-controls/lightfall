@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import qtawesome as qta
+import shiboken6
 from PySide6.QtCore import QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QKeyEvent, QPalette
 from PySide6.QtWidgets import (
@@ -28,6 +29,7 @@ from lightfall.claude.widgets.question_request import QuestionRequestWidget
 from lightfall.claude.widgets.task_card import TaskCard
 from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
 from lightfall.ui.theme import scaled_pt
+from lightfall.utils.crash_diagnostics import gui_thread_only
 from lightfall.utils.logging import logger
 
 
@@ -193,6 +195,9 @@ class ClaudeAssistantWidget(QWidget):
     # Snapshotted in __init__ (class defaults cover widgets built without it).
     _backend_info = None
     _speaker: str | None = None
+    _sign_in_hint: QFrame | None = None
+    _auth_future = None
+    _auth_generation = 0
 
     @property
     def backend_info(self):
@@ -339,6 +344,9 @@ class ClaudeAssistantWidget(QWidget):
         self._setup_ui()
         self._connect_signals()
         self.agent.query_completed.connect(self._flush_bus_on_completion)
+        # A finished turn proves the backend is signed in.
+        self.agent.query_completed.connect(self._clear_sign_in_hint)
+        self._check_sign_in()
 
     def _setup_ui(self) -> None:
         """Setup the user interface."""
@@ -864,6 +872,80 @@ class ClaudeAssistantWidget(QWidget):
             name="assistant-refresh-models", log_exceptions=False,
         )
         self._models_future.start()
+
+    # --- sign-in hint (agy) ------------------------------------------------------
+
+    def _check_sign_in(self, refresh: bool = False) -> None:
+        """agy only: check sign-in off the GUI thread; hint if signed out.
+
+        Claude's credentials are checked before the widget is built. agy's check
+        runs ``agy models`` (up to 30 s), so without this a signed-out user only
+        learns it from the first turn's error.
+        """
+        from lightfall.agents.backends.select import AGY
+        from lightfall.utils.threads import QThreadFuture
+
+        info = self.backend_info
+        if info.kind != AGY:
+            return
+        self._auth_generation += 1
+        gen = self._auth_generation
+        self._auth_future = QThreadFuture(
+            lambda: info.auth_status(refresh=refresh),
+            callback_slot=lambda status, g=gen: self._on_auth_status(status, g),
+            except_slot=lambda exc: logger.info("Assistant sign-in check failed: {}", exc),
+            name="assistant-auth-check", log_exceptions=False,
+        )
+        self._auth_future.start()
+
+    @gui_thread_only
+    def _on_auth_status(self, status, generation: int) -> None:
+        """Result of ``_check_sign_in``; dropped if superseded or the widget is gone."""
+        if not shiboken6.isValid(self) or generation != self._auth_generation:
+            return
+        if status.ok:
+            self._clear_sign_in_hint()
+        else:
+            self._show_sign_in_hint(status.detail)
+
+    def _show_sign_in_hint(self, detail: str) -> None:
+        hint = self._sign_in_hint
+        if hint is not None and shiboken6.isValid(hint):
+            return
+        name = self.backend_info.display_name
+        card = QFrame()
+        card.setObjectName("assistantSignInHint")
+        card.setStyleSheet(
+            "QFrame#assistantSignInHint { border-left: 4px solid #f9a825; "
+            "border-radius: 4px; padding: 8px 12px; }"
+        )
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(0, 0, 0, 0)
+        text = QLabel(f"{detail}\nSign in to {name} in Settings → Assistant.")
+        text.setWordWrap(True)
+        layout.addWidget(text)
+        row = QHBoxLayout()
+        button = QPushButton("Open Settings…")
+        button.clicked.connect(self._open_assistant_settings)
+        row.addWidget(button)
+        row.addStretch(1)
+        layout.addLayout(row)
+        self._sign_in_hint = card
+        self._add_widget(card)
+
+    def _clear_sign_in_hint(self) -> None:
+        hint, self._sign_in_hint = self._sign_in_hint, None
+        if hint is not None and shiboken6.isValid(hint):
+            hint.hide()
+            hint.setParent(None)
+            hint.deleteLater()
+
+    def _open_assistant_settings(self) -> None:
+        """Open Settings → Assistant, then check sign-in again (bypassing the cache)."""
+        from lightfall.ui.preferences import dialog as prefs_dialog
+
+        prefs_dialog.PreferencesDialog(self.window(), initial_page="claude").exec()
+        self._check_sign_in(refresh=True)
 
     def _set_busy_state(self, busy: bool, status_text: str = "") -> None:
         """Set the busy state of the widget.
