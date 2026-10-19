@@ -21,6 +21,12 @@ class _Info:
     def list_models(self, refresh=False):
         raise AssertionError("must not block the GUI thread")
 
+    def effort_options(self, model_id):
+        return [""]
+
+    def current_effort(self):
+        return ""
+
 
 @pytest.fixture
 def widget(qtbot, monkeypatch):
@@ -118,3 +124,69 @@ def test_warm_cache_starts_no_background_list(widget, monkeypatch, qtbot):
     qtbot.wait(200)
     assert calls == []
     assert getattr(widget, "_models_future", None) is None
+
+
+# ---- effort section -----------------------------------------------------------
+
+
+def _section(menu, title):
+    """Action texts between section ``title`` and the next section."""
+    acts = menu.actions()
+    start = next(i for i, a in enumerate(acts) if a.isSeparator() and a.text() == title)
+    out = []
+    for a in acts[start + 1:]:
+        if a.isSeparator():
+            break
+        out.append(a)
+    return out
+
+
+class _AgyEffortInfo(_Info):
+    caps = BackendCaps(cost=False, live_set_model=False, subagents=True, live_set_effort=True)
+
+    def cached_models(self):
+        return [ModelOption("", "Default (agy)"),
+                ModelOption("gemini-4-argon", "Gemini 4 Argon", ("low", "medium", "high"))]
+
+    def current_model(self):
+        return "gemini-4-argon"
+
+    def effort_options(self, model_id):
+        assert model_id == "gemini-4-argon"
+        return ["", "low", "medium", "high"]
+
+    def current_effort(self):
+        return "medium"
+
+
+def test_agy_effort_section_is_next_turn_with_model_levels(widget, monkeypatch, qtbot):
+    monkeypatch.setattr(info_mod, "backend_info", lambda *a, **k: _AgyEffortInfo())
+    widget._build_tune_menu()
+    acts = _section(widget._tune_menu, "Effort (next turn)")
+    assert [a.text() for a in acts] == ["Default", "low", "medium", "high"]
+    assert [a.text() for a in acts if a.isChecked()] == ["medium"]
+    assert all(a.isEnabled() for a in acts)
+    with qtbot.waitSignal(widget.effort_change_requested) as sig:
+        acts[3].trigger()
+    assert sig.args == ["high"]
+
+
+def test_claude_effort_section_restarts_and_uses_backend_options(widget, monkeypatch):
+    class _Claude(_Info):
+        caps = BackendCaps(cost=True, live_set_model=True, subagents=True,
+                           live_set_effort=False)
+
+        def current_model(self):
+            return "claude-sonnet"
+
+        def effort_options(self, model_id):
+            return info_mod.ClaudeCodeInfo().effort_options(model_id)
+
+        def current_effort(self):
+            return ""
+
+    monkeypatch.setattr(info_mod, "backend_info", lambda *a, **k: _Claude())
+    widget._build_tune_menu()
+    acts = _section(widget._tune_menu, "Effort (restarts conversation)")
+    assert [a.text() for a in acts] == ["Default", "low", "medium", "high"]
+    assert [a.text() for a in acts if a.isChecked()] == ["Default"]

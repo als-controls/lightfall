@@ -90,6 +90,7 @@ class AgentWorker(QThread):
         self._is_processing = False  # True when actively processing a query
         self._cancel_requested = False  # True when cancel is requested
         self._pending_model: tuple[str | None] | None = None  # set_model requested mid-turn
+        self._pending_effort: tuple[str | None] | None = None  # set_effort requested mid-turn
         self._shutdown_event: asyncio.Event | None = None  # Created in run()
         self._processing_stopped = threading.Event()  # Signals when loop exits
 
@@ -198,6 +199,12 @@ class AgentWorker(QThread):
                     await self.backend.set_model(pending[0])
                 except Exception:  # noqa: BLE001 - never kill the worker loop
                     logger.exception("AgentWorker: deferred set_model failed")
+            pending, self._pending_effort = self._pending_effort, None
+            if pending is not None:
+                try:
+                    await self.backend.set_effort(pending[0])
+                except Exception:  # noqa: BLE001 - never kill the worker loop
+                    logger.exception("AgentWorker: deferred set_effort failed")
 
     def _emit(self, ev: AgentEvent) -> None:
         """Map one neutral event onto the legacy signal set."""
@@ -315,6 +322,18 @@ class AgentWorker(QThread):
             self._pending_model = (model,)
             return
         self._run_on_loop(lambda: self.backend.set_model(model), f"set_model({model})")
+
+    def request_set_effort(self, effort: str | None) -> None:
+        """Schedule ``backend.set_effort(effort)`` on the worker's event loop.
+
+        Only for backends whose caps have ``live_set_effort`` (agy). Takes
+        effect on the next turn; a request during a turn is held until it ends.
+        """
+        if self._is_processing:
+            logger.debug("set_effort({}) deferred until the current turn ends", effort)
+            self._pending_effort = (effort,)
+            return
+        self._run_on_loop(lambda: self.backend.set_effort(effort), f"set_effort({effort})")
 
     @property
     def is_processing(self) -> bool:

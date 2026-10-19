@@ -70,10 +70,12 @@ def _agy_found(monkeypatch, path="C:/x/agy.exe"):
 def test_agy_info_caps_and_names():
     a = info.AgyInfo()
     assert (a.kind, a.display_name, a.model_pref_key) == ("agy", "Gemini", "agy_model")
-    assert a.caps == info.BackendCaps(cost=False, live_set_model=False, subagents=True)
+    assert a.caps == info.BackendCaps(cost=False, live_set_model=False, subagents=True,
+                                      live_set_effort=True)
     c = info.ClaudeCodeInfo()
     assert (c.kind, c.display_name, c.model_pref_key) == ("claude-code", "Claude", "claude_model")
-    assert c.caps == info.BackendCaps(cost=True, live_set_model=True, subagents=True)
+    assert c.caps == info.BackendCaps(cost=True, live_set_model=True, subagents=True,
+                                      live_set_effort=False)
 
 
 def test_agy_auth_ok_and_models(monkeypatch):
@@ -199,3 +201,110 @@ def test_subagent_wording_per_backend():
     assert "invoke_subagent" in a.subagent_note and "invoke_subagent" in a.subagent_tag + a.subagent_note
     assert "Agent tool" not in a.subagent_note and "Task" not in a.subagent_note
     assert c.subagent_tag == "Agent-tool delegable" and "Agent tool" in c.subagent_note
+
+
+# ---- effort (per-model reasoning level) ---------------------------------------
+
+EFFORT_ROWS = [
+    ("gemini-4-argon-high", "Gemini 4 Argon (High)"),
+    ("gemini-4-argon-medium", "Gemini 4 Argon (Medium)"),
+    ("gemini-4-argon-low", "Gemini 4 Argon (Low)"),
+    ("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"),
+    ("gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"),
+    ("gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)"),
+    ("gemini-3.1-pro-low", "Gemini 3.1 Pro (Low)"),
+    ("gemini-3.1-pro-high", "Gemini 3.1 Pro (High)"),
+    ("gemini-plain", "Gemini Plain"),
+]
+
+
+def test_group_agy_models_folds_effort_variants():
+    grouped = info.group_agy_models(EFFORT_ROWS)
+    assert grouped == [
+        info.ModelOption("gemini-4-argon", "Gemini 4 Argon", ("low", "medium", "high")),
+        info.ModelOption("gemini-3.8-flash", "Gemini 3.8 Flash", ("low", "medium", "high")),
+        info.ModelOption("gemini-3.1-pro", "Gemini 3.1 Pro", ("low", "high")),
+        info.ModelOption("gemini-plain", "Gemini Plain", ()),
+    ]
+
+
+def test_group_agy_models_orders_levels_and_cleans_labels():
+    grouped = info.group_agy_models([("m-max", "M (Max)"), ("m-xhigh", "M (XHigh)"),
+                                     ("m-low", "M (low)")])
+    assert grouped == [info.ModelOption("m", "M", ("low", "xhigh", "max"))]
+
+
+def test_split_effort_variant():
+    assert info.split_effort_variant("gemini-4-argon-medium") == ("gemini-4-argon", "medium")
+    assert info.split_effort_variant("gemini-4-argon") == ("gemini-4-argon", "")
+    assert info.split_effort_variant("") == ("", "")
+
+
+def _warm_agy_cache(monkeypatch, rows=EFFORT_ROWS, path="C:/x/agy.exe"):
+    import time
+
+    _agy_found(monkeypatch, path)
+    info._AGY_CACHE[path] = (time.monotonic(), (list(rows), f"{len(rows)} models"))
+
+
+def test_agy_lists_base_models(monkeypatch):
+    _warm_agy_cache(monkeypatch)
+    a = info.AgyInfo()
+    ids = ["", "gemini-4-argon", "gemini-3.8-flash", "gemini-3.1-pro", "gemini-plain"]
+    assert [m.id for m in a.cached_models()] == ids
+    assert [m.id for m in a.list_models()] == ids
+
+
+def test_agy_effort_options_per_model(monkeypatch):
+    _warm_agy_cache(monkeypatch)
+    a = info.AgyInfo()
+    assert a.effort_options("gemini-4-argon") == ["", "low", "medium", "high"]
+    assert a.effort_options("gemini-3.1-pro") == ["", "low", "high"]
+    assert a.effort_options("gemini-plain") == [""]
+    assert a.effort_options("unknown") == [""]
+    assert a.effort_options("") == [""]
+
+
+def test_agy_effort_options_cold_cache(monkeypatch):
+    _agy_found(monkeypatch)
+    assert info.AgyInfo().effort_options("gemini-4-argon") == [""]
+
+
+def test_claude_effort_options_keep_opus_rule():
+    c = info.ClaudeCodeInfo()
+    assert c.effort_options("claude-opus") == ["", "low", "medium", "high", "xhigh", "max"]
+    assert c.effort_options("claude-opus-4-8") == ["", "low", "medium", "high", "xhigh", "max"]
+    assert c.effort_options("claude-sonnet") == ["", "low", "medium", "high"]
+    assert c.effort_options("") == ["", "low", "medium", "high"]
+
+
+def test_effort_pref_keys_and_caps():
+    a, c = info.AgyInfo(), info.ClaudeCodeInfo()
+    assert (a.effort_pref_key, c.effort_pref_key) == ("agy_effort", "claude_effort")
+    assert a.caps.live_set_effort is True and c.caps.live_set_effort is False
+
+
+def test_current_effort_reads_the_backend_pref(monkeypatch):
+    from lightfall.ui.preferences import claude_settings as cs
+
+    store = {"claude_effort": "max", "agy_effort": "low"}
+    monkeypatch.setattr(cs.PreferencesManager, "get_instance", classmethod(
+        lambda cls: SimpleNamespace(get=lambda k, d=None: store.get(k, d),
+                                    set=store.__setitem__)))
+    assert info.ClaudeCodeInfo().current_effort() == "max"
+    assert info.AgyInfo().current_effort() == "low"
+
+
+def test_agy_effort_levels_from_cache(monkeypatch):
+    _warm_agy_cache(monkeypatch)
+    levels = info.agy_effort_levels("C:/x/agy.exe")
+    assert levels["gemini-4-argon"] == ("low", "medium", "high")
+    assert levels["gemini-plain"] == ()
+    assert "gemini-4-argon-low" not in levels
+
+
+def test_agy_effort_levels_raises_when_not_signed_in(monkeypatch):
+    run, _ = _fake_run(stderr="please sign in", rc=1)
+    monkeypatch.setattr(discover.subprocess, "run", run)
+    with pytest.raises(RuntimeError, match="sign in"):
+        info.agy_effort_levels("C:/x/agy.exe")

@@ -8,7 +8,7 @@ One backend = one Lightfall chat session:
   writes the plugin config.  The agy child is spawned lazily on the first turn.
 * Each turn writes one ``user`` line and translates NDJSON events until a
   terminal event.  Interrupt makes agy exit, so the next turn respawns with
-  ``--conversation <id>``; so does a model switch.  On Windows interrupt kills
+  ``--conversation <id>``; so does a model or effort switch.  On Windows interrupt kills
   the child outright (CTRL_BREAK cannot reach it from a console-less GUI), and
   the turn ends cancelled as soon as its stdout closes.
 
@@ -57,7 +57,7 @@ from lightfall.agents.backends.agy.hook_policy import decide
 from lightfall.agents.backends.agy.host import ToolHost
 from lightfall.agents.backends.agy.process import AgyProcess
 from lightfall.agents.backends.agy.tool_directory import render_tool_directory
-from lightfall.agents.backends.info import agy_model_ids
+from lightfall.agents.backends.info import agy_effort_levels, agy_model_ids
 from lightfall.utils.logging import logger
 
 _CANCEL_GRACE_S = 5.0
@@ -79,6 +79,22 @@ def _merge_usage(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
     if a.get("total_cost_usd") is not None or b.get("total_cost_usd") is not None:
         out["total_cost_usd"] = (a.get("total_cost_usd") or 0) + (b.get("total_cost_usd") or 0)
     return out
+
+
+def effort_flag(model: str | None, effort: str | None,
+                levels: dict[str, tuple[str, ...]] | None) -> str | None:
+    """The ``--effort`` value for this spawn, or None to omit the flag.
+
+    Only a base model id with ``effort`` among its listed levels gets one. agy
+    rejects ``--effort`` with a variant id (``gemini-4-argon-low``), with a level
+    the model does not offer, and the default model's levels are unknown.
+    """
+    if not effort:
+        return None
+    if model and levels is not None and effort in levels.get(model, ()):
+        return effort
+    logger.debug("agy: dropping --effort {!r} (not offered by model {!r})", effort, model)
+    return None
 
 
 def _no_proxy_env() -> dict[str, str]:
@@ -113,6 +129,8 @@ class AgyCliBackend:
         self._project = project
         self._location = location
         self._model: str | None = cfg.model
+        self._effort: str | None = cfg.effort or None
+        self._effort_levels: dict[str, tuple[str, ...]] | None = None  # from `agy models`
         self._conversation_id: str | None = None
         self._session_home: Path | None = None
         self._token: str | None = None
@@ -220,16 +238,27 @@ class AgyCliBackend:
         if proc is not None:
             await proc.kill()
 
+    async def _spawn_effort(self) -> str | None:
+        """``--effort`` for the next spawn; lists models once (only if an effort is set)."""
+        if self._effort and self._model and self._effort_levels is None:
+            try:
+                self._effort_levels = await asyncio.to_thread(agy_effort_levels, self._agy)
+            except Exception as e:  # noqa: BLE001 - no level list: spawn without --effort
+                logger.warning("agy: could not list models for --effort: {}", e)
+        return effort_flag(self._model, self._effort, self._effort_levels)
+
     async def _ensure_child(self) -> AgyProcess:
         if self._proc is not None and self._proc.alive:
             return self._proc
         await self._drop_child()
         assert self._session_home is not None and self._host is not None
+        effort = await self._spawn_effort()
         proc = AgyProcess(
             self._agy, self._session_home, self._cfg.cwd,
             env_extra={"LF_AGY_PORT": str(self._host.port), "LF_AGY_TOKEN": self._token or "",
                        **_no_proxy_env()},
-            model=self._model, conversation=self._conversation_id or self._cfg.resume)
+            model=self._model, conversation=self._conversation_id or self._cfg.resume,
+            effort=effort)
         await proc.start()
         self._translator.reset_usage()
         self._proc = proc
@@ -407,4 +436,14 @@ class AgyCliBackend:
         self._model = model
         if self._proc is not None and not self._in_turn:
             # agy takes --model only at spawn: respawn on the next turn.
+            await self._drop_child()
+
+    async def set_effort(self, effort: str | None) -> None:
+        """Reasoning level for the next spawn (``""``/None = the model's default).
+
+        Like ``set_model``: agy takes ``--effort`` only at spawn, so the child is
+        dropped and the next turn respawns with ``--conversation`` (history kept).
+        """
+        self._effort = effort or None
+        if self._proc is not None and not self._in_turn:
             await self._drop_child()

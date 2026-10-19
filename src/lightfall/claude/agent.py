@@ -751,6 +751,29 @@ class QtClaudeAgent(QObject):
                 self._backend = None  # _ensure_connected retries from _session_config
                 logger.warning("agy model switch: {}", exc)
 
+    def set_effort(self, effort: str | None) -> None:
+        """Switch the reasoning effort live, for backends with ``caps.live_set_effort``
+        (agy: the next turn respawns with ``--conversation``, history kept).
+
+        Claude reads effort at construction only; its callers rebuild the agent.
+        """
+        self._effort = effort or None
+        if self._worker is not None and self._worker.isRunning() and self._is_connected:
+            self._worker.request_set_effort(self._effort)
+        elif self._agy and not (self._worker is not None and self._worker.isRunning()):
+            import dataclasses
+
+            resume = (self._backend.conversation_id if self._backend is not None
+                      else self._session_config.resume)
+            self._session_config = dataclasses.replace(
+                self._session_config, effort=self._effort, resume=resume
+            )
+            try:
+                self._backend = self._make_agy_backend()
+            except ValueError as exc:
+                self._backend = None  # _ensure_connected retries from _session_config
+                logger.warning("agy effort switch: {}", exc)
+
     # --- Permission API ---
 
     @property

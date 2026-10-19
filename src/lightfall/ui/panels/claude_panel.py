@@ -219,6 +219,7 @@ class ClaudePanel(BasePanel):
         "agy_path",
         "agy_gcp_project",
         "agy_gcp_location",
+        "agy_effort",
         "agy_model",
     )
 
@@ -768,9 +769,20 @@ class ClaudePanel(BasePanel):
     def _on_pick_effort(self, level: str) -> None:
         from PySide6.QtWidgets import QMessageBox
 
-        from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+        from lightfall.agents.backends.info import backend_info
         from lightfall.ui.preferences.manager import PreferencesManager
-        if level == ClaudeSettingsProvider.get_effort():
+
+        info = backend_info()
+        if level == info.current_effort():
+            return
+        if info.caps.live_set_effort:
+            # agy: effort is a spawn flag; the next turn respawns with
+            # --conversation, so the conversation is kept -- no dialog, no rebuild.
+            PreferencesManager.get_instance().set(info.effort_pref_key, level)
+            if self._claude_widget is not None and hasattr(self._claude_widget, "agent"):
+                self._claude_widget.agent.set_effort(level or None)
+            # As for a live model pick: the debounced subscription must see no change.
+            self._active_agent_config = self._current_claude_config()
             return
         reply = QMessageBox.question(
             self, "Change effort",
@@ -779,7 +791,7 @@ class ClaudePanel(BasePanel):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        PreferencesManager.get_instance().set("claude_effort", level)
+        PreferencesManager.get_instance().set(info.effort_pref_key, level)
         # _reload_agent() rebuilds the agent and refreshes _active_agent_config,
         # so the debounced subscription sees no further change and won't reload
         # a second time. Effort is read at construction.
@@ -828,6 +840,7 @@ class ClaudePanel(BasePanel):
             p.get_agy_path(),
             p.get_agy_project(),
             p.get_agy_location(),
+            p.get_agy_effort(),
             p.get_agy_model(),
         )
 

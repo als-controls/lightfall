@@ -40,12 +40,14 @@ class AgyProcess:
     """Spawn and talk to one agy child."""
 
     def __init__(self, agy: str | list[str], home: Path, cwd: str, env_extra: dict[str, str],
-                 model: str | None, conversation: str | None) -> None:
+                 model: str | None, conversation: str | None,
+                 effort: str | None = None) -> None:
         self._argv0 = [agy] if isinstance(agy, str) else list(agy)
         self._home = Path(home)
         self._cwd = cwd
         self._env_extra = dict(env_extra)
         self._model = model
+        self._effort = effort  # already validated for the model (backend.effort_flag)
         self._conversation = conversation
         self._proc: asyncio.subprocess.Process | None = None
         self._stderr: collections.deque[str] = collections.deque(maxlen=_STDERR_LINES)
@@ -61,6 +63,7 @@ class AgyProcess:
             "--output-format", "stream-json",
             "--print=",
             *(["--model", self._model] if self._model else []),
+            *(["--effort", self._effort] if self._effort else []),
             *(["--conversation", self._conversation] if self._conversation else []),
         ]
 
@@ -95,8 +98,8 @@ class AgyProcess:
         )
         self._stderr_task = asyncio.get_running_loop().create_task(
             self._drain_stderr(), name=f"agy-stderr:{self._proc.pid}")
-        logger.info("agy started pid={} model={} conversation={}",
-                    self._proc.pid, self._model, self._conversation)
+        logger.info("agy started pid={} model={} effort={} conversation={}",
+                    self._proc.pid, self._model, self._effort, self._conversation)
 
     async def _drain_stderr(self) -> None:
         assert self._proc is not None and self._proc.stderr is not None

@@ -346,3 +346,54 @@ def test_hidden_selector_set_kind_and_last_status(qtbot, prefs):
     assert host.findChild(QGroupBox, "assistantGeminiGroup").isVisible()
     qtbot.waitUntil(lambda: sec.last_status is not None, timeout=3000)
     assert sec.last_status.ok
+
+
+# ---- effort combo -------------------------------------------------------------
+
+_ARGON = ModelOption("gemini-4-argon", "Gemini 4 Argon", ("low", "medium", "high"))
+_PRO = ModelOption("gemini-3.1-pro", "Gemini 3.1 Pro", ("low", "high"))
+
+
+def _effort_items(host):
+    combo = host.findChild(QComboBox, "agyEffort")
+    return [combo.itemData(i) for i in range(combo.count())], combo.currentData()
+
+
+def _loaded_agy(qtbot, prefs, **values):
+    prefs.values.update(agent_backend="agy", **values)
+    infos = {"agy": _Info("agy", AuthStatus(True, "Signed in (5 models)"), [_ARGON, _PRO]),
+             "claude-code": _Info("claude-code", AuthStatus(True, "Using API key"))}
+    sec, host = _section(qtbot, infos)
+    sec.load()
+    qtbot.waitUntil(lambda: "Signed in" in _status(host), timeout=3000)
+    return sec, host
+
+
+def test_effort_combo_follows_the_model(qtbot, prefs):
+    sec, host = _loaded_agy(qtbot, prefs, agy_model="gemini-4-argon", agy_effort="medium")
+    assert _effort_items(host) == (["", "low", "medium", "high"], "medium")
+    model = host.findChild(QComboBox, "agyModel")
+    model.setCurrentIndex(model.findData("gemini-3.1-pro"))
+    # medium is not offered by pro: back to the default.
+    assert _effort_items(host) == (["", "low", "high"], "")
+    effort = host.findChild(QComboBox, "agyEffort")
+    effort.setCurrentIndex(effort.findData("high"))
+    sec.save()
+    assert prefs.values["agy_model"] == "gemini-3.1-pro"
+    assert prefs.values["agy_effort"] == "high"
+
+
+def test_effort_combo_default_model_has_no_levels(qtbot, prefs):
+    _, host = _loaded_agy(qtbot, prefs)
+    assert _effort_items(host) == ([""], "")
+
+
+def test_saved_effort_survives_before_models_load(qtbot, prefs):
+    prefs.values.update(agent_backend="agy", agy_model="gemini-4-argon", agy_effort="low")
+    infos = {"agy": _Info("agy", AuthStatus(False, "Not signed in: x")),
+             "claude-code": _Info("claude-code", AuthStatus(True, "Using API key"))}
+    sec, host = _section(qtbot, infos)
+    sec.load()
+    assert _effort_items(host)[1] == "low"  # model list unknown yet: keep the saved level
+    sec.save()
+    assert prefs.values["agy_effort"] == "low"

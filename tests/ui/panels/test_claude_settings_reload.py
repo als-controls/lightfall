@@ -456,3 +456,64 @@ def test_pick_default_on_agy_sends_none(panel, fake_prefs):
     panel._claude_widget = _idle_widget()
     panel._on_pick_model("")
     panel._claude_widget.agent.set_model.assert_called_once_with(None)
+
+
+# --- effort picker: live on agy, dialog + rebuild on Claude --------------------
+
+
+def test_agy_effort_is_watched_and_in_config(panel, fake_prefs):
+    assert "agy_effort" in ClaudePanel._WATCHED_CLAUDE_KEYS
+    before = panel._current_claude_config()
+    fake_prefs.set("agy_effort", "high")
+    assert panel._current_claude_config() != before
+
+
+def test_pick_effort_on_agy_applies_live_without_dialog(panel, fake_prefs, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: pytest.fail("no dialog on agy"))
+    fake_prefs.set("agent_backend", "agy")
+    panel._is_agent_ready = True
+    panel._claude_widget = _idle_widget()
+    calls = []
+    monkeypatch.setattr(panel, "_reload_agent", lambda: calls.append("reload"))
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [])
+
+    panel._on_pick_effort("high")
+
+    assert fake_prefs.values["agy_effort"] == "high"
+    assert "claude_effort" not in fake_prefs.values
+    panel._claude_widget.agent.set_effort.assert_called_once_with("high")
+    panel._settings_reload_pending = True
+    panel._do_claude_settings_reload()
+    assert calls == []  # neither the pick nor the debounced subscription rebuilds
+
+
+def test_pick_default_effort_on_agy_sends_none(panel, fake_prefs, monkeypatch):
+    fake_prefs.set("agent_backend", "agy")
+    fake_prefs.set("agy_effort", "high")
+    panel._claude_widget = _idle_widget()
+    panel._on_pick_effort("")
+    assert fake_prefs.values["agy_effort"] == ""
+    panel._claude_widget.agent.set_effort.assert_called_once_with(None)
+
+
+@pytest.mark.parametrize("answer,expect_reload", [(True, True), (False, False)])
+def test_pick_effort_on_claude_asks_and_rebuilds(panel, fake_prefs, monkeypatch,
+                                                 answer, expect_reload):
+    from PySide6.QtWidgets import QMessageBox
+
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: asked.append(a) or (
+        QMessageBox.StandardButton.Yes if answer else QMessageBox.StandardButton.No))
+    panel._claude_widget = _idle_widget()
+    calls = []
+    monkeypatch.setattr(panel, "_reload_agent", lambda: calls.append("reload"))
+
+    panel._on_pick_effort("low")
+
+    assert len(asked) == 1
+    assert calls == (["reload"] if expect_reload else [])
+    assert fake_prefs.values.get("claude_effort") == ("low" if expect_reload else None)
+    panel._claude_widget.agent.set_effort.assert_not_called()

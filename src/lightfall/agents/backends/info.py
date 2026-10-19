@@ -9,7 +9,9 @@ This module must not import ``claude_agent_sdk``.
 """
 from __future__ import annotations
 
+import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from lightfall.agents.backends.select import AGY, CLAUDE_CODE, backend_kind
@@ -21,6 +23,7 @@ class BackendCaps:
     cost: bool            # TurnResult carries real USD
     live_set_model: bool  # a model change applies without a respawn
     subagents: bool       # the backend runs SessionConfig.subagents
+    live_set_effort: bool = False  # an effort change keeps the conversation (no rebuild)
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,45 @@ class AuthStatus:
 class ModelOption:
     id: str     # "" = the backend's default
     label: str
+    efforts: tuple[str, ...] = ()  # reasoning levels this model offers (agy), low..max
+
+
+#: Reasoning levels, in order (agy ``--effort`` and Claude ``effort``).
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+_EFFORT_ID_RE = re.compile(r"^(.+)-(" + "|".join(EFFORT_LEVELS) + r")$")
+_EFFORT_LABEL_RE = re.compile(r"\s*\((" + "|".join(EFFORT_LEVELS) + r")\)$", re.IGNORECASE)
+
+
+def split_effort_variant(model_id: str) -> tuple[str, str]:
+    """``"gemini-4-argon-medium"`` -> ``("gemini-4-argon", "medium")``; no suffix -> ``(id, "")``."""
+    m = _EFFORT_ID_RE.match(model_id or "")
+    return (m.group(1), m.group(2)) if m else (model_id or "", "")
+
+
+def group_agy_models(rows: Iterable[tuple[str, str]]) -> list[ModelOption]:
+    """Fold ``agy models`` rows (one per model *and* effort) into one option per base model.
+
+    ``gemini-4-argon-high / Gemini 4 Argon (High)`` and its siblings become
+    ``ModelOption("gemini-4-argon", "Gemini 4 Argon", ("low", "medium", "high"))``.
+    An id without an effort suffix passes through with no levels. First-seen order.
+    """
+    out: dict[str, tuple[str, set[str]]] = {}
+    for model_id, label in rows:
+        base, level = split_effort_variant(model_id)
+        if base not in out:
+            out[base] = ((_EFFORT_LABEL_RE.sub("", label) if level else label) or base, set())
+        if level:
+            out[base][1].add(level)
+    return [ModelOption(base, label, tuple(lv for lv in EFFORT_LEVELS if lv in levels))
+            for base, (label, levels) in out.items()]
+
+
+def effort_options_for(models: Iterable[ModelOption], model_id: str) -> list[str]:
+    """``[""]`` plus the levels ``model_id`` offers in ``models`` (``[""]`` if unknown)."""
+    for opt in models:
+        if model_id and opt.id == model_id:
+            return ["", *opt.efforts]
+    return [""]
 
 
 _CLAUDE_PROMPT_NOTES = """### Waiting
@@ -57,11 +99,13 @@ _AGY_SUBAGENT_NOTE = (
 class ClaudeCodeInfo:
     kind = CLAUDE_CODE
     display_name = "Claude"
-    caps = BackendCaps(cost=True, live_set_model=True, subagents=True)
+    # Effort is read at construction: a change rebuilds the agent (fresh session).
+    caps = BackendCaps(cost=True, live_set_model=True, subagents=True, live_set_effort=False)
     prompt_notes = _CLAUDE_PROMPT_NOTES
     subagent_tag = _CLAUDE_SUBAGENT_TAG
     subagent_note = _CLAUDE_SUBAGENT_NOTE
     model_pref_key = "claude_model"
+    effort_pref_key = "claude_effort"
 
     def auth_status(self, refresh: bool = False) -> AuthStatus:
         from lightfall.ui.preferences.claude_settings import (
@@ -99,6 +143,19 @@ class ClaudeCodeInfo:
 
         return ClaudeSettingsProvider.get_model()
 
+    def effort_options(self, model_id: str) -> list[str]:
+        """``""`` (SDK default) plus the levels; xhigh/max are Opus-only."""
+        from lightfall.ui.preferences.claude_settings import EFFORT_OPTIONS
+
+        if "opus" in (model_id or ""):
+            return list(EFFORT_OPTIONS)
+        return [lv for lv in EFFORT_OPTIONS if lv not in ("xhigh", "max")]
+
+    def current_effort(self) -> str:
+        from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+
+        return ClaudeSettingsProvider.get_effort()
+
     def live_model_id(self, preset: str) -> str | None:
         from lightfall.ui.preferences.claude_settings import resolve_model_alias
 
@@ -127,11 +184,14 @@ class AgyInfo:
     kind = AGY
     display_name = "Gemini"
     # Subagents: agent files in the session plugin, delegated with invoke_subagent.
-    caps = BackendCaps(cost=False, live_set_model=False, subagents=True)
+    # Model and effort are spawn flags: a change respawns the child on the next
+    # turn with --conversation, so the conversation is kept.
+    caps = BackendCaps(cost=False, live_set_model=False, subagents=True, live_set_effort=True)
     prompt_notes = ""
     subagent_tag = _AGY_SUBAGENT_TAG
     subagent_note = _AGY_SUBAGENT_NOTE
     model_pref_key = "agy_model"
+    effort_pref_key = "agy_effort"
 
     def __init__(self, agy_path: str | None = None) -> None:
         # None = use the agy_path preference (the settings page passes its field).
@@ -177,7 +237,7 @@ class AgyInfo:
         rows, detail = self._probe(agy, refresh)
         if rows is None:
             raise RuntimeError(detail)
-        return [ModelOption("", "Default (agy)")] + [ModelOption(i, lbl) for i, lbl in rows]
+        return [ModelOption("", "Default (agy)"), *group_agy_models(rows)]
 
     def cached_models(self) -> list[ModelOption]:
         out = [ModelOption("", "Default (agy)")]
@@ -187,13 +247,22 @@ class AgyInfo:
             return out
         hit = _AGY_CACHE.get(agy) if agy else None
         if hit is not None and hit[1][0]:
-            out += [ModelOption(i, lbl) for i, lbl in hit[1][0]]
+            out += group_agy_models(hit[1][0])
         return out
 
     def current_model(self) -> str:
         from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
 
         return ClaudeSettingsProvider.get_agy_model()
+
+    def effort_options(self, model_id: str) -> list[str]:
+        """The levels base model ``model_id`` offers (cache only; ``[""]`` if unknown)."""
+        return effort_options_for(self.cached_models(), model_id)
+
+    def current_effort(self) -> str:
+        from lightfall.ui.preferences.claude_settings import ClaudeSettingsProvider
+
+        return ClaudeSettingsProvider.get_agy_effort()
 
     def live_model_id(self, preset: str) -> str | None:
         return preset or None
@@ -229,6 +298,23 @@ def agy_model_ids(agy: str | list[str]) -> frozenset[str]:
     if rows is None:
         raise RuntimeError(detail)
     return frozenset(model_id for model_id, _ in rows)
+
+
+def agy_effort_levels(agy: str | list[str]) -> dict[str, tuple[str, ...]]:
+    """``{base model id: effort levels}`` from ``agy models`` (cached like ``agy_model_ids``).
+
+    Raises when agy cannot list models.
+    """
+    if isinstance(agy, str):
+        rows, detail = AgyInfo()._probe(agy, refresh=False)
+    else:
+        from lightfall.agents.backends.agy import discover
+        from lightfall.agents.backends.agy.home import spec_home
+
+        rows, detail = discover.agy_models(agy, spec_home(None))
+    if rows is None:
+        raise RuntimeError(detail)
+    return {opt.id: opt.efforts for opt in group_agy_models(rows)}
 
 
 def backend_info(kind: str | None = None, *, agy_path: str | None = None):

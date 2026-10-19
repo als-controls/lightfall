@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QToolButton,
 )
 
-from lightfall.agents.backends.info import AuthStatus, backend_info
+from lightfall.agents.backends.info import AuthStatus, ModelOption, backend_info, effort_options_for
 from lightfall.agents.backends.select import AGY, CLAUDE_CODE
 from lightfall.ui.preferences.manager import PreferencesManager
 from lightfall.utils.logging import logger
@@ -58,6 +58,8 @@ class AgentBackendSection:
         self._project: QLineEdit | None = None
         self._location: QLineEdit | None = None
         self._model: QComboBox | None = None
+        self._effort: QComboBox | None = None
+        self._models: list[ModelOption] | None = None  # None until agy lists its models
         self._future: QThreadFuture | None = None
         self._generation = 0
         self._poll_timer: QTimer | None = None
@@ -126,6 +128,15 @@ class AgentBackendSection:
         self._model.setEditable(True)
         self._model.addItem("Default (agy)", "")
         layout.addRow("Model:", self._model)
+
+        self._effort = QComboBox()
+        self._effort.setObjectName("agyEffort")
+        self._effort.setToolTip("Reasoning effort; the levels depend on the model. "
+                                "A change applies on the next turn and keeps the conversation.")
+        self._effort.addItem("Default", "")
+        layout.addRow("Effort:", self._effort)
+        self._model.currentIndexChanged.connect(lambda _i: self._refresh_effort_items())
+        self._model.editTextChanged.connect(lambda _t: self._refresh_effort_items())
 
         sign_in = QPushButton("Sign in…")
         sign_in.setObjectName("agySignIn")
@@ -196,7 +207,9 @@ class AgentBackendSection:
             self._agy_path.setText(p.get_agy_path())
             self._project.setText(p.get_agy_project())
             self._location.setText(p.get_agy_location())
+            self._models = None
             self._set_model_items([], p.get_agy_model())
+            self._refresh_effort_items(p.get_agy_effort())
         if self._kind_combo is not None:
             self._kind_combo.blockSignals(True)
             self._kind_combo.setCurrentIndex(max(0, self._kind_combo.findData(p.get_agent_backend())))
@@ -213,8 +226,11 @@ class AgentBackendSection:
             prefs.set("agy_gcp_project", self._project.text().strip())
             prefs.set("agy_gcp_location", self._location.text().strip())
             prefs.set("agy_model", self._model_id())
+            prefs.set("agy_effort", self._effort.currentData() or "")
 
     def _set_model_items(self, models, current: str) -> None:
+        if models:
+            self._models = list(models)
         self._model.blockSignals(True)
         self._model.clear()
         self._model.addItem("Default (agy)", "")
@@ -227,6 +243,30 @@ class AgentBackendSection:
         else:
             self._model.setEditText(current)
         self._model.blockSignals(False)
+        self._refresh_effort_items()
+
+    def _refresh_effort_items(self, keep: str | None = None) -> None:
+        """Fill the effort combo with the selected model's levels.
+
+        ``keep`` (default: the current choice) stays selected if the model offers
+        it, else the choice falls back to Default. Before agy has listed its
+        models the levels are unknown, so ``keep`` is kept as is.
+        """
+        combo = self._effort
+        if combo is None or not shiboken6.isValid(combo):
+            return
+        if keep is None:
+            keep = combo.currentData() or ""
+        if self._models is None:
+            options = ["", keep] if keep else [""]
+        else:
+            options = effort_options_for(self._models, self._model_id())
+        combo.blockSignals(True)
+        combo.clear()
+        for level in options:
+            combo.addItem(level or "Default", level)
+        combo.setCurrentIndex(max(0, combo.findData(keep if keep in options else "")))
+        combo.blockSignals(False)
 
     def _on_kind_changed(self, _index: int) -> None:
         self._apply_kind()

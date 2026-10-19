@@ -733,3 +733,134 @@ def test_cancel_stops_subagent_continuation(env):
     assert prompts == ["Ask the echoer to echo persimmon."]
     assert any(isinstance(e, TurnCancelledEvent) for e in events)
     assert _results(events) == []
+
+
+# ---- effort -------------------------------------------------------------------
+
+_LEVELS = {"gemini-4-argon": ("low", "medium", "high"), "gemini-3.1-pro": ("low", "high"),
+           "gemini-plain": ()}
+
+
+def test_effort_flag_rules():
+    from lightfall.agents.backends.agy.backend import effort_flag
+
+    assert effort_flag("gemini-4-argon", "low", _LEVELS) == "low"
+    assert effort_flag("gemini-3.1-pro", "medium", _LEVELS) is None   # not offered
+    assert effort_flag("gemini-4-argon", "xhigh", _LEVELS) is None
+    assert effort_flag("gemini-4-argon", "", _LEVELS) is None
+    assert effort_flag("gemini-4-argon", None, _LEVELS) is None
+    assert effort_flag("gemini-4-argon-low", "high", _LEVELS) is None  # variant id
+    assert effort_flag("gemini-plain", "low", _LEVELS) is None
+    assert effort_flag(None, "low", _LEVELS) is None                    # agy's default model
+    assert effort_flag("gemini-4-argon", "low", None) is None           # levels unknown
+
+
+def test_process_argv_effort():
+    from lightfall.agents.backends.agy.process import AgyProcess
+
+    def argv(**kw):
+        return AgyProcess("agy", Path("h"), ".", {}, conversation=None, **kw).argv
+
+    a = argv(model="gemini-4-argon", effort="low")
+    assert a[a.index("--model") + 1] == "gemini-4-argon"
+    assert a[a.index("--effort") + 1] == "low"
+    assert "--effort" not in argv(model="gemini-4-argon", effort=None)
+    assert "--effort" not in argv(model="gemini-4-argon")
+
+
+def _with_model(env, model, effort):
+    import dataclasses
+
+    env["cfg"] = dataclasses.replace(env["cfg"], model=model, effort=effort)
+
+
+def _patch_levels(env, calls=None):
+    from lightfall.agents.backends.agy import backend as backend_mod
+
+    def levels(agy):
+        if calls is not None:
+            calls.append(agy)
+        return dict(_LEVELS)
+
+    env["monkeypatch"].setattr(backend_mod, "agy_effort_levels", levels)
+
+
+@pytest.mark.parametrize("model,effort,expected", [
+    ("gemini-4-argon", "low", "low"),
+    ("gemini-3.1-pro", "medium", None),     # invalid for the model: dropped
+    ("gemini-4-argon", "", None),           # default: no flag
+    ("gemini-4-argon-low", "high", None),   # variant id never gets --effort
+])
+def test_spawn_effort_flag(env, model, effort, expected):
+    _with_model(env, model, effort)
+    _patch_levels(env)
+    events, _ = _drive(env, "text")
+    assert _results(events)
+    [start] = _starts(env)
+    argv = start["argv"]
+    assert argv[argv.index("--model") + 1] == model
+    if expected is None:
+        assert "--effort" not in argv
+    else:
+        assert argv[argv.index("--effort") + 1] == expected
+
+
+def test_no_effort_means_no_model_probe(env):
+    _with_model(env, "gemini-4-argon", None)
+    calls = []
+    _patch_levels(env, calls)
+    _drive(env, "text")
+    assert calls == []
+
+
+def test_effort_probe_failure_drops_the_flag(env):
+    from lightfall.agents.backends.agy import backend as backend_mod
+
+    def boom(agy):
+        raise RuntimeError("not signed in")
+
+    _with_model(env, "gemini-4-argon", "low")
+    env["monkeypatch"].setattr(backend_mod, "agy_effort_levels", boom)
+    events, _ = _drive(env, "text")
+    assert _results(events)
+    [start] = _starts(env)
+    assert "--effort" not in start["argv"]
+
+
+def test_set_effort_respawns_with_effort(qtbot, env):
+    _with_model(env, "gemini-4-argon", "low")
+    _patch_levels(env)
+    b = _backend(env)
+    w = _start_worker(qtbot, b)
+    try:
+        _query(qtbot, w, "one", w.query_completed)
+        cid = b.conversation_id
+        w.request_set_effort("high")
+        qtbot.waitUntil(lambda: b._proc is None, timeout=8000)
+        rec = _record_partials(w)
+        _query(qtbot, w, "two", w.query_completed)
+        assert len(rec["started"]) == 1 and "".join(rec["text"]) == "Hello world"
+        first, second = _starts(env)
+        assert first["argv"][first["argv"].index("--effort") + 1] == "low"
+        argv = second["argv"]
+        assert argv[argv.index("--model") + 1] == "gemini-4-argon"
+        assert argv[argv.index("--effort") + 1] == "high"
+        assert argv[argv.index("--conversation") + 1] == cid
+    finally:
+        _stop(w)
+
+
+def test_set_effort_to_default_drops_the_flag(qtbot, env):
+    _with_model(env, "gemini-4-argon", "low")
+    _patch_levels(env)
+    b = _backend(env)
+    w = _start_worker(qtbot, b)
+    try:
+        _query(qtbot, w, "one", w.query_completed)
+        w.request_set_effort("")
+        qtbot.waitUntil(lambda: b._proc is None, timeout=8000)
+        _query(qtbot, w, "two", w.query_completed)
+        _, second = _starts(env)
+        assert "--effort" not in second["argv"] and "--conversation" in second["argv"]
+    finally:
+        _stop(w)

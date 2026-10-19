@@ -202,3 +202,57 @@ def test_live_subagent_delegation(tmp_path, monkeypatch):
             await backend.close()
 
     asyncio.run(scenario())
+
+
+def test_live_effort_switch_keeps_conversation(tmp_path, monkeypatch):
+    """--model <base> --effort low, then set_effort("high"): respawn keeps the history."""
+    from lightfall.agents.backends.info import agy_effort_levels
+
+    levels = agy_effort_levels(AGY)
+    base = next((m for m, lv in levels.items() if {"low", "high"} <= set(lv)), None)
+    if base is None:
+        pytest.skip(f"no agy model offers both low and high: {levels}")
+    root = tmp_path / "agy-root"
+    root.mkdir()
+    monkeypatch.setattr(agy_home, "lightfall_agy_home", lambda: root)
+    work = tmp_path / "work"
+    work.mkdir()
+    (tmp_path / "skills").mkdir()
+    cfg = SessionConfig(cwd=str(work), system_prompt="You are a terse test assistant.",
+                        tool_servers=[], external_servers={}, allowed_tools=[], subagents=[],
+                        skills_dir=tmp_path, model=base, effort="low")
+    backend = AgyCliBackend(cfg, _AllowPM(), False, agy=AGY, project=PROJECT, location=LOCATION)
+
+    def text_of(events):
+        out = "".join(e.text for e in events if isinstance(e, TextBlockEvent))
+        return out or "".join(e.delta for e in events if isinstance(e, PartialTextEvent))
+
+    def flags(argv):
+        return {k: argv[argv.index(k) + 1] for k in ("--model", "--effort", "--conversation")
+                if k in argv}
+
+    async def scenario():
+        await backend.connect()
+        try:
+            t0 = time.time()
+            ev1 = await _run(backend, "Remember the word 'tamarind'. Reply only with OK.")
+            argv1 = backend._proc.argv
+            print(f"\nTURN1 ({time.time() - t0:.1f}s) flags={flags(argv1)} text={text_of(ev1)[:80]!r}")
+            assert not [e for e in ev1 if isinstance(e, TurnErrorEvent)], ev1
+            assert flags(argv1).get("--effort") == "low" and flags(argv1)["--model"] == base
+
+            await backend.set_effort("high")
+            assert backend._proc is None  # dropped: the next turn respawns
+
+            t0 = time.time()
+            ev2 = await _run(backend, "What word did I ask you to remember? One word.")
+            argv2 = backend._proc.argv
+            print(f"TURN2 ({time.time() - t0:.1f}s) flags={flags(argv2)} text={text_of(ev2)[:80]!r}")
+            assert not [e for e in ev2 if isinstance(e, TurnErrorEvent)], ev2
+            assert flags(argv2).get("--effort") == "high"
+            assert flags(argv2).get("--conversation")
+            assert "tamarind" in text_of(ev2).lower()
+        finally:
+            await backend.close()
+
+    asyncio.run(scenario())

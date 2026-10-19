@@ -567,15 +567,11 @@ class ClaudeAssistantWidget(QWidget):
     def _build_tune_menu(self) -> None:
         """Populate the input-row model/effort popup from current settings."""
         from lightfall.agents.backends.info import ModelOption, backend_info
-        from lightfall.ui.preferences.claude_settings import (
-            EFFORT_OPTIONS,
-            ClaudeSettingsProvider,
-        )
         menu = self._tune_menu
         menu.clear()
         info = backend_info()
         current_model = info.current_model()
-        current_effort = ClaudeSettingsProvider.get_effort()
+        current_effort = info.current_effort()
 
         menu.addSection("Model (live)" if info.caps.live_set_model else "Model (next turn)")
         models = list(info.cached_models())
@@ -594,14 +590,14 @@ class ClaudeAssistantWidget(QWidget):
         refresh_act = menu.addAction("↻ Refresh models")
         refresh_act.triggered.connect(self._refresh_models)
 
-        menu.addSection("Effort (restarts conversation)")
-        for level in EFFORT_OPTIONS:
-            act = menu.addAction(level or "Default (high)")
+        menu.addSection("Effort (next turn)" if info.caps.live_set_effort
+                        else "Effort (restarts conversation)")
+        # The backend knows which levels the model offers (Claude: xhigh/max
+        # are Opus-only; agy: the levels `agy models` lists for the model).
+        for level in info.effort_options(current_model):
+            act = menu.addAction(level or "Default")
             act.setCheckable(True)
             act.setChecked(level == current_effort)
-            # xhigh/max are Opus-only; disable them for non-opus models.
-            if level in ("xhigh", "max") and "opus" not in (current_model or ""):
-                act.setEnabled(False)
             act.triggered.connect(
                 lambda _c=False, lv=level: self.effort_change_requested.emit(lv)
             )

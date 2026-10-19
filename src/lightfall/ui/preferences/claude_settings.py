@@ -261,9 +261,31 @@ class ClaudeSettingsProvider:
 
     @staticmethod
     def get_agy_model() -> str:
-        """agy model id ('' = agy's default)."""
+        """agy base model id ('' = agy's default).
+
+        Migration: agy lists one id per model *and* effort. A saved variant id
+        (``gemini-4-argon-medium``, from before effort was its own setting) is
+        split here, on read, into ``agy_model=gemini-4-argon`` and
+        ``agy_effort=medium``. A base id has no suffix, so this runs once.
+        """
+        from lightfall.agents.backends.info import split_effort_variant
+
         prefs = PreferencesManager.get_instance()
-        return prefs.get("agy_model", "") or ""
+        value = prefs.get("agy_model", "") or ""
+        base, level = split_effort_variant(value)
+        if level:
+            logger.info("agy_model {!r} is an effort variant; saving model {!r}, effort {!r}",
+                        value, base, level)
+            prefs.set("agy_effort", level)
+            prefs.set("agy_model", base)
+            return base
+        return value
+
+    @staticmethod
+    def get_agy_effort() -> str:
+        """agy reasoning effort ('' = the model's default)."""
+        prefs = PreferencesManager.get_instance()
+        return prefs.get("agy_effort", "") or ""
 
     @staticmethod
     def _find_agy() -> str | None:

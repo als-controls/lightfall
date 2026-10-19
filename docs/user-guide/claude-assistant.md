@@ -132,8 +132,8 @@ Antigravity CLI (`agy`).
 3. If it says *Not signed in*, click **Sign in…**. A console window opens with agy's
    Google sign-in; finish it in the browser, then close the console. The status turns
    to *Signed in* within a few seconds.
-4. Pick a **Model** (or leave *Default (agy)*), check the GCP project and location, and
-   press **OK**.
+4. Pick a **Model** (or leave *Default (agy)*) and an **Effort**, check the GCP
+   project and location, and press **OK**.
 
 Open assistant tabs switch to the new backend straight away; a tab that is mid-reply
 switches when the reply ends. Each backend keeps its own session history.
@@ -141,6 +141,9 @@ switches when the reply ends. Each backend keeps its own session history.
 Notes for Gemini:
 - Costs are not shown (the cockpit shows tokens and context only).
 - A model change applies from the next message.
+- Reasoning effort is per model: the **Effort** list (in Settings and in the input
+  row's tune menu) shows only the levels the selected model offers. A change applies
+  from the next message and keeps the conversation (on Claude it starts a fresh one).
 - Background subagents ("Agent tool") are not available yet.
 
 ### Preference keys
@@ -151,7 +154,8 @@ Notes for Gemini:
 | `agy_path` | empty | Path to the agy executable. Empty means PATH, then the default install location. |
 | `agy_gcp_project` | `lbl-gemini-enterprise-access` | GCP project that Gemini Enterprise usage is billed to. |
 | `agy_gcp_location` | `global` | GCP location for agy. |
-| `agy_model` | empty | agy model id. Empty means agy's default. |
+| `agy_model` | empty | agy base model id (for example `gemini-4-argon`). Empty means agy's default. |
+| `agy_effort` | empty | Reasoning effort for that model (`low`, `medium`, `high`, ...). Empty means the model's default. |
 
 ### Signing in
 

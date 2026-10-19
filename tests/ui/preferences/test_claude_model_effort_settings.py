@@ -94,3 +94,23 @@ def test_agent_stores_session_under_build_time_kind(fake_prefs):
     agent._store_session_id("agy-sess")
     assert fake_prefs.get("agy_last_session_id") == "agy-sess"
     assert fake_prefs.get("claude_last_session_id") == "claude-sess"
+
+
+def test_agy_effort_default_empty(fake_prefs):
+    assert cs.ClaudeSettingsProvider.get_agy_effort() == ""
+
+
+def test_agy_variant_model_is_split_once(fake_prefs):
+    fake_prefs.set("agy_model", "gemini-4-argon-medium")
+    assert cs.ClaudeSettingsProvider.get_agy_model() == "gemini-4-argon"
+    assert fake_prefs._data == {"agy_model": "gemini-4-argon", "agy_effort": "medium"}
+    # Idempotent: a later explicit effort is not overwritten by a second read.
+    fake_prefs.set("agy_effort", "low")
+    assert cs.ClaudeSettingsProvider.get_agy_model() == "gemini-4-argon"
+    assert cs.ClaudeSettingsProvider.get_agy_effort() == "low"
+
+
+def test_agy_base_model_is_left_alone(fake_prefs):
+    fake_prefs.set("agy_model", "gemini-plain")
+    assert cs.ClaudeSettingsProvider.get_agy_model() == "gemini-plain"
+    assert "agy_effort" not in fake_prefs._data
