@@ -93,7 +93,7 @@ class AgentBackendSection:
         recheck = QToolButton()
         recheck.setText("⟳")
         recheck.setToolTip("Check again")
-        recheck.clicked.connect(lambda: self.refresh_status(refresh=True))
+        recheck.clicked.connect(self._on_recheck)
         row.addWidget(recheck)
         layout.addRow("Status:", row)
         self._poll_timer = QTimer(group)  # dies with the page
@@ -282,6 +282,13 @@ class AgentBackendSection:
         self.refresh_status()
 
     # --- async status --------------------------------------------------------
+
+    def _on_recheck(self) -> None:
+        """"Check again": ignored while a shown check is still running (agy
+        checks take up to 30 s; repeated clicks must not stack agy runs)."""
+        if self._checking and self._future is not None and self._future.isRunning():
+            return
+        self.refresh_status(refresh=True)
 
     def refresh_status(self, refresh: bool = False, from_poll: bool = False) -> None:
         """Start an async status check.

@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import shiboken6
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -455,6 +456,11 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         self._status_label: QLabel | None = None
         # Model Configuration
         self._model_combo: QComboBox | None = None
+        # Background /v1/models fetch for the combo: result applies only if
+        # its generation is current (see _fetch_models).
+        self._models_future = None
+        self._models_fetch_url: str | None = None
+        self._models_generation = 0
         self._effort_combo: QComboBox | None = None
         self._max_turns_spin: QSpinBox | None = None
         # Behavior Configuration
@@ -935,23 +941,12 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         if self._api_key_edit:
             self._api_key_edit.setText(prefs.get("claude_api_key", ""))
 
-        # Load model
+        # Load model: the cached (or preset) list now, the endpoint's list
+        # when the background fetch lands.
         if self._model_combo:
-            discovered = get_cached_models(
-                self._get_effective_base_url(), self._get_effective_api_key()
-            )
-            self._model_combo.blockSignals(True)
-            self._model_combo.clear()
-            self._model_combo.addItem("")  # Default (no forced model)
-            for m in (discovered if discovered else [x for x in MODEL_OPTIONS if x]):
-                self._model_combo.addItem(m)
-            self._model_combo.blockSignals(False)
-            model = prefs.get("claude_model", "")
-            index = self._model_combo.findText(model)
-            if index >= 0:
-                self._model_combo.setCurrentIndex(index)
-            else:
-                self._model_combo.setEditText(model)
+            base_url = self._get_effective_base_url()
+            self._fill_model_combo(cached_model_ids(base_url), prefs.get("claude_model", ""))
+            self._fetch_models(base_url)
 
         # Load effort
         if getattr(self, "_effort_combo", None):
@@ -984,6 +979,54 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         self._update_oauth_status()
         self._update_auth_status()
         self._backend.load()
+
+    def _fill_model_combo(self, discovered: list[str] | None, current: str) -> None:
+        combo = self._model_combo
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("")  # Default (no forced model)
+        for m in (discovered if discovered else [x for x in MODEL_OPTIONS if x]):
+            combo.addItem(m)
+        combo.blockSignals(False)
+        index = combo.findText(current)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+        else:
+            combo.setEditText(current)
+
+    def _fetch_models(self, base_url: str) -> None:
+        """Fetch ``base_url``'s model list off the GUI thread (no-op if cached).
+
+        A fetch already running for the same URL is left to finish rather than
+        stacked; one for another URL is superseded (its result is dropped).
+        """
+        from lightfall.utils.threads import QThreadFuture
+
+        if cached_model_ids(base_url) is not None:
+            self._models_generation += 1  # drop any in-flight result: the cache is current
+            return
+        running = self._models_future
+        if (running is not None and running.isRunning()
+                and self._models_fetch_url == base_url):
+            return
+        self._models_generation += 1
+        gen = self._models_generation
+        api_key = self._get_effective_api_key()
+        self._models_fetch_url = base_url
+        self._models_future = QThreadFuture(
+            lambda: get_cached_models(base_url, api_key),
+            callback_slot=lambda ids, g=gen: self._on_models_fetched(ids, g),
+            except_slot=lambda exc: logger.debug("Model list fetch failed: {}", exc),
+            name="assistant-claude-models", log_exceptions=False,
+        )
+        self._models_future.start()
+
+    def _on_models_fetched(self, ids: list[str] | None, generation: int) -> None:
+        combo = self._model_combo
+        if (generation != self._models_generation or not ids
+                or combo is None or not shiboken6.isValid(combo)):
+            return
+        self._fill_model_combo(ids, combo.currentText())
 
     def save_settings(self) -> None:
         """Save widget values to persistent storage.

@@ -397,3 +397,32 @@ def test_saved_effort_survives_before_models_load(qtbot, prefs):
     assert _effort_items(host)[1] == "low"  # model list unknown yet: keep the saved level
     sec.save()
     assert prefs.values["agy_effort"] == "low"
+
+
+# ---- check-again button, poll timeout, model ids, hidden Claude row ------------
+
+
+def _recheck(host):
+    from PySide6.QtWidgets import QToolButton
+
+    return next(b for b in host.findChildren(QToolButton) if b.toolTip() == "Check again")
+
+
+def test_rapid_recheck_clicks_do_not_stack_checks(qtbot, prefs):
+    import threading
+
+    gate = threading.Event()
+    prefs.values["agent_backend"] = "agy"
+    agy = _Info("agy", AuthStatus(True, "Signed in (1 models)"), gate=gate)
+    infos = {"agy": agy, "claude-code": _Info("claude-code", AuthStatus(True, "k"))}
+    sec, host = _section(qtbot, infos)
+    sec.load()  # initial check in flight, gated
+    qtbot.waitUntil(lambda: len(agy.refreshes) == 1, timeout=3000)
+    for _ in range(3):
+        _recheck(host).click()
+    qtbot.wait(100)
+    assert agy.refreshes == [False]  # one agy run, not four
+    gate.set()
+    qtbot.waitUntil(lambda: "Signed in" in _status(host), timeout=3000)
+    _recheck(host).click()  # idle again: a click starts a fresh, cache-bypassing check
+    qtbot.waitUntil(lambda: agy.refreshes == [False, True], timeout=3000)
