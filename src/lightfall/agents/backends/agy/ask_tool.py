@@ -58,9 +58,7 @@ def _format_answers(questions: list[dict[str, Any]], answers: dict[str, str]) ->
     lines = ["User answers:"]
     for q in questions:
         text = q.get("question", "")
-        if text not in answers:
-            continue
-        lines.append(f"- {text}: {answers[text]}")
+        lines.append(f"- {text}: {answers.get(text) or '(no answer)'}")
     return "\n".join(lines)
 
 
@@ -69,7 +67,14 @@ def create_ask_user_server(permission_manager: Any) -> ToolServer:
 
     @tool(ASK_TOOL_NAME, _ASK_USER_DESCRIPTION, ASK_USER_SCHEMA)
     async def ask_user(args: dict[str, Any]) -> dict[str, Any]:
-        questions = list(args.get("questions", []))
+        questions = args.get("questions")
+        if (not isinstance(questions, list) or not questions
+                or not all(isinstance(q, dict) for q in questions)):
+            return {
+                "content": [{"type": "text", "text": "ask_user needs a non-empty 'questions' "
+                             "list of question objects"}],
+                "is_error": True,
+            }
         answered, answers = await permission_manager.request_question(questions)
         if not answered:
             return {
