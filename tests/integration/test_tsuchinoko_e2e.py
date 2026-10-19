@@ -70,6 +70,10 @@ from lightfall.acquire.plans.adaptive import adaptive_experiment, _state
 from lightfall.visualization.widgets.adaptive.heatmap import (
     AdaptiveHeatmapVisualization,
 )
+from lightfall.visualization.widgets.adaptive.plot import (
+    AdaptivePlotVisualization,
+    read_hyperparameters,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -472,6 +476,15 @@ class TestAdaptiveLoopE2E:
         # Viz: AdaptiveHeatmapVisualization.can_handle should return 90
         score = AdaptiveHeatmapVisualization.can_handle(run_node)
         assert score == 90, f"can_handle returned {score}, expected 90"
+
+        # Viz: hyperparameter history has one row per iteration event and the
+        # GP Hyperparameters plot recognizes the real writer layout.
+        hp = read_hyperparameters(adaptive_node)
+        assert hp.shape[0] == targets.shape[0], (
+            f"hyperparameters rows {hp.shape} != targets rows {targets.shape}"
+        )
+        score = AdaptivePlotVisualization.can_handle(run_node)
+        assert score == 70, f"AdaptivePlot can_handle returned {score}, expected 70"
 
 
 @pytest.mark.timeout(30)

@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from lightfall.utils.logging import log_time
 from lightfall.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.widgets.adaptive.schema import is_tsuchinoko_stream
 from lightfall.visualization.widgets.image_view_toolbar import ImageViewToolbarMixin
 from lightfall.visualization.widgets.lazy_image_view import LazyImageView
 from lightfall.visualization.widgets.time_axis import HumanReadableTimeAxis
@@ -161,19 +162,7 @@ class AdaptiveHeatmapVisualization(ImageViewToolbarMixin, BaseVisualization):
         """Return 90 for a 2D Tsuchinoko adaptive run, 0 otherwise."""
         try:
             adaptive = run["adaptive"]
-            # TiledPublisher writes the adaptive stream as a Bluesky event
-            # stream whose descriptor data_keys carry source="tsuchinoko";
-            # it does NOT write an "adaptive_engine" metadata key (kept as a
-            # legacy fallback for hand-written/older containers).
-            data_keys = adaptive.metadata.get("data_keys") or {}
-            is_tsuchinoko = (
-                any(
-                    isinstance(dk, dict) and dk.get("source") == "tsuchinoko"
-                    for dk in data_keys.values()
-                )
-                or adaptive.metadata.get("adaptive_engine") == "tsuchinoko"
-            )
-            if not is_tsuchinoko:
+            if not is_tsuchinoko_stream(adaptive):
                 return 0
             config = adaptive.metadata.get("configuration", {})
             tsuchinoko_config = config.get("tsuchinoko", {}).get("data", {})

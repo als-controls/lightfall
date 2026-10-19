@@ -1,71 +1,79 @@
-"""Adaptive hyperparameter line-plot visualization.
+"""GP hyperparameter line plot for Tsuchinoko adaptive runs.
 
-Reads GP hyperparameters from each ``iter_NNN`` container written by
-Tsuchinoko's TiledPublisher and plots them as lines (one per component)
-over iteration index.
+Plots each GP hyperparameter (signal variance, length scales, ...) against
+iteration so a scientist can see whether the model has converged or a
+length scale is running away.
 
-Ported from Phase 4b ``feature/tsuchinoko-gp-viz`` to the post-viz-cleanup
-BaseVisualization ABC.
+Data layout (see :mod:`.schema`): Tsuchinoko's TiledPublisher writes one
+event per iteration to the ``adaptive`` stream, so ``hyperparameters`` is a
+zarr array of shape ``(n_iterations, n_hp)``.  Columns that are NaN in every
+row are declared-shape padding and are dropped; all-NaN rows are iterations
+where the GP had no hyperparameters yet and are kept as gaps.
+
+Live updates are driven by the VisualizationPanel: it subscribes the active
+field's array node and calls :meth:`refresh` on each push.  The Tiled read
+always runs on a :class:`QThreadFuture`; only the plot update touches the GUI
+thread.
+
+Originally Phase 4b's ``HyperparameterVisualization`` (``feature/
+tsuchinoko-gp-viz``), which read the long-gone ``iter_NNN`` container layout.
 """
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 import numpy as np
-import pyqtgraph as pg
 from loguru import logger
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
+from lightfall.utils.crash_diagnostics import gui_thread_only
+from lightfall.utils.threads import QThreadFuture
+from lightfall.visualization import pg
 from lightfall.visualization.base_visualization import BaseVisualization
+from lightfall.visualization.widgets.adaptive.schema import (
+    adaptive_data_keys,
+    adaptive_field_node,
+    is_tsuchinoko_stream,
+)
 
-_ITER_RE = re.compile(r"^iter_\d{3}$")
-_STALE_POLL_LIMIT = 3
-_POLL_INTERVAL_MS = 2000
-
-# Palette for up to ~10 hyperparameter lines
-_LINE_COLORS = [
-    (31, 119, 180),   # muted blue
-    (255, 127, 14),   # orange
-    (44, 160, 44),    # green
-    (214, 39, 40),    # red
-    (148, 103, 189),  # purple
-    (140, 86, 75),    # brown
-    (227, 119, 194),  # pink
-    (127, 127, 127),  # gray
-    (188, 189, 34),   # olive
-    (23, 190, 207),   # cyan
-]
+_FIELD = "hyperparameters"
 
 
-def _discover_iterations(container: Any) -> list[str]:
-    return sorted(k for k in container.keys() if _ITER_RE.match(k))
+def read_hyperparameters(adaptive: Any) -> np.ndarray:
+    """Read the hyperparameter history as an ``(n_iterations, n_hp)`` array.
+
+    Blocking Tiled I/O -- call off the GUI thread.  Raises ``KeyError`` if
+    the stream has no ``hyperparameters`` array.
+    """
+    values = np.asarray(adaptive_field_node(adaptive, _FIELD).read(), dtype=float)
+    if values.ndim == 0:
+        values = values.reshape(1, 1)
+    elif values.ndim == 1:
+        values = values.reshape(-1, 1)
+    elif values.ndim > 2:
+        values = values.reshape(values.shape[0], -1)
+    if values.size:
+        values = values[:, ~np.isnan(values).all(axis=0)]
+    return values
 
 
 class AdaptivePlotVisualization(BaseVisualization):
     """Line plot of GP hyperparameters across adaptive iterations."""
 
     viz_name = "adaptive_plot"
-    viz_display_name = "Adaptive Plot"
+    viz_display_name = "GP Hyperparameters"
     viz_icon = "chart-line"
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
         self._adaptive: Any | None = None
-        self._iters: list[str] = []
-        self._iter_data: dict[str, np.ndarray] = {}
-        self._stale_count: int = 0
-
-        self._plot_widget: pg.PlotWidget | None = None
-        self._legend: pg.LegendItem | None = None
+        self._n_iterations: int = 0
         self._lines: list[pg.PlotDataItem] = []
-
-        self._poll_timer = QTimer(self)
-        self._poll_timer.setInterval(_POLL_INTERVAL_MS)
-        self._poll_timer.timeout.connect(self._poll_tick)
+        self._n_active: int = 0  # lines currently carrying data
+        self._future: QThreadFuture | None = None
+        self._refresh_pending: bool = False
 
         self._build_ui()
 
@@ -78,15 +86,28 @@ class AdaptivePlotVisualization(BaseVisualization):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(8)
+        # Length scales routinely span orders of magnitude.
+        self._log_btn = QPushButton("Log Y")
+        self._log_btn.setCheckable(True)
+        self._log_btn.setToolTip("Logarithmic value axis")
+        self._log_btn.toggled.connect(self._on_log_toggled)
+        toolbar.addWidget(self._log_btn)
+        toolbar.addStretch()
+        layout.addLayout(toolbar)
+
         self._plot_widget = pg.PlotWidget()
         plot_item = self._plot_widget.getPlotItem()
-        if plot_item:
-            plot_item.setLabel("bottom", "Iteration")
-            plot_item.setLabel("left", "Value")
-            plot_item.showGrid(x=True, y=True, alpha=0.3)
-
+        plot_item.setLabel("bottom", "Iteration")
+        plot_item.setLabel("left", "Value")
+        plot_item.showGrid(x=True, y=True, alpha=0.3)
+        # Clicking a legend entry toggles that line's visibility.
         self._legend = self._plot_widget.addLegend()
         layout.addWidget(self._plot_widget)
+
+    def _on_log_toggled(self, checked: bool) -> None:
+        self._plot_widget.getPlotItem().setLogMode(y=checked)
 
     # ------------------------------------------------------------------
     # BaseVisualization interface
@@ -94,16 +115,15 @@ class AdaptivePlotVisualization(BaseVisualization):
 
     @staticmethod
     def can_handle(run: Any) -> int:
-        """Return 70 for Tsuchinoko run with hyperparameters, 0 otherwise."""
+        """Return 70 for a Tsuchinoko run recording hyperparameters, else 0.
+
+        Deliberately below AdaptiveHeatmapVisualization's 90 so the heatmap
+        stays the default view; this one is offered in the dropdown.
+        """
         try:
             adaptive = run["adaptive"]
-            if adaptive.metadata.get("adaptive_engine") != "tsuchinoko":
-                return 0
-            # Check at least one iter has hyperparameters
-            for key in adaptive.keys():
-                if _ITER_RE.match(key):
-                    if "hyperparameters" in adaptive[key]:
-                        return 70
+            if is_tsuchinoko_stream(adaptive) and _FIELD in adaptive_data_keys(adaptive):
+                return 70
         except Exception:
             pass
         return 0
@@ -116,118 +136,113 @@ class AdaptivePlotVisualization(BaseVisualization):
 
     def set_stream(self, stream_name: str) -> None:
         self._stream_name = stream_name
+        self._adaptive = None
+        self._n_iterations = 0
+        self._clear_lines()
         if self._run is None:
             return
-
         try:
             self._adaptive = self._run["adaptive"]
         except Exception:
-            self._adaptive = None
             return
 
-        # Read all existing iterations
-        self._iters = _discover_iterations(self._adaptive)
-        self._iter_data.clear()
-        for iter_key in self._iters:
-            try:
-                node = self._adaptive[iter_key]
-                if "hyperparameters" in node:
-                    self._iter_data[iter_key] = np.asarray(node["hyperparameters"].read())
-            except Exception:
-                pass
-
-        self._stale_count = 0
-        self._poll_timer.start()
-
-        # Auto-pick field and render
         fields = self.get_fields()
         if fields:
             self.set_field(fields[0])
 
     def get_fields(self) -> list[str]:
-        """Return available plot-able field names."""
-        if self._iter_data:
-            return ["hyperparameters"]
+        if self._adaptive is not None and _FIELD in adaptive_data_keys(self._adaptive):
+            return [_FIELD]
         return []
 
     def set_field(self, field_name: str) -> None:
         self._field_name = field_name
-        self._rebuild_plot()
+        self.refresh()
 
     def refresh(self) -> None:
-        self._poll_tick()
-
-    # ------------------------------------------------------------------
-    # Polling
-    # ------------------------------------------------------------------
-
-    def _poll_tick(self) -> None:
+        """Re-read the hyperparameter history off the GUI thread."""
         if self._adaptive is None:
             return
+        if self._future is not None:
+            # A read is in flight; re-read once it lands so this push isn't lost.
+            self._refresh_pending = True
+            return
+        self._refresh_pending = False
+        adaptive = self._adaptive
+        future = QThreadFuture(
+            self._read_worker,
+            adaptive,
+            callback_slot=self._on_read_result,
+            except_slot=self._on_read_error,
+            log_exceptions=False,
+            name="adaptive-hyperparameters",
+        )
+        future.finished.connect(self._on_read_finished)
+        self._future = future
+        future.start()
 
-        new_iters = _discover_iterations(self._adaptive)
-        new_found = False
-        for iter_key in new_iters:
-            if iter_key not in self._iter_data:
-                try:
-                    node = self._adaptive[iter_key]
-                    if "hyperparameters" in node:
-                        self._iter_data[iter_key] = np.asarray(
-                            node["hyperparameters"].read()
-                        )
-                        new_found = True
-                except Exception:
-                    pass
+    # ------------------------------------------------------------------
+    # Worker / result handling
+    # ------------------------------------------------------------------
 
-        if new_found:
-            self._stale_count = 0
-            self._iters = new_iters
-            self._rebuild_plot()
-        else:
-            self._stale_count += 1
-            if self._stale_count >= _STALE_POLL_LIMIT:
-                self._poll_timer.stop()
-                logger.debug("AdaptivePlot: polling stopped (stale)")
+    @staticmethod
+    def _read_worker(adaptive: Any) -> tuple[Any, np.ndarray]:
+        # Module-level lookup so tests can patch read_hyperparameters.
+        return adaptive, read_hyperparameters(adaptive)
+
+    @gui_thread_only
+    def _on_read_result(self, result: tuple[Any, np.ndarray]) -> None:
+        adaptive, values = result
+        if adaptive is not self._adaptive:
+            return  # stream changed while the read was in flight
+        self._apply_hyperparameters(values)
+
+    def _on_read_error(self, exc: Exception) -> None:
+        logger.debug("AdaptivePlot: hyperparameter read failed: {}", exc)
+
+    @gui_thread_only
+    def _on_read_finished(self) -> None:
+        self._future = None
+        if self._refresh_pending:
+            self.refresh()
 
     # ------------------------------------------------------------------
     # Rendering
     # ------------------------------------------------------------------
 
-    def _rebuild_plot(self) -> None:
-        if not self._iter_data or self._plot_widget is None:
-            return
-
-        sorted_keys = sorted(self._iter_data.keys())
-        iters = [int(k.split("_")[1]) for k in sorted_keys]
-        values = np.array([self._iter_data[k] for k in sorted_keys])
-
+    def _apply_hyperparameters(self, values: np.ndarray) -> None:
+        values = np.asarray(values, dtype=float)
         if values.ndim == 1:
             values = values.reshape(-1, 1)
+        n_iter, n_hp = values.shape if values.ndim == 2 else (0, 0)
+        self._n_iterations = n_iter
 
-        n_hp = values.shape[1]
-        x = np.array(iters, dtype=float)
-
-        # Grow line list as needed
         while len(self._lines) < n_hp:
             idx = len(self._lines)
-            color = _LINE_COLORS[idx % len(_LINE_COLORS)]
-            pen = pg.mkPen(color=color, width=2)
-            line = self._plot_widget.plot([], [], pen=pen, name=f"hp[{idx}]")
+            line = pg.PlotDataItem(
+                pen=pg.mkPen(pg.series_pen(idx), width=2),
+                name=f"hp[{idx}]",
+                connect="finite",
+            )
+            self._plot_widget.addItem(line)
             self._lines.append(line)
 
-        # Update data
-        for i in range(n_hp):
-            self._lines[i].setData(x, values[:, i])
-            self._lines[i].setVisible(True)
+        # 1-based to match the heatmap's "Iteration k/N" label.
+        x = np.arange(1, n_iter + 1, dtype=float)
+        for i, line in enumerate(self._lines):
+            if i < n_hp:
+                line.setData(x, values[:, i])
+                # Only re-show lines *we* hid as excess; a line the user hid
+                # via its legend entry stays hidden across refreshes.
+                if i >= self._n_active:
+                    line.show()
+            else:
+                line.setData([], [])
+                line.hide()
+        self._n_active = n_hp
 
-        # Hide excess lines
-        for i in range(n_hp, len(self._lines)):
-            self._lines[i].setVisible(False)
-
-    # ------------------------------------------------------------------
-    # Cleanup
-    # ------------------------------------------------------------------
-
-    def closeEvent(self, event) -> None:
-        self._poll_timer.stop()
-        super().closeEvent(event)
+    def _clear_lines(self) -> None:
+        for line in self._lines:
+            line.setData([], [])
+            line.hide()
+        self._n_active = 0
