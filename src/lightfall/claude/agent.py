@@ -765,7 +765,9 @@ class QtClaudeAgent(QObject):
         Claude reads effort at construction only; its callers rebuild the agent.
         """
         self._effort = effort or None
-        if self._worker is not None and self._worker.isRunning() and self._is_connected:
+        running = self._worker is not None and self._worker.isRunning()
+        # agy: a worker still connecting holds the request until connect() is done.
+        if running and (self._is_connected or self._agy):
             self._worker.request_set_effort(self._effort)
             if self._agy:
                 import dataclasses
@@ -773,7 +775,7 @@ class QtClaudeAgent(QObject):
                 # Reset and reconnects rebuild from _session_config.
                 self._session_config = dataclasses.replace(
                     self._session_config, effort=self._effort)
-        elif self._agy and not (self._worker is not None and self._worker.isRunning()):
+        elif self._agy and not running:
             import dataclasses
 
             resume = (self._backend.conversation_id if self._backend is not None

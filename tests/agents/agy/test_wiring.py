@@ -587,3 +587,19 @@ def test_agy_set_model_while_connecting_reaches_worker(qtbot, prefs, root, sdk, 
     finally:
         agent._worker, agent._is_connected = None, False
         agent.stop()
+
+
+def test_agy_set_effort_while_connecting_reaches_worker(qtbot, prefs, root, sdk, agy_found):
+    prefs.values["agent_backend"] = "agy"
+    agent = _agent(qtbot, model="gemini-4-argon", effort="low")
+    try:
+        worker = _connect_mock_worker(agent)
+        agent._is_connected = False  # connect still in progress
+        backend = agent._backend
+        agent.set_effort("high")
+        worker.request_set_effort.assert_called_once_with("high")
+        assert agent._session_config.effort == "high"
+        assert agent._backend is backend
+    finally:
+        agent._worker, agent._is_connected = None, False
+        agent.stop()

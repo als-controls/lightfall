@@ -136,3 +136,25 @@ def test_set_model_while_connecting_applies_after_connect(qtbot):
     finally:
         w.stop()
         w.wait(3000)
+
+
+class _SlowConnectEffortBackend(_SlowConnectBackend):
+    def __init__(self):
+        super().__init__()
+        self.efforts = []  # (effort, connected-at-the-time)
+
+    async def set_effort(self, effort):
+        self.efforts.append((effort, self.connected))
+
+
+def test_set_effort_while_connecting_applies_after_connect(qtbot):
+    backend = _SlowConnectEffortBackend()
+    w = AgentWorker(backend)
+    try:
+        with qtbot.waitSignal(w.connected, timeout=5000):
+            w.start()
+            w.request_set_effort("high")  # before connect() has finished
+        qtbot.waitUntil(lambda: backend.efforts == [("high", True)], timeout=3000)
+    finally:
+        w.stop()
+        w.wait(3000)
