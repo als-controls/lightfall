@@ -14,7 +14,10 @@ class ServicePlugin(PluginType):
     The loader instantiates the plugin (singleton) and registers
     ``descriptor()`` with :class:`lightfall.services.manager.ServiceManager`.
     Registration does not start anything; a local service starts on the first
-    ``ServiceManager.ensure_started(name)``.
+    ``ServiceManager.ensure_started(name)``.  At runtime use
+    ``ServiceManager.stop_service(name)`` / ``restart(name)`` (e.g. a settings toggle, an
+    interpreter change, or a retry after a failure) and connect to
+    ``ServiceManager.client_created(name)`` to wire up each new client's signals.
 
     Local launch convention (``launch="local"``): ``descriptor.command`` is the
     invocation *without* the interpreter, e.g. ``("-m", "my_pkg.my_service")``. The

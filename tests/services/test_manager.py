@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import sys
 import threading
 import time
 from unittest.mock import MagicMock
@@ -88,7 +89,9 @@ def test_register_and_lazy_start_local_echo(qtbot, manager, tmp_path):
     assert st["scope"].startswith("t9test.host.")
     assert st["version"]
     assert st["last_error"] == ""
-    assert (tmp_path / "logs" / "services" / "echo.log").exists()
+    # One log per Lightfall instance (two Lightfalls on one host do not interleave).
+    log_name = f"echo-{manager.client_instance[:8]}.log"
+    assert (tmp_path / "logs" / "services" / log_name).exists()
     # A second ensure_started is a no-op.
     manager.ensure_started("echo")
     assert manager.client("echo") is client
@@ -156,16 +159,25 @@ def test_local_command_and_scope(qapp, qtbot, monkeypatch, tmp_path):
     qtbot.waitUntil(lambda: fake_client_cls.called, timeout=5000)
     kwargs = fake_client_cls.call_args.kwargs
     scope = kwargs["scope"]
-    # An empty ipc_topic_prefix falls back to "lightfall".
-    assert scope.startswith("lightfall.host.") and scope.endswith(m.client_instance)
+    # An unset ipc_topic_prefix uses IPCService's default, so external scopes match.
+    assert scope.startswith("als.7011.host.") and scope.endswith(m.client_instance)
     launcher = kwargs["launcher"]("tok123")
     assert launcher.session_token == "tok123"
     assert launcher._command == [
         "C:/py/python.exe", *ECHO_CMD, "--scope", scope,
         "--nats-url", "nats://127.0.0.1:4299", "--token-stdin",
     ]
-    assert launcher._log_path == tmp_path / "logs" / "services" / "echo.log"
+    assert launcher._log_path == (
+        tmp_path / "logs" / "services" / f"echo-{m.client_instance[:8]}.log"
+    )
     m.stop()
+
+
+def test_explicitly_empty_prefix_uses_lightfall_root(qapp, monkeypatch):
+    _patch_prefs(monkeypatch, {"ipc_topic_prefix": ""})
+    m = ServiceManager()
+    m.register(_echo_desc())
+    assert m.statuses()[0]["scope"].startswith("lightfall.host.")
 
 
 def test_port_taken_by_non_nats(qapp, qtbot, monkeypatch, tmp_path):
@@ -311,3 +323,162 @@ def test_register_emits_services_changed(qapp, qtbot, monkeypatch):
     m = ServiceManager()
     with qtbot.waitSignal(m.services_changed, timeout=1000):
         m.register(_echo_desc())
+
+
+# -- per-service lifecycle (stop_service / restart / client_created) ---------------------
+
+
+def test_stop_service_is_nonblocking_and_service_can_start_again(qtbot, manager):
+    created: list[str] = []
+    manager.client_created.connect(created.append)
+    manager.register(_echo_desc())
+    manager.ensure_started("echo")
+    client = _wait_client(qtbot, manager)
+    _wait_up(qtbot, client)
+    assert created == ["echo"]
+    proc = client.launcher._proc
+    t0 = time.monotonic()
+    manager.stop_service("echo")
+    assert time.monotonic() - t0 < 0.3  # the rpc.shutdown + grace run on a worker
+    assert manager.client("echo") is None
+    assert manager.statuses()[0]["health"] == "unknown"
+    manager.ensure_started("echo")  # while the old child is still stopping: deferred
+    assert manager.statuses()[0]["health"] == "starting"
+    qtbot.waitUntil(lambda: proc.returncode is not None, timeout=20000)
+    second = _wait_client(qtbot, manager, timeout=20000)
+    _wait_up(qtbot, second)
+    assert second is not client and created == ["echo", "echo"]
+    assert second.launcher._proc is not proc
+    assert second.call("echo", {"n": 2}).result(timeout=5)["echo"] == {"n": 2}
+
+
+def test_stop_service_unknown_raises(qapp, monkeypatch):
+    _patch_prefs(monkeypatch, {})
+    m = ServiceManager()
+    with pytest.raises(KeyError):
+        m.stop_service("nope")
+    with pytest.raises(KeyError):
+        m.restart("nope")
+
+
+def test_restart_retries_after_first_spawn_failure(qtbot, manager, tmp_path, monkeypatch):
+    prefs_values = {"services_local_port": manager.port_for_test, "ipc_topic_prefix": "t9test",
+                    "echo_python": str(tmp_path / "no-such-python.exe")}
+    _patch_prefs(monkeypatch, prefs_values)
+    manager.register(_echo_desc(interpreter_pref="echo_python"))
+    manager.ensure_started("echo")
+    client = _wait_client(qtbot, manager)
+    qtbot.waitUntil(lambda: client.health == "down", timeout=15000)
+    assert "start failed" in client.last_error
+    # The user fixes the interpreter preference, then retries.
+    prefs_values["echo_python"] = sys.executable
+    created: list[str] = []
+    manager.client_created.connect(created.append)
+    manager.restart("echo")
+    qtbot.waitUntil(lambda: created == ["echo"], timeout=20000)
+    second = manager.client("echo")
+    assert second is not client
+    _wait_up(qtbot, second)
+
+
+def test_restart_running_service_gets_new_child(qtbot, manager):
+    manager.register(_echo_desc())
+    manager.ensure_started("echo")
+    client = _wait_client(qtbot, manager)
+    _wait_up(qtbot, client)
+    old_iid = client.info["instance_id"]
+    manager.restart("echo")
+    assert manager.statuses()[0]["health"] == "starting"
+    qtbot.waitUntil(
+        lambda: manager.client("echo") not in (None, client), timeout=20000
+    )
+    second = manager.client("echo")
+    _wait_up(qtbot, second)
+    assert second.info["instance_id"] != old_iid
+
+
+def test_external_down_reports_hint(qapp, monkeypatch):
+    _patch_prefs(monkeypatch, {"ipc_topic_prefix": "als.7011"})
+    fake = MagicMock()
+    fake.health = "down"
+    fake.last_error = "meta.info: NoRespondersError"
+    fake.info = None
+    fake.scope = "als.7011"
+    monkeypatch.setattr(mgr_mod, "QtServiceClient", MagicMock(return_value=fake))
+    m = ServiceManager()
+    m.set_main_ipc_url("nats://127.0.0.1:4300")
+    m.register(ServiceDescriptor(name="ext", scope="{prefix}", contract="1.0", launch="external",
+                                 hint="start the runengine service on bl-server"))
+    m.start()
+    st = m.statuses()[0]
+    assert st["last_error"] == (
+        "meta.info: NoRespondersError (start the runengine service on bl-server)"
+    )
+    m.stop()
+
+
+# -- local broker recovery ----------------------------------------------------------------
+
+
+def test_own_broker_crash_is_recovered(qtbot, manager):
+    manager.register(_echo_desc())
+    manager.ensure_started("echo")
+    client = _wait_client(qtbot, manager)
+    _wait_up(qtbot, client)
+    first = manager._local_server
+    proc = client.launcher._proc
+    first.stop()  # the broker process dies
+    qtbot.waitUntil(
+        lambda: manager._local_server is not None and manager._local_server is not first
+        and manager._local_server.is_running(),
+        timeout=20000,
+    )
+    qtbot.waitUntil(lambda: client.broker_connected, timeout=30000)
+
+    def echoed() -> bool:
+        return client.call("echo", {"z": 1}).result(timeout=5).get("echo") == {"z": 1}
+
+    qtbot.waitUntil(echoed, timeout=30000)
+    assert client.launcher._proc is proc  # the child reconnected; no respawn needed
+
+
+def test_other_lightfalls_broker_exit_is_recovered(qapp, qtbot, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    port = _free_port()
+    _patch_prefs(monkeypatch, {"services_local_port": port, "ipc_topic_prefix": "t9test"})
+    other = LocalNatsServer(port=port, host="127.0.0.1")  # "another Lightfall's" broker
+    other.start(timeout_s=10.0)
+    m = ServiceManager()
+    try:
+        m.register(_echo_desc())
+        m.ensure_started("echo")
+        client = _wait_client(qtbot, m)
+        _wait_up(qtbot, client)
+        assert m._local_server is None  # reused, not owned
+        other.stop()  # that Lightfall exits
+        qtbot.waitUntil(
+            lambda: m._local_server is not None and m._local_server.is_running(),
+            timeout=20000,
+        )
+
+        def echoed() -> bool:
+            return client.call("echo", {"w": 1}).result(timeout=5).get("echo") == {"w": 1}
+
+        qtbot.waitUntil(echoed, timeout=30000)
+    finally:
+        m.stop()
+        other.stop()
+
+
+def test_unregister_stops_and_forgets(qapp, monkeypatch):
+    _patch_prefs(monkeypatch, {"ipc_nats_url": "nats://127.0.0.1:4222"})
+    fake = MagicMock()
+    monkeypatch.setattr(mgr_mod, "QtServiceClient", MagicMock(return_value=fake))
+    m = ServiceManager()
+    m.register(ServiceDescriptor(name="ext", scope="{prefix}", contract="1.0", launch="external"))
+    m.start()
+    m.unregister("ext")
+    m.unregister("ext")  # no-op
+    assert m.statuses() == [] and m.client("ext") is None
+    m.stop()  # joins the in-flight stop
+    fake.stop.assert_called_once()

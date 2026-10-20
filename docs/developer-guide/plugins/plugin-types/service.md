@@ -45,7 +45,32 @@ and writes the session token on stdin. The interpreter is the value of the prefe
 Local services always stop with Lightfall: `rpc.shutdown`, a 3 s grace, then terminate
 (`stop_with_client=False` is not honoured and logs a warning). A crashing service is restarted
 with backoff 1, 2, 5, 10 s; after 5 failures within 60 s it is reported `down` with its last
-stderr lines in the status bar tooltip.
+stderr lines in the status bar tooltip. A child that was `up` and then stops heartbeating
+while its process keeps running is killed and restarted the same way. Until a freshly
+launched child answers, its health is `starting` (not `down`): start the `ServiceHost` first
+and load heavy resources in the background, reporting progress through
+`host.set_state(state, summary)`. The child logs to
+`logs/services/<name>-<client instance[:8]>.log`.
+
+If the host-local broker dies (this Lightfall's own, or another Lightfall's that this one was
+using), the manager starts a broker on the same port and the clients and children reconnect.
+
+## Runtime control
+
+All of these return immediately (GUI thread):
+
+| Call | Effect |
+|------|--------|
+| `ensure_started(name)` | start if not running (local: lazily, after the broker answers) |
+| `stop_service(name)` | stop the client and, for a local service, the child (e.g. a settings toggle) |
+| `restart(name)` | stop if running, then start again: picks up a changed interpreter preference and retries after a give-up or a failed first spawn |
+| `unregister(name)` | stop it and forget the descriptor |
+| `client(name)` | the current `QtServiceClient`, or `None` |
+| `client_created(name)` signal | a new client exists: connect to its signals here |
+
+Connect to the client's `state_changed`, `info_changed` (service `state`/`summary`, e.g.
+loading/ready), `restarted` and `session_reset` (both mean "resync"), `event` (per-session,
+after `watch_event(name)`) and `public_event` (after `watch_public_event(name)`).
 
 For `launch="external"` the service is already running and is reached over the main broker;
 `command` is unused.
