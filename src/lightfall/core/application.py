@@ -265,6 +265,11 @@ class LFApplication(QObject):
             IPCService, lambda: self._create_ipc_service(trust_manager)
         )
 
+        # Out-of-process services (IPC services pattern); local ones start lazily.
+        from lightfall.services.manager import ServiceManager
+
+        self._services.register(ServiceManager, ServiceManager.get_instance)
+
         logger.debug("Core services registered")
 
     def set_main_window(self, window: QMainWindow) -> None:
@@ -350,6 +355,13 @@ class LFApplication(QObject):
             self._wire_session_trust()
         except Exception:
             logger.exception("Failed to wire session-trust teardown")
+
+        try:
+            from lightfall.services.manager import ServiceManager
+
+            self._services.get(ServiceManager).start()
+        except Exception:
+            logger.exception("Failed to start ServiceManager")
 
     def _wire_session_trust(self) -> None:
         """Scope IPC trust to the login session (spec: per-login-session trust).
@@ -626,6 +638,16 @@ class LFApplication(QObject):
                 remote.stop()
         except Exception:
             logger.exception("Error stopping RemoteControlService")
+
+        # Stop out-of-process services before the IPC service
+        try:
+            from lightfall.services.manager import ServiceManager
+
+            services = self._services.get(ServiceManager, None)
+            if services is not None:
+                services.stop()
+        except Exception:
+            logger.exception("Error stopping ServiceManager")
 
         # Stop IPC service before clearing the registry
         try:

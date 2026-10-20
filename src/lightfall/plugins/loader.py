@@ -736,6 +736,20 @@ class PluginLoader(QObject):
                     e,
                 )
 
+        elif plugin_info.type_name == "service":
+            try:
+                from lightfall.services.manager import ServiceManager
+
+                descriptor = plugin_info.instance.descriptor()
+                ServiceManager.get_instance().register(descriptor)
+                logger.debug(
+                    "Registered service '{}' with ServiceManager", descriptor.name
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to register service plugin '{}': {}", plugin_info.name, e
+                )
+
         elif plugin_info.type_name == "auth_provider":
             try:
                 from lightfall.auth.provider_registry import AuthProviderRegistry

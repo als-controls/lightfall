@@ -19,6 +19,7 @@ LOCAL_ONLY_KEYS: frozenset[str] = frozenset({
     "proxy_auto_detect_domains",
     "ca_tunnel_enabled", "ca_tunnel_gateway",
     "ipc_use_local_nats", "ipc_nats_url", "ipc_local_nats_port", "ipc_display_name",
+    "services_local_port",
     "telemetry_dsn",
     # This machine's tools, paths and history.
     "code_editor", "suppress_pycharm_warning", "device_happi_path", "recent_files",

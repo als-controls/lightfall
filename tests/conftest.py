@@ -220,6 +220,12 @@ def _reset_qt_service_singletons():
     except Exception:
         pass
     try:
+        from lightfall.services.manager import ServiceManager
+
+        ServiceManager.reset_instance()
+    except Exception:
+        pass
+    try:
         from lightfall.ui.theater.manager import theater_manager
 
         theater_manager._proxies.clear()
