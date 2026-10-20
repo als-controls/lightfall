@@ -1,6 +1,7 @@
 """Headless reference client for the Lightfall remote-control contract (v1).
 
-Deliberately raw nats-py with NO lightfall imports: this file is the
+Raw nats-py plus the shared ``private_auth_request`` helper (the auth.request
+handshake now lives on a per-instance private root): this file is the
 contract's reference consumer and the starting point for Spec #2's
 pystxmcontrol ``LightfallClient``.
 
@@ -20,6 +21,8 @@ from collections.abc import Callable
 from typing import Any
 
 import nats
+
+from lightfall_utils.ipc.capability import private_auth_request
 
 CONTRACT_VERSION = 1
 
@@ -43,6 +46,7 @@ class LightfallRemoteClient:
         self._app_version = app_version
         self._nc: nats.NATS | None = None
         self.session_token: str | None = None
+        self.session_subject: str | None = None
         self.tiled_url: str | None = None
         self.tiled_token: str | None = None
 
@@ -54,14 +58,15 @@ class LightfallRemoteClient:
 
         The 90 s default outlives Lightfall's 60 s trust-dialog timeout.
         """
-        msg = await self._nc.request(
-            f"{self._prefix}.auth.request",
-            json.dumps({"app_name": self._app_name, "app_version": self._app_version}).encode(),
+        reply = await private_auth_request(
+            self._nc,
+            self._prefix,
+            {"app_name": self._app_name, "app_version": self._app_version},
             timeout=timeout,
         )
-        reply = json.loads(msg.data.decode())
         if reply.get("status") == "approved":
             self.session_token = reply["session_token"]
+            self.session_subject = reply["session_subject"]
             self.tiled_url = reply.get("tiled_url")
             self.tiled_token = reply.get("tiled_token")
         return reply
@@ -70,7 +75,7 @@ class LightfallRemoteClient:
         """Request/reply on the capability channel; raise RemoteError on errors."""
         if self.session_token is None:
             raise RuntimeError("Not authenticated — call authenticate() first")
-        subject = f"{self._prefix}.session.{self.session_token}.{suffix}"
+        subject = f"{self.session_subject}.{suffix}"
         body = dict(payload or {})
         body.setdefault("contract_version", CONTRACT_VERSION)
         msg = await self._nc.request(subject, json.dumps(body).encode(), timeout=timeout)

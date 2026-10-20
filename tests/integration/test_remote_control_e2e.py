@@ -96,13 +96,11 @@ def lf(qapp, nats_url, monkeypatch):
     def handle_auth(subject, data, reply):
         app_name = data.get("app_name", "unknown")
         if ipc.evaluate_trust(app_name) == TrustState.APPROVED:
-            resp = {"status": "approved", "contract_version": 1}
-            resp["session_token"] = ipc.mint_session_channel(app_name)
-            ipc.reply(reply, resp)
+            ipc.reply(reply, ipc.build_auth_response(approved=True, app_name=app_name))
         else:
             ipc.reply(reply, {"status": "denied", "contract_version": 1})
 
-    ipc.register_action("auth.request", handle_auth, main_thread=False)
+    ipc.register_action("auth.request", handle_auth, main_thread=False, private=True)
 
     # Real engine + sim device
     from lightfall.acquire.engine import get_engine, reset_engine
@@ -220,6 +218,8 @@ def test_full_contract_flow(lf, client):
     assert auth["status"] == "approved"
     assert auth["contract_version"] == 1
     assert client.client.session_token
+    assert client.client.session_subject.endswith(f".session.{client.client.session_token}")
+    assert client.client.session_subject.startswith(lf.ipc.priv_root)
 
     # 2. Bare-subject call is rejected
     bare = client.run(client.client.call_bare("commands.engine.status", {}))

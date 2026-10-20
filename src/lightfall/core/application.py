@@ -326,6 +326,7 @@ class LFApplication(QObject):
             "auth.request",
             self._handle_ipc_auth_request,
             description="Trust handshake + token sharing",
+            private=True,
         )
         logger.info("IPC service started")
 

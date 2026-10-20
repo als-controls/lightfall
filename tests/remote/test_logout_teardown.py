@@ -8,6 +8,7 @@ from lightfall.auth.session import AuthState
 from lightfall.core.application import LFApplication
 from lightfall.ipc.service import IPCService
 from lightfall.ipc.trust import TrustManager
+from lightfall_utils.ipc.capability import new_capability
 
 
 class _FakeRegistry:
@@ -33,6 +34,7 @@ def _make_ipc() -> IPCService:
     ipc._nc = None
     ipc._connected = False
     ipc._connected_lock = threading.Lock()
+    ipc._capability = new_capability()
     ipc.publish = lambda subject, data: None  # type: ignore[method-assign]
     return ipc
 

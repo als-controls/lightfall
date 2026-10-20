@@ -12,6 +12,7 @@ from __future__ import annotations
 import threading
 
 from lightfall.ipc.service import IPCService
+from lightfall_utils.ipc.capability import new_capability
 
 
 def _make_ipc(prefix: str = "als.test") -> tuple[IPCService, list[tuple[str, dict]]]:
@@ -30,6 +31,7 @@ def _make_ipc(prefix: str = "als.test") -> tuple[IPCService, list[tuple[str, dic
     ipc._nc = None
     ipc._connected = False
     ipc._connected_lock = threading.Lock()
+    ipc._capability = new_capability()
 
     sent: list[tuple[str, dict]] = []
     ipc.publish = lambda subject, data: sent.append((subject, data))  # type: ignore[method-assign]
@@ -70,4 +72,4 @@ class TestAuthResponse:
         assert resp["tiled_url"] == "http://t"
         assert resp["session_id"] == "user-1"
         token = resp["session_token"]
-        assert f"als.test.session.{token}.>" in ipc._subscriptions
+        assert f"{ipc.priv_root}.session.{token}.>" in ipc._subscriptions

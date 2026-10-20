@@ -80,3 +80,16 @@ class TestPingResponse:
         assert resp["hostname"] == "tsuru"
         assert resp["status"] == "ready"
         assert "queue_depth" in resp
+
+
+class TestRunConnect:
+    def test_run_connects_with_capability_kwargs(self):
+        svc = ExporterService(nats_url="nats://localhost:4222", hostname="testhost")
+        nc = MagicMock()
+        nc.subscribe = AsyncMock()
+        svc._process_jobs = AsyncMock()
+        with patch("lightfall.exporter.service.nats.connect", AsyncMock(return_value=nc)) as conn:
+            asyncio.run(svc.run())
+        kwargs = conn.call_args.kwargs
+        assert kwargs["token"]
+        assert kwargs["inbox_prefix"]

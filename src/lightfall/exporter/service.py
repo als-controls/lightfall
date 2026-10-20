@@ -13,6 +13,7 @@ import nats
 
 from lightfall.exporter.converters import CONVERTERS, get_converter
 from lightfall.exporter.tiled_utils import connect_tiled, get_run
+from lightfall_utils.ipc.capability import new_capability
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,7 @@ class ExporterService:
 
     async def run(self) -> None:
         """Connect to NATS, subscribe, and process jobs until stopped."""
-        self._nc = await nats.connect(self._nats_url)
+        self._nc = await nats.connect(self._nats_url, **new_capability().connect_kwargs())
         logger.info("Connected to NATS at %s", self._nats_url)
 
         await self._nc.subscribe(self.job_subject, cb=self._handle_job_request)
