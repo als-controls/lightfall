@@ -145,7 +145,7 @@ connection may subscribe to on bcgnats (see the [NATS Use Model](nats-use-model.
   not stop that. It **can** still answer public discovery with its own `priv_root` and impersonate
   an instance to a client that believes it, forge replies to any public request, and read and race
   the legacy public request subjects of other services. These gaps are accepted
-  until CSM registration provides service identity (GitLab work item: TBD). The bundled
+  until CSM registration provides service identity (GitLab work item [ncs/lightfall#1](https://git.als.lbl.gov/ncs/lightfall/-/work_items/1), internal). The bundled
   `LocalNatsServer` (used for local/offline development) listens on 127.0.0.1, runs **plaintext with
   no callout**, and trusts everything on the host; do not point external, untrusted clients at it.
 

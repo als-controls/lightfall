@@ -238,7 +238,7 @@ The root must start with a literal token. Prefer putting new subjects under an e
   its own `_PRIV` root and impersonate a service to a client that believes it. This is the
   same gap as having no service identity. The intended fix is CSM registration, for example by
   letting clients check a discovered root against a registry. Accepted on 2026-10-19.
-  (GitLab work item: TBD)
+  (GitLab work item [ncs/lightfall#1](https://git.als.lbl.gov/ncs/lightfall/-/work_items/1), internal)
 - **Replies to public requests can be forged.** Any connection can inject a message into
   another connection's inbox by reflection through `allow_responses` if it can predict the reply
   subject, and nats.py's `request()` reply subjects are predictable. That covers every public
