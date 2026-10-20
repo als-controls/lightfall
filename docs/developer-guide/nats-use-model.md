@@ -76,7 +76,8 @@ vendored copy: change `lightfall_utils/ipc/capability.py`, then re-copy it every
 
 Repositories that vendor it today: lightfall-mcp-bridge, lightfall-logbook, lightfall-pipelines,
 lightfall-deck, lightfall-saxs (`saxs-worker`), stxm-live, catfish (Camphor), simulator
-(`prelude-core`), tsuchinoko, xpcs_live, shussebora and Xi-CAM `caproxy`. Lightfall itself and its
+(`prelude-core`), tsuchinoko, xpcs_live, shussebora, Xi-CAM `caproxy` and pystxmcontrol
+(`pystxmcontrol/remote`, the `stxmcontrol-remote` Lightfall client). Lightfall itself and its
 exporter import it from `lightfall-utils`.
 
 ## Subject classes
