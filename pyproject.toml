@@ -79,7 +79,7 @@ dependencies = [
     # which mcp 2 depends on.
     "mcp>=2.3,<3",
     "happi>=2.0",
-    "nats-py>=2.0",
+    "nats-py>=2.1",
     "lightfall-utils>=0.2.0",
     "lightfall-settings>=0.1.3,<0.2",
 ]
@@ -236,7 +236,7 @@ requires = [
     "aiohttp-socks>=0.8",
     "httpx[socks]>=0.27",
     "PySocks>=1.7",
-    "nats-py>=2.0",
+    "nats-py>=2.1",
 
     # EPICS
     "caproto>=1.1",
