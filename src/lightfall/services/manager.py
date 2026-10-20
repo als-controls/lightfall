@@ -6,17 +6,21 @@ one :class:`~lightfall_utils.ipc.services.qt.QtServiceClient`:
 - **Local** services (``launch="local"``) start lazily, on the first
   :meth:`ServiceManager.ensure_started`. The manager makes sure a host-local NATS broker
   answers on ``127.0.0.1:<services_local_port>`` (default 4223): if ``probe_nats`` fails it
-  starts a :class:`LocalNatsServer` and owns it. The child is launched by a
-  :class:`LocalLauncher` with
+  starts a :class:`LocalNatsServer` and owns it. The probe/start runs on a worker thread
+  (the GUI never blocks on it); meanwhile the service reports ``starting``. A failed
+  attempt is not retried for :data:`BROKER_RETRY_S` seconds. Once the broker answers, the
+  child is launched by a :class:`LocalLauncher` with
   ``[interpreter, *descriptor.command, "--scope", <scope>, "--nats-url", <url>,
   "--token-stdin"]`` and logs to ``<cwd>/logs/services/<name>.log``. Plain ``nats://``,
   no TLS.
 - **External** services (``launch="external"``) are connected when :meth:`start` runs
-  (or on registration after it), through Lightfall's main IPC broker URL, with a default
-  TLS context unless that URL is local.
+  (or on registration after it), through Lightfall's main IPC broker URL (the URL of the
+  running :class:`IPCService`, see :meth:`set_main_ipc_url`), with a default TLS context
+  unless that URL is local.
 
-:meth:`stop` stops every client: local children get ``rpc.shutdown`` and a 3 s grace
-(unless the descriptor says ``stop_with_client=False``), then an owned broker is stopped.
+:meth:`stop` stops every client concurrently: local children always get ``rpc.shutdown``
+and a 3 s grace (a local child exits on stdin EOF, so ``stop_with_client=False`` cannot be
+honoured for local services), then an owned broker is stopped.
 """
 
 from __future__ import annotations
@@ -25,7 +29,9 @@ import socket
 import ssl
 import sys
 import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import ClassVar
 from urllib.parse import urlparse
@@ -37,10 +43,13 @@ from lightfall_utils.ipc.local_server import LocalNatsServer, NatsPortInUseError
 from lightfall_utils.ipc.services.descriptor import ServiceDescriptor
 from lightfall_utils.ipc.services.launcher import LocalLauncher
 from lightfall_utils.ipc.services.qt import QtServiceClient
+from lightfall_utils.threads import initialize_main_thread_invoker, invoke_in_main_thread
 
 DEFAULT_LOCAL_PORT = 4223
 DEFAULT_SCOPE_PREFIX = "lightfall"
 PROBE_TIMEOUT_S = 1.0
+BROKER_RETRY_S = 10.0
+_BROKER_JOIN_S = 8.0
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
@@ -62,6 +71,25 @@ def _is_local_url(url: str) -> bool:
         return False
 
 
+def _probe_or_start_broker(port: int) -> tuple[str | None, LocalNatsServer | None, str]:
+    """Worker-thread body: ``(url, owned_server, error)``; ``url`` is None on failure."""
+    url = f"nats://127.0.0.1:{port}"
+    if probe_nats("127.0.0.1", port, PROBE_TIMEOUT_S) is not None:
+        return url, None, ""
+    server = LocalNatsServer(port=port)
+    try:
+        server.start()
+    except NatsPortInUseError:
+        if probe_nats("127.0.0.1", port, PROBE_TIMEOUT_S) is None:
+            return None, None, f"local broker port {port} unavailable"
+        return url, None, ""  # another Lightfall won the race; use its broker
+    except Exception as e:
+        logger.exception("Failed to start services local nats-server")
+        return None, None, f"local broker failed to start: {e}"
+    logger.info("Started services local nats-server on 127.0.0.1:{}", port)
+    return url, server, ""
+
+
 class ServiceManager(QObject):
     """Registry and lifecycle owner for out-of-process services."""
 
@@ -77,9 +105,17 @@ class ServiceManager(QObject):
         self._clients: dict[str, QtServiceClient] = {}
         self._errors: dict[str, str] = {}  # status overrides for services with no client
         self._started = False
-        self._local_server: LocalNatsServer | None = None
-        self._local_url: str | None = None  # set once the local broker answers
         self._prefix: str | None = None
+        self._main_url: str | None = None
+        # local broker (all fields touched on the main thread only)
+        self._local_server: LocalNatsServer | None = None
+        self._local_url: str | None = None
+        self._broker_thread: threading.Thread | None = None
+        self._broker_result: tuple[str | None, LocalNatsServer | None, str] | None = None
+        self._broker_gen = 0
+        self._broker_error = ""
+        self._broker_failed_at: float | None = None
+        self._pending: set[str] = set()  # local services waiting for the broker
 
     # -- singleton ----------------------------------------------------------------------
 
@@ -99,6 +135,10 @@ class ServiceManager(QObject):
             inst.stop()
 
     # -- configuration ------------------------------------------------------------------
+
+    def set_main_ipc_url(self, url: str) -> None:
+        """Use ``url`` (the running IPCService's URL) for external services."""
+        self._main_url = url
 
     def _scope_prefix(self) -> str:
         if self._prefix is None:
@@ -129,18 +169,13 @@ class ServiceManager(QObject):
             )
             return DEFAULT_LOCAL_PORT
 
-    @staticmethod
-    def _main_ipc_url() -> str:
+    def _main_ipc_url(self) -> str:
+        if self._main_url is not None:
+            return self._main_url
+        # Not wired to a running IPCService (e.g. a test or a headless use): the pref.
         from lightfall.ipc.defaults import DEFAULT_IPC_NATS_URL
 
-        prefs = _prefs()
-        if prefs.get("ipc_use_local_nats", False):
-            try:
-                port = int(prefs.get("ipc_local_nats_port", 4222))
-            except (TypeError, ValueError):
-                port = 4222
-            return f"nats://127.0.0.1:{port}"
-        return str(prefs.get("ipc_nats_url", DEFAULT_IPC_NATS_URL) or "")
+        return str(_prefs().get("ipc_nats_url", DEFAULT_IPC_NATS_URL) or "")
 
     @staticmethod
     def _interpreter(desc: ServiceDescriptor) -> str:
@@ -161,11 +196,17 @@ class ServiceManager(QObject):
     def register(self, descriptor: ServiceDescriptor) -> None:
         """Register a service. External services connect now if :meth:`start` has run."""
         name = descriptor.name
+        if descriptor.launch == "local" and not descriptor.stop_with_client:
+            logger.warning(
+                "Service {!r}: stop_with_client=False is ignored for local services "
+                "(the child exits when its launcher's stdin closes)",
+                name,
+            )
         if name in self._descriptors:
             logger.warning("Service {!r} already registered; replacing descriptor", name)
             old = self._clients.pop(name, None)
             if old is not None:
-                self._stop_client(name, old)
+                self._stop_clients({name: old})
         self._descriptors[name] = descriptor
         self._errors.pop(name, None)
         if self._started and descriptor.launch == "external":
@@ -173,21 +214,39 @@ class ServiceManager(QObject):
         self.services_changed.emit()
 
     def client(self, name: str) -> QtServiceClient | None:
+        """The client for ``name``, or None if it is unknown or not started yet."""
         return self._clients.get(name)
 
     def ensure_started(self, name: str) -> None:
-        """Start ``name`` if it is not running yet (local services start here, lazily)."""
-        desc = self._descriptors[name]  # KeyError for unknown services
+        """Start ``name`` if it is not running yet; returns immediately.
+
+        Local services start here, lazily: the broker probe/start runs on a worker
+        thread and the client is created on the GUI thread once the broker answers.
+
+        Raises:
+            KeyError: ``name`` is not registered.
+        """
+        desc = self._descriptors[name]
         if name in self._clients:
             return
         if desc.launch == "external":
             self._start_external(desc)
             return
-        url = self._ensure_local_broker()
-        if url is None:
+        if self._local_url is not None:
+            self._start_local(desc, self._local_url)
+            return
+        if (
+            self._broker_failed_at is not None
+            and time.monotonic() - self._broker_failed_at < BROKER_RETRY_S
+        ):
+            self._errors[name] = self._broker_error  # rate-limited: report the last failure
             self.services_changed.emit()
             return
-        self._start_local(desc, url)
+        self._errors.pop(name, None)
+        self._pending.add(name)
+        if self._broker_thread is None:
+            self._launch_broker_attempt()
+        self.services_changed.emit()
 
     def statuses(self) -> list[dict]:
         out: list[dict] = []
@@ -201,6 +260,8 @@ class ServiceManager(QObject):
                 info = client.info or {}
                 health, last_error = client.health, client.last_error
                 version = info.get("version", "")
+            elif name in self._pending:
+                health, last_error, version = "starting", "", ""
             elif name in self._errors:
                 health, last_error, version = "down", self._errors[name], ""
             else:
@@ -224,76 +285,108 @@ class ServiceManager(QObject):
                 self._start_external(desc)
 
     def stop(self) -> None:
-        """Stop every client, then a local broker this manager started. Idempotent."""
+        """Stop every client (concurrently), then a broker this manager started. Idempotent."""
         self._started = False
+        self._pending.clear()
+        self._broker_gen += 1  # any queued broker completion is now stale
+        thread, self._broker_thread = self._broker_thread, None
+        if thread is not None:
+            thread.join(_BROKER_JOIN_S)
+            result, self._broker_result = self._broker_result, None
+            if result is not None and result[1] is not None:
+                self._stop_server(result[1])  # the in-flight attempt started a broker
         clients, self._clients = self._clients, {}
-        for name, client in clients.items():
-            self._stop_client(name, client)
+        self._stop_clients(clients)
         server, self._local_server = self._local_server, None
         self._local_url = None
         if server is not None:
-            try:
-                server.stop()
-            except Exception:
-                logger.exception("Error stopping the services local nats-server")
+            self._stop_server(server)
         if clients:
             self.services_changed.emit()
 
-    # -- internals ----------------------------------------------------------------------
+    # -- internals: broker --------------------------------------------------------------
 
-    def _stop_client(self, name: str, client: QtServiceClient) -> None:
-        desc = self._descriptors.get(name)
-        if desc is not None and desc.launch == "local" and not desc.stop_with_client:
-            # stop_with_client=False: leave the child running. QtServiceClient.stop()
-            # always stops its launcher, so detach the launcher first and only close the
-            # client connection. (The child still exits when this process ends, since
-            # its stdin pipe closes.)
-            client._launcher = None
+    def _launch_broker_attempt(self) -> None:
+        initialize_main_thread_invoker()
+        self._broker_gen += 1
+        gen, port = self._broker_gen, self._local_port()
+        self._broker_result = None
+
+        def run() -> None:
+            try:
+                result = _probe_or_start_broker(port)
+            except Exception as e:  # never leave the attempt hanging
+                result = (None, None, f"local broker failed to start: {e}")
+            self._broker_result = result
+            invoke_in_main_thread(self._on_broker_done, gen)
+
+        t = threading.Thread(target=run, name="svc-local-broker", daemon=True)
+        self._broker_thread = t
+        t.start()
+
+    def _on_broker_done(self, gen: int) -> None:
+        if gen != self._broker_gen:
+            return  # stale (stop() ran, and handled any started broker)
+        thread, self._broker_thread = self._broker_thread, None
+        if thread is not None:
+            thread.join(1.0)
+        result, self._broker_result = self._broker_result, None
+        if result is None:
+            return
+        url, server, error = result
+        pending, self._pending = self._pending, set()
+        if url is None:
+            logger.error("Services local broker: {}", error)
+            self._broker_error = error
+            self._broker_failed_at = time.monotonic()
+            for name, desc in self._descriptors.items():
+                if desc.launch == "local" and name not in self._clients:
+                    self._errors[name] = error
+            self.services_changed.emit()
+            return
+        self._local_url = url
+        self._local_server = server
+        self._broker_failed_at = None
+        for name in sorted(pending):
+            desc = self._descriptors.get(name)
+            if desc is not None and name not in self._clients:
+                self._start_local(desc, url)
+        self.services_changed.emit()
+
+    @staticmethod
+    def _stop_server(server: LocalNatsServer) -> None:
         try:
-            client.stop()
+            server.stop()
         except Exception:
-            logger.exception("Error stopping service client {!r}", name)
-        try:
-            client.state_changed.disconnect(self._on_client_state)
-        except (RuntimeError, TypeError):
-            pass
-        client.deleteLater()
+            logger.exception("Error stopping the services local nats-server")
+
+    # -- internals: clients -------------------------------------------------------------
+
+    def _stop_clients(self, clients: dict[str, QtServiceClient]) -> None:
+        """Stop ``clients`` in parallel (each blocks for its rpc.shutdown + grace)."""
+        if not clients:
+            return
+
+        def stop_one(item: tuple[str, QtServiceClient]) -> None:
+            name, client = item
+            try:
+                client.stop()
+            except Exception:
+                logger.exception("Error stopping service client {!r}", name)
+
+        with ThreadPoolExecutor(
+            max_workers=min(8, len(clients)), thread_name_prefix="svc-stop"
+        ) as pool:
+            list(pool.map(stop_one, clients.items()))
+        for client in clients.values():
+            try:
+                client.state_changed.disconnect(self._on_client_state)
+            except (RuntimeError, TypeError):
+                pass
+            client.deleteLater()
 
     def _on_client_state(self, _health: str) -> None:
         self.services_changed.emit()
-
-    def _ensure_local_broker(self) -> str | None:
-        """Return the local broker URL, starting a broker if nothing answers; None on failure."""
-        if self._local_url is not None:
-            return self._local_url
-        port = self._local_port()
-        url = f"nats://127.0.0.1:{port}"
-        if probe_nats("127.0.0.1", port, PROBE_TIMEOUT_S) is None:
-            server = LocalNatsServer(port=port)
-            try:
-                server.start()
-                self._local_server = server
-                logger.info("Started services local nats-server on 127.0.0.1:{}", port)
-            except NatsPortInUseError:
-                if probe_nats("127.0.0.1", port, PROBE_TIMEOUT_S) is None:
-                    self._mark_local_down(f"local broker port {port} unavailable")
-                    return None
-                # Another Lightfall won the race; use its broker.
-            except Exception as e:
-                logger.exception("Failed to start services local nats-server")
-                self._mark_local_down(f"local broker failed to start: {e}")
-                return None
-        self._local_url = url
-        for name, desc in self._descriptors.items():
-            if desc.launch == "local":
-                self._errors.pop(name, None)
-        return url
-
-    def _mark_local_down(self, error: str) -> None:
-        logger.error("Services local broker: {}", error)
-        for name, desc in self._descriptors.items():
-            if desc.launch == "local" and name not in self._clients:
-                self._errors[name] = error
 
     def _start_local(self, desc: ServiceDescriptor, url: str) -> None:
         try:
@@ -330,6 +423,10 @@ class ServiceManager(QObject):
 
     def _start_external(self, desc: ServiceDescriptor) -> None:
         url = self._main_ipc_url()
+        if not url:
+            self._errors[desc.name] = "main IPC broker URL is not configured"
+            self.services_changed.emit()
+            return
         try:
             scope = self._scope(desc)
         except ValueError as e:

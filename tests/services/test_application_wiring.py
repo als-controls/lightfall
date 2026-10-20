@@ -31,8 +31,10 @@ def test_start_ipc_starts_manager_last():
     for name in dir(LFApplication):
         if name.startswith("_wire_"):
             setattr(app, name, lambda *a, **k: order.append("wire"))
+    ipc.nats_url = "nats://site:4222"
     app._start_ipc()
     assert order[0] == "ipc" and order[-1] == "services"
+    manager.set_main_ipc_url.assert_called_once_with("nats://site:4222")
 
 
 def test_shutdown_stops_manager_before_ipc():

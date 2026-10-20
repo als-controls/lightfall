@@ -359,7 +359,10 @@ class LFApplication(QObject):
         try:
             from lightfall.services.manager import ServiceManager
 
-            self._services.get(ServiceManager).start()
+            services = self._services.get(ServiceManager)
+            # External services use the same broker URL as the running IPCService.
+            services.set_main_ipc_url(ipc.nats_url)
+            services.start()
         except Exception:
             logger.exception("Failed to start ServiceManager")
 

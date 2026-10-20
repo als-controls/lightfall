@@ -28,10 +28,10 @@ class ServicePlugin(PluginType):
     ``sys.executable``. The service gets its session token as one line on stdin and
     should exit when stdin closes (see ``lightfall_utils.ipc.services.cli``).
 
-    ``descriptor.stop_with_client``: when True (default) Lightfall's shutdown sends
-    ``rpc.shutdown`` and, after a 3 s grace, terminates the child. When False the
-    manager only closes its client connection and leaves the child running (it still
-    sees stdin EOF when the Lightfall process itself exits).
+    Lightfall's shutdown always sends a local child ``rpc.shutdown`` and, after a 3 s
+    grace, terminates it. ``descriptor.stop_with_client=False`` cannot be honoured for
+    local services (the child exits on stdin EOF and is private to its launcher); the
+    manager logs a warning when such a descriptor is registered.
 
     External services (``launch="external"``) are reached over Lightfall's main IPC
     broker; ``command`` is unused.
