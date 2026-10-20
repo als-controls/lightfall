@@ -23,7 +23,7 @@ Each beamline runs its **own**:
 | Component | Role | Notes |
 |-----------|------|-------|
 | **Lightfall GUI** | The application itself, one process per operator console | `pip install lightfall`; Python 3.11+ |
-| **NATS subjects** | The beamline's slice of the message bus | The broker itself can be shared facility-wide; beamlines are separated by topic prefix (e.g. `als.7011`) |
+| **NATS subjects** | The beamline's slice of the message bus | The broker itself can be shared facility-wide (bcgnats); beamlines are separated by topic prefix (e.g. `als.7011`). Subject isolation between connections comes from the broker's auth callout, not from the prefix — see [NATS Use Model](nats-use-model.md) |
 | **EPICS IOCs / devices** | The actual hardware layer | Lightfall coexists with existing control systems — both address the same EPICS process variables over Channel Access, so adoption can be incremental |
 | **Beamline plugin repository** | Beamline-specific panels, plans, settings, themes | Installed into the Lightfall environment as a Python package; see [External Packages](plugins/external-packages.md) |
 | **Autonomous engine** (optional) | e.g. [Tsuchinoko](https://github.com/lbl-camera/tsuchinoko) for adaptive experiments | Connects over NATS like any external client |
@@ -41,6 +41,8 @@ User-facing settings live in `PreferencesManager` and are edited in the Preferen
 | `ipc_nats_url` | `nats://bcgnats.als.private.lbl.gov:4222` | NATS broker URL; an empty string disables IPC entirely |
 | `ipc_topic_prefix` | `als.7011` | Prefix prepended to every published/subscribed subject — set this per beamline |
 | `ipc_display_name` | *(empty)* | Human-readable name for this instance, shown to discovery clients |
+
+bcgnats authorizes every connection through a stateless **auth callout** (`nats-auth-callout.service` on the broker host). A client must send a random capability secret as its connect token and connect with the matching `_INBOX.<p>` inbox prefix; Lightfall does this automatically, and so do the updated beamline services. A client that doesn't (an old build, a stock `nats` CLI without `--token` and `--inbox-prefix`) is rejected or can't receive replies. Nothing has to be configured per installation and no credentials are issued. The bundled local broker (`LocalNatsServer`, 127.0.0.1 only) has no callout and trusts the host. Details: [NATS Use Model](nats-use-model.md).
 
 **Tiled** (`tiled_settings.py`):
 
@@ -119,7 +121,7 @@ The embedded Claude agent needs Anthropic credentials on each machine: set the `
 For evaluation, none of the facility services are required: install, launch, continue as guest, and use the mock device backend. Adding services is incremental from there —
 
 1. **Tiled** — point `tiled_url` at a Tiled server; runs are cataloged and browseable. For evaluation, a stock local server works with the API-key auth mode: `pip install "tiled[server]"`, then `tiled serve catalog --temp --api-key=secret` (see [Your First Session](../user-guide/first-session.md)).
-2. **NATS** — point `ipc_nats_url` at a broker and choose a `ipc_topic_prefix`; external clients can now submit plans and watch runs.
+2. **NATS** — point `ipc_nats_url` at a broker and choose a `ipc_topic_prefix`; external clients can now submit plans and watch runs. Against bcgnats, clients must use the connection capability described in the [NATS Use Model](nats-use-model.md).
 3. **Keycloak** — configure `auth.provider` in YAML; logins now mint per-service API keys, and runs are access-stamped per user and ESAF.
 4. **Logbook server** — point `logbook_url` at the facility logbook; local entries begin syncing.
 5. **Telemetry** — set a DSN once an error-tracking server exists.

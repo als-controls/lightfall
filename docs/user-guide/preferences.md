@@ -80,6 +80,12 @@ NATS message-broker connection for inter-process features (e.g. Tsuchinoko
 adaptive experiments, cross-instance notifications): server URL, topic
 prefix, display name, with a connection status indicator.
 
+The beamline broker (bcgnats) only accepts clients that present a
+connection capability token. Lightfall generates one automatically each time
+it starts, so there is nothing to enter here. External tools that connect to
+the same broker need a current, token-capable build; see the
+[NATS Use Model](../developer-guide/nats-use-model.md).
+
 ## Assistant
 
 API endpoint and credentials (API key or Claude Code OAuth), model

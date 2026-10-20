@@ -14,15 +14,19 @@ exposes a catalog of registered actions and events.
 Key responsibilities:
 
 - **Connection lifecycle** — `start()` opens a TLS connection on a background daemon thread;
-  `stop()` drains and closes it.
+  `stop()` drains and closes it. The connection carries a per-instance capability (connect
+  `token` plus `inbox_prefix="_INBOX.<p>"`, see the [NATS Use Model](nats-use-model.md)), and
+  `priv_root` is the instance's private subject root `_PRIV.<p>`.
 - **Topic builder** — `topic(suffix)` prepends the configured `topic_prefix`
   (e.g. `"als.7011"`) to form the full NATS subject.
 - **Action catalog** — `register_action(suffix, callback)` subscribes to a request/reply subject
-  and records the action in a catalog that can be discovered via `meta.actions`.
+  and records the action in a catalog that can be discovered via `meta.actions`. With
+  `private=True` the subject is `{priv_root}.{suffix}` instead of `{prefix}.{suffix}`.
 - **Event catalog** — `register_event(suffix)` records an outbound event without creating a
   subscription. Discoverable via `meta.events`.
 - **Meta-discovery** — `register_meta_endpoints()` automatically registers the `meta.actions` and
-  `meta.events` request/reply endpoints so clients can enumerate all available actions and events.
+  `meta.events` request/reply endpoints so clients can enumerate all available actions and events,
+  and subscribes `_lightfall.discover`. All three replies include `priv_root`.
 - **Auth helpers** — `set_trust_manager()`, `evaluate_trust()`, and `build_auth_response()` support
   the trust handshake flow.
 - **Qt signal** — `sigConnectionChanged(bool)` is emitted on the Qt main thread whenever the
@@ -89,16 +93,23 @@ The plugin also displays a live connection status label and a "Trusted Applicati
 NATS core messages carry no sender identity — any process that can reach the broker can publish
 to any subject. Because of this, the per-session **private subject** minted after a successful
 auth handshake *is* the authentication mechanism for command traffic, not an optional add-on.
+Every private subject lives under the instance's private root `_PRIV.<p>`, which only this
+connection may subscribe to on bcgnats (see the [NATS Use Model](nats-use-model.md)).
 
+- **Discovery**: `_lightfall.discover`, `{prefix}.meta.actions` and `{prefix}.meta.events` are
+  public and advertise `priv_root`. They are the only pre-handshake surface clients need.
+- **Handshake subject**: `LFApplication` registers `auth.request` with `private=True`, so it is
+  served at `{priv_root}.auth.request`, not `{prefix}.auth.request`. Only this instance receives
+  the request and only it can answer.
 - **Minting**: when `auth.request` is approved (a previously-`UNKNOWN` app is approved via the
   `TrustDialog`, or a previously-`APPROVED` app re-authenticates), `IPCService.build_auth_response()`
   calls `mint_session_channel(app_name)`. This generates a `session_token` with
-  `secrets.token_urlsafe(32)`, subscribes the wildcard subject `{prefix}.session.{token}.>`, and
-  returns the token in the approved reply. `IPCService` itself no longer knows about Tiled;
-  `LFApplication._approved_auth_reply()` supplies `tiled_token`, `tiled_url`, and `session_id` via
-  `build_auth_response(..., extra=...)`.
-- **Routing**: every command travels on `{prefix}.session.{session_token}.<suffix>` (e.g.
-  `als.7011.session.<token>.commands.plan.run`). `IPCService._route_session_message` resolves the
+  `secrets.token_urlsafe(32)`, subscribes the wildcard subject `{priv_root}.session.{token}.>`, and
+  returns the token and `session_subject` (`{priv_root}.session.{token}`) in the approved reply.
+  `IPCService` itself no longer knows about Tiled; `LFApplication._approved_auth_reply()` supplies
+  `tiled_token`, `tiled_url`, and `session_id` via `build_auth_response(..., extra=...)`.
+- **Routing**: every command travels on `{session_subject}.<suffix>` (e.g.
+  `_PRIV.<p>.session.<token>.commands.plan.run`). `IPCService._route_session_message` resolves the
   token from the subject, validates the `contract_version`, attaches
   `data["_identity"] = {"app_name", "session_token"}`, and dispatches to the trusted action handler
   registered for `<suffix>`.
@@ -109,17 +120,25 @@ auth handshake *is* the authentication mechanism for command traffic, not an opt
 - **Broadcast events are the documented exception**: `runs.new`, `runs.complete`, and `state.engine`
   are published on public, un-prefixed-by-session subjects (`{prefix}.runs.new`, etc.). They carry
   no secrets and are meant for multiple simultaneous listeners, so they are not gated by a
-  capability channel.
+  capability channel. They are also unauthenticated: anyone may publish there.
 - **Teardown**: session channels die on logout (`_wire_session_trust`, see the TrustManager section
   above) or on a single app's trust revocation (`teardown_session_channels(app_name=...)` unsubscribes
   just that app's wildcard and invalidates its token).
-- **Production posture**: the session token authenticates the *client* to Lightfall — it proves the
-  holder completed a real handshake. It does **not**, by itself, stop a hostile peer already on the
-  same broker from *subscribing* to another session's subject and observing traffic (NATS core has
-  no subject-level ACL of its own). On bcgnats, that isolation comes from broker-side subject
-  permissions configured per connecting user (operational NATS config, out of scope for this
-  client-side contract). The bundled `LocalNatsServer` (used for local/offline development) runs
-  **plaintext and unenforced** — do not point external, untrusted clients at it.
+- **Inbox prefix**: every connection must set `inbox_prefix="_INBOX.<p>"` matching its connect
+  token. On bcgnats a connection may subscribe only to its own `_INBOX.<p>.>`, so a client that
+  keeps nats.py's default `_INBOX` prefix can't receive any reply.
+- **Production posture**: on bcgnats, isolation is enforced by the broker's **auth callout**
+  (`nats-auth-callout.service`). Each connection presents a random secret as its connect token;
+  the callout derives `p` from it and issues a user JWT that may subscribe only to `_INBOX.<p>.>`,
+  `_PRIV.<p>.>` and the allow-listed public roots, may not publish into `_INBOX.>`, and replies
+  through `allow_responses` (one reply within 5 s). No per-client credentials are issued and
+  connections stay anonymous. A hostile peer on the broker therefore can't read the handshake reply,
+  subscribe to another instance's session subjects, or answer them. It **can** still answer public
+  discovery with its own `priv_root` and impersonate an instance to a client that believes it, and
+  it can read and race the legacy public request subjects of other services. Both gaps are accepted
+  until CSM registration provides service identity (GitLab work item: TBD). The bundled
+  `LocalNatsServer` (used for local/offline development) listens on 127.0.0.1, runs **plaintext with
+  no callout**, and trusts everything on the host; do not point external, untrusted clients at it.
 
 ## Wiring and Lifecycle
 
@@ -128,7 +147,8 @@ auth handshake *is* the authentication mechanism for command traffic, not an opt
 `run()` is called (after the main window is visible), at which point `_start_ipc()`:
 
 1. Calls `ipc.start()` to open the background NATS thread.
-2. Registers `auth.request` for the trust handshake.
+2. Registers `auth.request` for the trust handshake on the private root
+   (`register_action(..., private=True)`, subject `{priv_root}.auth.request`).
 3. Calls `_wire_remote_control()`, which constructs `RemoteControlService` and calls `.start()`.
    This registers `commands.plan.list`, `commands.plan.run`, `commands.plan.abort`,
    `commands.queue.get`, `commands.engine.status`, and `commands.device.search/components/info/get/put`
@@ -177,9 +197,13 @@ directly from the worker.
 ## Auth Token Sharing Flow
 
 ```
-External client                              Lightfall (main thread)
+External client (_INBOX.<c>)                 Lightfall (_PRIV.<p>; main thread)
      │                                             │
-     │──── auth.request {app_name, app_version} ──▶│
+     │──── {prefix}.meta.actions  (public) ───────▶│   (or _lightfall.discover)
+     │◀─── {priv_root: "_PRIV.<p>", actions, ...} ─│
+     │                                             │
+     │──── _PRIV.<p>.auth.request                  │
+     │       {app_name, app_version} ─────────────▶│
      │                                             │ evaluate_trust(app_name)
      │                                             │
      │           if UNKNOWN:                       │
@@ -189,8 +213,10 @@ External client                              Lightfall (main thread)
      │                                        trust.approve(app_name)
      │                                        mint_session_channel(app_name)
      │                                             │
-     │◀── {status: "approved",                     │
+     │◀── reply to _INBOX.<c>.…                    │
+     │    {status: "approved",                     │
      │     session_token: "...",                   │
+     │     session_subject: "_PRIV.<p>.session.…", │
      │     tiled_token: "...",                     │
      │     tiled_url: "...",                       │
      │     session_id: "...",                      │
@@ -200,14 +226,15 @@ External client                              Lightfall (main thread)
      │                                             │
      │  subsequent commands travel on the          │
      │  capability channel:                        │
-     │──── {prefix}.session.{session_token}        │
+     │──── {session_subject}                       │
      │        .commands.plan.run {...} ───────────▶│
      │◀─── {status: "submitted", ...,              │
      │      contract_version: 1}  ─────────────────│
 ```
 
 A previously approved app receives the token immediately without a dialog. A previously denied app
-receives `{status: "denied"}` immediately.
+receives `{status: "denied"}` immediately. Clients can run the discovery and `auth.request` steps
+with `lightfall_utils.ipc.capability.private_auth_request()`.
 
 ## Registering a New Action
 
@@ -246,10 +273,12 @@ Pass `trusted=True` for any action a remote client is meant to invoke *after* co
 handshake — which in practice means essentially every `commands.*` action. With `trusted=True`,
 the action is unreachable on its bare subject (requests there get a structured `denied` reply); it
 is only invoked through a minted session capability channel
-(`{topic_prefix}.session.{session_token}.commands.myfeature.do`), and the callback receives
+(`{priv_root}.session.{session_token}.commands.myfeature.do`), and the callback receives
 `data["_identity"] = {"app_name", "session_token"}` identifying the caller. Omit `trusted=True` (the
-default) only for endpoints that must be reachable pre-handshake, such as `auth.request` itself or
-the `meta.*` discovery endpoints.
+default) only for endpoints that must be reachable pre-handshake, such as the `meta.*` discovery
+endpoints. Pass `private=True` for a pre-handshake endpoint that should live on the private root
+(`{priv_root}.{suffix}`) rather than on a public subject, as `auth.request` does; `private` and
+`trusted` are mutually exclusive.
 
 ## Registering a New Outbound Event
 

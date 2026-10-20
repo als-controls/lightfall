@@ -13,17 +13,24 @@ No knowledge of Lightfall internals is required.
   pip install nats-py
   ```
 - A topic prefix matching the one configured in Lightfall (default: `als.7011`).
+- The connection-capability helper. On bcgnats every connection must present a capability token
+  (see the [NATS Use Model](nats-use-model.md)). Import it from `lightfall_utils.ipc.capability`
+  if your client can depend on `lightfall-utils`; otherwise copy
+  `lightfall_utils/ipc/capability.py` byte-for-byte into your project as `nats_capability.py`
+  (stdlib only) and add a pinning test, as described in the use model.
 
 ## Connecting
 
-Lightfall's NATS server requires TLS. Pass an `ssl.SSLContext` to `nats.connect`:
+Lightfall's NATS server requires TLS. Pass an `ssl.SSLContext` to `nats.connect`, together with a
+fresh connection capability:
 
 ```python
 import asyncio
 import ssl
 import nats
+from lightfall_utils.ipc.capability import new_capability  # or your vendored nats_capability
 
-NATS_URL = "nats://broker.als.lbl.gov:4222"
+NATS_URL = "nats://bcgnats.als.private.lbl.gov:4222"
 TOPIC_PREFIX = "als.7011"
 
 async def main():
@@ -31,30 +38,39 @@ async def main():
     # If using a private CA:
     # tls_ctx.load_verify_locations("/path/to/ca.crt")
 
-    nc = await nats.connect(NATS_URL, tls=tls_ctx)
-    print("Connected")
+    cap = new_capability()
+    nc = await nats.connect(NATS_URL, tls=tls_ctx, **cap.connect_kwargs())
+    print("Connected; private root", cap.priv_root)
     # ... use nc ...
     await nc.drain()
 
 asyncio.run(main())
 ```
 
+`connect_kwargs()` is `{"token": <secret>, "inbox_prefix": "_INBOX.<p>"}`. The bcgnats auth
+callout rejects a connection without a valid token, and the inbox prefix is what lets your client
+receive replies: on bcgnats a connection may subscribe only to its own `_INBOX.<p>.>` and
+`_PRIV.<p>.>`, plus the public subject roots. Never log or publish the secret. A local
+`nats-server` without the callout ignores both options.
+
 ## Authentication
 
 Before sending commands, you must authenticate with Lightfall. This is a request/reply handshake on
-the `auth.request` subject. Lightfall will show a trust dialog the first time; subsequent requests from
-the same `app_name` are approved or denied automatically.
+the instance's **private** `auth.request` subject: first ask `{prefix}.meta.actions` for the
+instance's `priv_root` (`_PRIV.<p>`), then send the request to `{priv_root}.auth.request`. Only
+that Lightfall instance can receive the request or answer it. Lightfall will show a trust dialog the
+first time; subsequent requests from the same `app_name` are approved or denied automatically.
+
+`private_auth_request()` does both steps:
 
 ```python
-import json
+from lightfall_utils.ipc.capability import PrivateRootUnavailable, private_auth_request
 
 async def authenticate(nc, app_name: str, app_version: str = "") -> dict:
-    subject = f"{TOPIC_PREFIX}.auth.request"
-    payload = json.dumps({"app_name": app_name, "app_version": app_version}).encode()
-
     # Timeout >60 s to allow the user to respond to the dialog
-    msg = await nc.request(subject, payload, timeout=70)
-    response = json.loads(msg.data)
+    response = await private_auth_request(
+        nc, TOPIC_PREFIX, {"app_name": app_name, "app_version": app_version}, timeout=70
+    )
 
     if response.get("status") == "approved":
         print("Authenticated. Tiled token:", response.get("tiled_token"))
@@ -71,6 +87,7 @@ A successful response has this shape:
 {
   "status": "approved",
   "session_token": "<url-safe-random-token>",
+  "session_subject": "_PRIV.<p>.session.<url-safe-random-token>",
   "tiled_token": "<api_key_secret>",
   "tiled_url": "https://tiled.als.lbl.gov",
   "session_id": "<keycloak-sub-or-null>",
@@ -78,9 +95,19 @@ A successful response has this shape:
 }
 ```
 
-`session_token` is new (remote-control contract v1): it identifies your **capability channel** and
-is required for every `commands.*` call — see
-the "The capability channel" section below. `contract_version` is `1`; send it back on
+```{warning}
+Open issue before the bcgnats cutover: the auth callout lets a responder answer a request only
+within **5 s** (`allow_responses`). A first-time `auth.request` that waits on the trust dialog, or
+any command that replies after more than 5 s (e.g. `commands.device.put` with `wait=true`), would
+have its reply refused by the broker (confirmed against the replica on 2026-10-20), and the client
+times out. Pre-approved apps are answered immediately and are not affected.
+```
+
+`session_token` (remote-control contract v1) identifies your **capability channel**, and
+`session_subject` is the channel's full subject root under the instance's private root; every
+`commands.*` call goes to `{session_subject}.<suffix>` — see the "The capability channel" section
+below. `PrivateRootUnavailable` means the instance didn't advertise `priv_root`: it predates the
+private handshake. `contract_version` is `1`; send it back on
 every request (see "Structured Errors" below).
 
 > **Trust is per login session, not per process.** The trust decision and the capability channel
@@ -127,7 +154,10 @@ cycle) will invalidate old keys. On a 401 from Tiled, re-run `auth.request` to o
 
 ## Discovering Available Actions and Events
 
-Before hard-coding subject names, you can ask Lightfall what it supports:
+Before hard-coding subject names, you can ask Lightfall what it supports. These discovery
+subjects are public, and each reply also carries the instance's `priv_root`. Discovery answers are
+not authenticated: on a shared broker another process could answer them (see the
+[NATS Use Model](nats-use-model.md)).
 
 ```python
 async def discover(nc):
@@ -150,8 +180,10 @@ NATS core messages carry no sender identity, so Lightfall cannot tell "who" sent
 the subject or payload. Instead, every `commands.*` action lives behind a **capability channel**: a
 private subject built from the `session_token` you got back from `auth.request`.
 
-- **Subject shape**: `{prefix}.session.{session_token}.<command-suffix>` — e.g.
-  `als.7011.session.<token>.commands.plan.list`. There is no bare `commands.plan.list` you can call
+- **Subject shape**: `{session_subject}.<command-suffix>`, i.e.
+  `_PRIV.<p>.session.{session_token}.<command-suffix>` — e.g.
+  `_PRIV.<p>.session.<token>.commands.plan.list`. Use the `session_subject` from the `auth.request`
+  reply rather than building it yourself. There is no bare `commands.plan.list` you can call
   directly; sending a request to the un-channeled subject gets you back a structured `denied` error
   instead of a real reply.
 - **Every request should include `contract_version: 1`** in its JSON body. If it's missing, the
@@ -165,8 +197,8 @@ private subject built from the `session_token` you got back from `auth.request`.
   a signal to re-authenticate rather than retrying forever.
 
 ```python
-async def call(nc, session_token: str, suffix: str, payload: dict | None = None, timeout: float = 5.0) -> dict:
-    subject = f"{TOPIC_PREFIX}.session.{session_token}.{suffix}"
+async def call(nc, session_subject: str, suffix: str, payload: dict | None = None, timeout: float = 5.0) -> dict:
+    subject = f"{session_subject}.{suffix}"
     body = dict(payload or {})
     body.setdefault("contract_version", 1)
     msg = await nc.request(subject, json.dumps(body).encode(), timeout=timeout)
@@ -195,27 +227,27 @@ payload is required. This is the full v1 verb table.
 | `commands.agent.message`     | `message` (str, required)                                               | `status: "sent"`                                                | Empty `message` gets `bad_request`; no Claude agent available gets `unknown` |
 
 ```python
-async def run_plan(nc, session_token: str, plan_name: str, params: dict) -> dict:
-    reply = await call(nc, session_token, "commands.plan.run", {
+async def run_plan(nc, session_subject: str, plan_name: str, params: dict) -> dict:
+    reply = await call(nc, session_subject, "commands.plan.run", {
         "plan_name": plan_name,
         "params": params,
     }, timeout=30)
     return reply
 
 # Example
-result = await run_plan(nc, session_token, "count", {"detectors": ["det1"], "num": 5})
+result = await run_plan(nc, session_subject, "count", {"detectors": ["det1"], "num": 5})
 # {"status": "submitted", "plan_name": "count", "item_id": "...", "run_uid": "...", "contract_version": 1}
 # run_uid may be null if the start document hadn't arrived yet — listen for runs.new.
 ```
 
 ```python
-async def abort_run(nc, session_token: str, reason: str = "", item_id: str | None = None, run_uid: str | None = None) -> dict:
+async def abort_run(nc, session_subject: str, reason: str = "", item_id: str | None = None, run_uid: str | None = None) -> dict:
     payload = {"reason": reason}
     if item_id is not None:
         payload["item_id"] = item_id
     if run_uid is not None:
         payload["run_uid"] = run_uid
-    return await call(nc, session_token, "commands.plan.abort", payload, timeout=10)
+    return await call(nc, session_subject, "commands.plan.abort", payload, timeout=10)
 
 # {"status": "abort_requested", "contract_version": 1}
 # Selector that doesn't match anything current/queued -> {"status": "not_aborted", "message": "...", "contract_version": 1}
@@ -223,8 +255,8 @@ async def abort_run(nc, session_token: str, reason: str = "", item_id: str | Non
 ```
 
 ```python
-async def add_logbook_entry(nc, session_token: str, title: str, content: str = "", tags: list[str] | None = None) -> dict:
-    return await call(nc, session_token, "commands.logbook.add", {
+async def add_logbook_entry(nc, session_subject: str, title: str, content: str = "", tags: list[str] | None = None) -> dict:
+    return await call(nc, session_subject, "commands.logbook.add", {
         "title": title,
         "content": content,
         "tags": tags or [],
@@ -234,8 +266,8 @@ async def add_logbook_entry(nc, session_token: str, title: str, content: str = "
 ```
 
 ```python
-async def send_agent_message(nc, session_token: str, message: str) -> dict:
-    return await call(nc, session_token, "commands.agent.message", {"message": message}, timeout=10)
+async def send_agent_message(nc, session_subject: str, message: str) -> dict:
+    return await call(nc, session_subject, "commands.agent.message", {"message": message}, timeout=10)
 
 # {"status": "sent", "contract_version": 1}
 ```
@@ -319,7 +351,7 @@ No participant in this loop requires modifications to Lightfall's core: notifica
 ## Complete Example: Reference Client
 
 `tests/integration/remote_client.py` in the Lightfall repo is the canonical reference client for
-this contract — deliberately dependency-free (raw `nats-py`, no Lightfall imports), and the starting
+this contract — raw `nats-py` plus the stdlib-only `private_auth_request` helper, and the starting
 point for building a language-specific client of your own. The trimmed flow below (handshake →
 capability call → event subscribe) mirrors it; the Tsuchinoko-style single-file example that used to
 live here has been replaced by this and by the reference client itself.
@@ -332,8 +364,9 @@ import asyncio
 import json
 import ssl
 import nats
+from lightfall_utils.ipc.capability import new_capability, private_auth_request
 
-NATS_URL = "nats://broker.als.lbl.gov:4222"
+NATS_URL = "nats://bcgnats.als.private.lbl.gov:4222"
 TOPIC_PREFIX = "als.7011"
 APP_NAME = "my-client"
 APP_VERSION = "1.0.0"
@@ -342,20 +375,20 @@ CONTRACT_VERSION = 1
 
 async def main():
     tls_ctx = ssl.create_default_context()
-    nc = await nats.connect(NATS_URL, tls=tls_ctx)
+    nc = await nats.connect(NATS_URL, tls=tls_ctx, **new_capability().connect_kwargs())
     print("Connected to NATS")
 
-    # 1. Handshake — auth.request
-    auth_payload = json.dumps({"app_name": APP_NAME, "app_version": APP_VERSION}).encode()
-    auth_msg = await nc.request(f"{TOPIC_PREFIX}.auth.request", auth_payload, timeout=90)
-    auth = json.loads(auth_msg.data)
+    # 1. Handshake — discover priv_root via meta.actions, then {priv_root}.auth.request
+    auth = await private_auth_request(
+        nc, TOPIC_PREFIX, {"app_name": APP_NAME, "app_version": APP_VERSION}, timeout=90
+    )
     if auth.get("status") != "approved":
         raise PermissionError(f"Authentication denied: {auth.get('reason', 'unknown')}")
-    session_token = auth["session_token"]
+    session_subject = auth["session_subject"]
     print(f"Authenticated. Tiled URL: {auth.get('tiled_url')}")
 
     async def call(suffix: str, payload: dict | None = None, timeout: float = 5.0) -> dict:
-        subject = f"{TOPIC_PREFIX}.session.{session_token}.{suffix}"
+        subject = f"{session_subject}.{suffix}"
         body = dict(payload or {})
         body.setdefault("contract_version", CONTRACT_VERSION)
         msg = await nc.request(subject, json.dumps(body).encode(), timeout=timeout)
@@ -411,6 +444,8 @@ All messages use JSON encoding (UTF-8). The following fields appear in replies:
 | `code`              | `str`             | Error replies only — see "Structured Errors" below      |
 | `message`           | `str`             | Error replies — human-readable description                           |
 | `session_token`     | `str`             | `auth.request` approved response — capability-channel token          |
+| `session_subject`   | `str`             | `auth.request` approved response — `_PRIV.<p>.session.<token>`; prefix for `commands.*` |
+| `priv_root`         | `str`             | `meta.actions`, `meta.events`, `_lightfall.discover` replies — the instance's `_PRIV.<p>` |
 | `tiled_token`       | `str`             | `auth.request` approved response — Tiled API key (auth-v2; pass to `from_uri(..., api_key=…)`) |
 | `tiled_url`         | `str`             | `auth.request` approved response                                     |
 | `item_id`           | `str`             | `commands.plan.run` reply, `commands.queue.get` items, `runs.new` event, `commands.engine.status` (running) |
@@ -432,27 +467,28 @@ under "Subscribing to Events"; `procedure_id` is now `item_id` throughout.
 ## Topic Hierarchy Reference
 
 All subjects below are prefixed with the configured `topic_prefix` (default: `als.7011`).
-The full NATS subject is `{prefix}.{suffix}`, except for `commands.*` actions, which additionally
-require the per-session capability segment: `{prefix}.session.{session_token}.{suffix}` (see
-"The capability channel").
+The full NATS subject is `{prefix}.{suffix}`, except for `auth.request`, which lives on the
+instance's private root (`{priv_root}.auth.request`), and `commands.*` actions, which go to the
+per-session capability channel `{session_subject}.{suffix}` =
+`{priv_root}.session.{session_token}.{suffix}` (see "The capability channel").
 
 | Suffix                        | Direction          | Pattern            | Description                                          |
 |--------------------------------|--------------------|--------------------|-------------------------------------------------------|
-| `auth.request`                 | client → Lightfall | request/reply      | Trust handshake; receive `session_token` + Tiled token |
-| `meta.actions`                 | client → Lightfall | request/reply      | Enumerate registered actions                           |
+| `auth.request` (on `{priv_root}`) | client → Lightfall | request/reply   | Trust handshake; receive `session_subject` + Tiled token |
+| `meta.actions`                 | client → Lightfall | request/reply      | Enumerate registered actions; reply carries `priv_root` |
 | `meta.events`                  | client → Lightfall | request/reply      | Enumerate registered events                            |
-| `session.{token}.commands.plan.list`       | client → Lightfall | request/reply (capability channel) | List available plans with parameter metadata |
-| `session.{token}.commands.plan.run`        | client → Lightfall | request/reply (capability channel) | Submit a plan to the Bluesky engine |
-| `session.{token}.commands.plan.abort`      | client → Lightfall | request/reply (capability channel) | Abort the currently active run |
-| `session.{token}.commands.queue.get`       | client → Lightfall | request/reply (capability channel) | List queued/running plan items |
-| `session.{token}.commands.engine.status`   | client → Lightfall | request/reply (capability channel) | Engine state + current run |
-| `session.{token}.commands.device.search`   | client → Lightfall | request/reply (capability channel) | Search devices by metadata filters |
-| `session.{token}.commands.device.components` | client → Lightfall | request/reply (capability channel) | List a device's sub-devices/signals |
-| `session.{token}.commands.device.info`     | client → Lightfall | request/reply (capability channel) | Thin device metadata |
-| `session.{token}.commands.device.get`      | client → Lightfall | request/reply (capability channel) | Read a device signal value |
-| `session.{token}.commands.device.put`      | client → Lightfall | request/reply (capability channel) | Write a device signal |
-| `session.{token}.commands.logbook.add`     | client → Lightfall | request/reply (capability channel) | Create a logbook entry |
-| `session.{token}.commands.agent.message`   | client → Lightfall | request/reply (capability channel) | Send a message to the Claude agent |
+| `{priv_root}.session.{token}.commands.plan.list`       | client → Lightfall | request/reply (capability channel) | List available plans with parameter metadata |
+| `{priv_root}.session.{token}.commands.plan.run`        | client → Lightfall | request/reply (capability channel) | Submit a plan to the Bluesky engine |
+| `{priv_root}.session.{token}.commands.plan.abort`      | client → Lightfall | request/reply (capability channel) | Abort the currently active run |
+| `{priv_root}.session.{token}.commands.queue.get`       | client → Lightfall | request/reply (capability channel) | List queued/running plan items |
+| `{priv_root}.session.{token}.commands.engine.status`   | client → Lightfall | request/reply (capability channel) | Engine state + current run |
+| `{priv_root}.session.{token}.commands.device.search`   | client → Lightfall | request/reply (capability channel) | Search devices by metadata filters |
+| `{priv_root}.session.{token}.commands.device.components` | client → Lightfall | request/reply (capability channel) | List a device's sub-devices/signals |
+| `{priv_root}.session.{token}.commands.device.info`     | client → Lightfall | request/reply (capability channel) | Thin device metadata |
+| `{priv_root}.session.{token}.commands.device.get`      | client → Lightfall | request/reply (capability channel) | Read a device signal value |
+| `{priv_root}.session.{token}.commands.device.put`      | client → Lightfall | request/reply (capability channel) | Write a device signal |
+| `{priv_root}.session.{token}.commands.logbook.add`     | client → Lightfall | request/reply (capability channel) | Create a logbook entry |
+| `{priv_root}.session.{token}.commands.agent.message`   | client → Lightfall | request/reply (capability channel) | Send a message to the Claude agent |
 | `runs.new`                     | Lightfall → client | publish/subscribe  | Fired when a new run starts                            |
 | `runs.complete`                | Lightfall → client | publish/subscribe  | Fired when a run finishes (any exit status)            |
 | `state.engine`                 | Lightfall → client | publish/subscribe  | Fired when the Bluesky engine state changes            |

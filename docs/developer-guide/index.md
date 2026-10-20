@@ -22,6 +22,7 @@ Lightfall participates in a NATS message bus so that external services — autom
 
 - [IPC Architecture](ipc-architecture.md) — how `IPCService`, trust management, and the action/event catalogs work inside Lightfall
 - [IPC Client Integration Guide](ipc-client-guide.md) — how to write an external client; requires no knowledge of Lightfall internals
+- [NATS Use Model](nats-use-model.md) — the reference model for every component on the beamline bus: subject classes, the per-connection capability enforced by the bcgnats auth callout, and what is and isn't protected
 
 ## Reaching EPICS from off-site
 
@@ -42,6 +43,7 @@ architecture
 plugins/index
 ipc-architecture
 ipc-client-guide
+nats-use-model
 remote-epics-access
 deployment
 pyqtgraph-notes
