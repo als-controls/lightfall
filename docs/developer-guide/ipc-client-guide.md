@@ -61,16 +61,21 @@ instance's `priv_root` (`_PRIV.<p>`), then send the request to `{priv_root}.auth
 that Lightfall instance can receive the request or answer it. Lightfall will show a trust dialog the
 first time; subsequent requests from the same `app_name` are approved or denied automatically.
 
-`private_auth_request()` does both steps:
+`private_auth_request()` does both steps. It sends the `auth.request` leg with
+`private_request()` (see "The capability channel" below), so the reply comes back on an
+unguessable subject that no other connection can forge:
 
 ```python
 from lightfall_utils.ipc.capability import PrivateRootUnavailable, private_auth_request
 
 async def authenticate(nc, app_name: str, app_version: str = "") -> dict:
     # Timeout >60 s to allow the user to respond to the dialog
-    response = await private_auth_request(
-        nc, TOPIC_PREFIX, {"app_name": app_name, "app_version": app_version}, timeout=70
-    )
+    try:
+        response = await private_auth_request(
+            nc, TOPIC_PREFIX, {"app_name": app_name, "app_version": app_version}, timeout=70
+        )
+    except PrivateRootUnavailable as exc:
+        raise RuntimeError(f"{TOPIC_PREFIX} predates the private handshake: {exc}") from exc
 
     if response.get("status") == "approved":
         print("Authenticated. Tiled token:", response.get("tiled_token"))
@@ -102,8 +107,8 @@ work should reply immediately with an accepted id and report completion via even
 `session_token` (remote-control contract v1) identifies your **capability channel**, and
 `session_subject` is the channel's full subject root under the instance's private root; every
 `commands.*` call goes to `{session_subject}.<suffix>` — see the "The capability channel" section
-below. `PrivateRootUnavailable` means the instance didn't advertise `priv_root`: it predates the
-private handshake. `contract_version` is `1`; send it back on
+below. `PrivateRootUnavailable` means the instance didn't advertise a well-formed `priv_root`:
+it predates the private handshake (or the answer wasn't Lightfall's). `contract_version` is `1`; send it back on
 every request (see "Structured Errors" below).
 
 > **Trust is per login session, not per process.** The trust decision and the capability channel
@@ -156,6 +161,8 @@ not authenticated: on a shared broker another process could answer them (see the
 [NATS Use Model](nats-use-model.md)).
 
 ```python
+import json
+
 async def discover(nc):
     # List all request/reply actions
     msg = await nc.request(f"{TOPIC_PREFIX}.meta.actions", b"{}", timeout=5)
@@ -191,14 +198,22 @@ private subject built from the `session_token` you got back from `auth.request`.
   subscribed by multiple listeners at once and carry no secrets.
 - **The channel dies on logout** (see the Authentication section above) — treat request timeouts as
   a signal to re-authenticate rather than retrying forever.
+- **Send every channel request with `private_request()`, never `nc.request()`.** Inbox isolation
+  stops other connections from *reading* your replies, not from *writing* into your inbox: any
+  connection can reflect a forged message into it through `allow_responses` if it can guess the
+  reply subject, and the reply subjects `nc.request()` generates are predictable to anyone who has
+  seen one of your public requests. `private_request()` waits on a fresh
+  `_INBOX.<p>.<random token>` that only Lightfall sees, and returns the decoded JSON reply.
+  Replies to public requests (such as `meta.actions` above) can still be forged.
 
 ```python
+from lightfall_utils.ipc.capability import private_request
+
 async def call(nc, session_subject: str, suffix: str, payload: dict | None = None, timeout: float = 5.0) -> dict:
     subject = f"{session_subject}.{suffix}"
     body = dict(payload or {})
     body.setdefault("contract_version", 1)
-    msg = await nc.request(subject, json.dumps(body).encode(), timeout=timeout)
-    return json.loads(msg.data)
+    return await private_request(nc, subject, body, timeout=timeout)
 ```
 
 ## Sending Commands
@@ -282,6 +297,8 @@ Subscribe before starting a plan so you don't miss early events.
 ### Run Start and Completion
 
 ```python
+import json
+
 async def watch_runs(nc):
     async def on_run_new(msg):
         data = json.loads(msg.data)
@@ -301,6 +318,8 @@ async def watch_runs(nc):
 ### Engine State Changes
 
 ```python
+import json
+
 async def watch_engine_state(nc):
     async def on_state(msg):
         data = json.loads(msg.data)
@@ -347,7 +366,8 @@ No participant in this loop requires modifications to Lightfall's core: notifica
 ## Complete Example: Reference Client
 
 `tests/integration/remote_client.py` in the Lightfall repo is the canonical reference client for
-this contract — raw `nats-py` plus the stdlib-only `private_auth_request` helper, and the starting
+this contract — raw `nats-py` plus the stdlib-only `private_auth_request` and `private_request`
+helpers, and the starting
 point for building a language-specific client of your own. The trimmed flow below (handshake →
 capability call → event subscribe) mirrors it; the Tsuchinoko-style single-file example that used to
 live here has been replaced by this and by the reference client itself.
@@ -360,7 +380,7 @@ import asyncio
 import json
 import ssl
 import nats
-from lightfall_utils.ipc.capability import new_capability, private_auth_request
+from lightfall_utils.ipc.capability import new_capability, private_auth_request, private_request
 
 NATS_URL = "nats://bcgnats.als.private.lbl.gov:4222"
 TOPIC_PREFIX = "als.7011"
@@ -387,8 +407,7 @@ async def main():
         subject = f"{session_subject}.{suffix}"
         body = dict(payload or {})
         body.setdefault("contract_version", CONTRACT_VERSION)
-        msg = await nc.request(subject, json.dumps(body).encode(), timeout=timeout)
-        reply = json.loads(msg.data)
+        reply = await private_request(nc, subject, body, timeout=timeout)  # never nc.request
         if reply.get("status") == "error":
             raise RuntimeError(f"{reply['code']}: {reply['message']}")
         return reply

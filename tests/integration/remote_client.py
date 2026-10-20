@@ -1,7 +1,9 @@
 """Headless reference client for the Lightfall remote-control contract (v1).
 
-Raw nats-py plus the shared ``private_auth_request`` helper (the auth.request
-handshake now lives on a per-instance private root): this file is the
+Raw nats-py plus the shared capability helpers: one connection capability
+(``connect_kwargs()``), the ``private_auth_request`` handshake on the instance's
+private root, and ``private_request`` (unguessable reply subjects) for every
+session-channel call. This file is the
 contract's reference consumer and the starting point for Spec #2's
 pystxmcontrol ``LightfallClient``.
 
@@ -22,7 +24,7 @@ from typing import Any
 
 import nats
 
-from lightfall_utils.ipc.capability import private_auth_request
+from lightfall_utils.ipc.capability import new_capability, private_auth_request, private_request
 
 CONTRACT_VERSION = 1
 
@@ -45,13 +47,15 @@ class LightfallRemoteClient:
         self._app_name = app_name
         self._app_version = app_version
         self._nc: nats.NATS | None = None
+        # One capability per client, reused across reconnects.
+        self._capability = new_capability()
         self.session_token: str | None = None
         self.session_subject: str | None = None
         self.tiled_url: str | None = None
         self.tiled_token: str | None = None
 
     async def connect(self) -> None:
-        self._nc = await nats.connect(self._nats_url)
+        self._nc = await nats.connect(self._nats_url, **self._capability.connect_kwargs())
 
     async def authenticate(self, timeout: float = 90.0) -> dict:
         """Run the auth.request handshake; store session_token on approval.
@@ -78,8 +82,9 @@ class LightfallRemoteClient:
         subject = f"{self.session_subject}.{suffix}"
         body = dict(payload or {})
         body.setdefault("contract_version", CONTRACT_VERSION)
-        msg = await self._nc.request(subject, json.dumps(body).encode(), timeout=timeout)
-        reply = json.loads(msg.data.decode())
+        # Never nc.request() here: its reply subjects are predictable, so another
+        # connection could forge the reply by allow_responses reflection.
+        reply = await private_request(self._nc, subject, body, timeout=timeout)
         if reply.get("status") == "error":
             raise RemoteError(reply.get("code", "unknown"), reply.get("message", ""))
         return reply

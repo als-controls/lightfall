@@ -56,8 +56,9 @@ nc = await nats.connect(url, tls=tls_ctx, **cap.connect_kwargs())
 ```
 
 The module also provides `derive_prefix(secret)`, `new_token()` (a 43-character random token,
-also used for session and delivery tokens), `private_auth_request()` (see
-"The handshake" below), the `PrivateRootUnavailable` exception, and `VENDORED_FROM`.
+also used for session and delivery tokens), `private_auth_request()` and `private_request()` (see
+"The handshake" below), the `PrivateRootUnavailable` and `PrivateNoResponders` exceptions, and
+`VENDORED_FROM` (currently `"lightfall_utils.ipc.capability v2"`).
 
 Create one capability per connection and keep it for the connection's lifetime. nats.py reuses
 its connect options on reconnect, so `p` and the private root stay stable. `IPCService` does
@@ -85,7 +86,7 @@ exporter import it from `lightfall-utils`.
 | Public discovery and metadata | `_lightfall.discover`, `{prefix}.meta.actions`, `{prefix}.meta.events`, `_saxs.discover`, `{scope}.svc.discover`, `{root}.meta.info` | anyone | anyone | nothing; payloads must hold nothing secret |
 | Public broadcast | `{prefix}.runs.new`, `{prefix}.runs.complete`, `{prefix}.state.engine`, `lightfall.settings.changed`, `xpcs.g2.updated`, `stxm.spectrum.updated`, `caproxy.<beamline>.lease` | anyone | anyone | nothing; readable and forgeable by anyone |
 | Public request (legacy) | `saxs.op.<name>`, `saxs.pipeline.run`, xpcs, tsuchinoko, stxm, pipelines, exporter, Shussebora, Prelude and deck motor actions | anyone | anyone | nothing; requests readable, replies raceable |
-| `_INBOX.<p>` | request replies | the owner only | nobody directly; a responder may answer once via `allow_responses` | reading or injecting another connection's replies |
+| `_INBOX.<p>` | request replies | the owner only | nobody directly; a responder may answer once via `allow_responses` | reading another connection's replies. Not injection: see below |
 | `_PRIV.<p>` | `_PRIV.<p>.auth.request`, `_PRIV.<p>.session.<token>.…`, `_PRIV.<p>.d.<delivery token>.…` | the owner only | anyone | reading private requests; answering them (only the owner receives them) |
 
 ### Public discovery and metadata
@@ -122,6 +123,23 @@ which permits **one** reply per received request, within **10 minutes** of recei
 covers Lightfall's trust dialog (up to 60 s) and slow device waits. Longer-running work should
 reply immediately with an accepted id and report completion via events.
 
+Inbox isolation protects **reads only**. It does not stop another connection from *writing* into
+your inbox. nats-server never checks a publisher's reply-to subject, and it grants
+`allow_responses` to whoever receives a message with a reply subject. So a spy can publish to a
+subject it subscribes to itself, with `reply=_INBOX.<your p>.<anything>`, and then "answer" it,
+which delivers a forged message into your inbox. All it needs is the exact subject. The reply
+subjects nats.py's `request()` generates are predictable to anyone who has seen one of your
+public requests (they are a fixed per-connection prefix, a counter and 16 random bits).
+
+So **every private or session request must use `private_request()`**, never `nc.request()`.
+`private_request(nc, subject, payload, timeout=5.0)` subscribes a fresh reply subject
+`_INBOX.<p>.<new_token()>` (256 random bits) for one message, publishes the request with that
+reply-to, and returns the decoded JSON reply. The reply subject only ever travels inside your
+`_PRIV` request to the owner, which only the owner reads, so nobody else can guess it.
+`private_auth_request()` uses it for the `auth.request` leg. Replies to *public* requests
+(discovery, `meta.actions`, legacy public actions) can still be forged; they are in the same
+class as spoofable discovery.
+
 ### `_PRIV.<p>`: private endpoints and channels
 
 The owner's private requests and channels live under its private root. Only the owner may
@@ -139,20 +157,23 @@ request the client sent into that peer's `_PRIV`, or carries a secret suffix.
 
 ## The handshake
 
-1. **Discover** the peer and its private root: request `{prefix}.meta.actions` (or answer
+1. **Discover** the peer and its private root: request `{prefix}.meta.actions` (or request
    `_lightfall.discover`) and read `priv_root`.
 2. **Authenticate:** request `{priv_root}.auth.request` with
-   `{"app_name": ..., "app_version": ...}`. The reply goes to the client's own `_INBOX.<p>`.
+   `{"app_name": ..., "app_version": ...}` through `private_request()`. The reply goes to an
+   unguessable subject in the client's own `_INBOX.<p>`.
 3. On approval the reply carries `session_token` and **`session_subject`**
    (`_PRIV.<owner p>.session.<token>`), plus application fields (Lightfall adds `tiled_token`,
    `tiled_url`, `session_id`).
-4. Send commands to `{session_subject}.<action>`, for example
-   `{session_subject}.commands.plan.run`.
+4. Send commands to `{session_subject}.<action>` with `private_request()`, for example
+   `await private_request(nc, f"{session_subject}.commands.plan.run", params)`.
 
 `private_auth_request(nc, topic_prefix, payload, timeout=5.0)` performs steps 1 and 2 and raises
-`PrivateRootUnavailable` if the peer doesn't advertise `priv_root` (an old peer). On the service
+`PrivateRootUnavailable` if the peer doesn't advertise a `priv_root` of the form
+`_PRIV.<26 base32 characters>` (an old peer, or a malformed or hostile answer). On the service
 side, `IPCService.register_action("auth.request", handler, private=True)` subscribes the handler
-at `{priv_root}.auth.request`, and `build_auth_response()` adds `session_subject`.
+at `{priv_root}.auth.request` (its `meta.actions` catalog entry carries `"private": true`), and
+`build_auth_response()` adds `session_subject`.
 
 Requests to the old bare trusted subjects (`{prefix}.commands.…`) still answer with a structured
 `denied` error. The pre-callout `{prefix}.session.<token>.…` and `{prefix}.auth.request` subjects
@@ -171,7 +192,9 @@ The callout issues the same permission template to every connection:
 - **No subscribe pattern may begin with a wildcard.** A pattern like `*.*.svc.*.heartbeat` would
   also match `_PRIV.<p>.svc.x.heartbeat`. The callout refuses to load a template containing a
   leading-wildcard pattern, or one under `_INBOX` or `_PRIV`.
-- **Publish:** allow `>`, deny `_INBOX.>`.
+- **Publish:** allow `>`, deny `_INBOX.>`. The deny blocks only *direct* publishes into an
+  inbox; replies via `allow_responses` (including reflected ones) still get through, which is
+  why private requests use unguessable reply subjects.
 - **Responses:** `allow_responses`: one reply per received request, within 10 minutes.
 - **Lifetime:** the connection's. A reconnect goes through the callout again.
 
@@ -198,9 +221,13 @@ The root must start with a literal token. Prefer putting new subjects under an e
 
 **Protected.** Once a client holds a private root from the genuine service, nobody else can:
 
-- read the handshake (including the Tiled API key) or session traffic;
-- answer the handshake or any session request;
-- inject replies into another connection's inbox;
+- read the handshake (including the Tiled API key) or session traffic, or anything else in
+  another connection's `_INBOX.<p>` or `_PRIV.<p>` (inbox isolation protects reads);
+- answer the handshake or any session request: only the owner receives them;
+- forge a reply to a handshake or session request, **provided the client sends it with
+  `private_request()`**: the reply subject is unguessable and only the owner sees it. This comes
+  from the unguessable reply subject, not from the `_INBOX.>` publish deny, which reflection
+  through `allow_responses` gets around;
 - forge per-session events back to the client without its delivery token.
 
 **Not protected (accepted gaps).**
@@ -209,10 +236,15 @@ The root must start with a literal token. Prefer putting new subjects under an e
   unauthenticated. A spy can answer `_lightfall.discover`, `meta.actions` or `svc.discover` with
   its own `_PRIV` root and impersonate a service to a client that believes it. This is the
   same gap as having no service identity. The intended fix is CSM registration, for example by
-  letting clients check a discovered root against a registry. Ron accepted this gap on
-  2026-10-19. (GitLab work item: TBD)
+  letting clients check a discovered root against a registry. Accepted on 2026-10-19.
+  (GitLab work item: TBD)
+- **Replies to public requests can be forged.** Any connection can inject a message into
+  another connection's inbox by reflection through `allow_responses` if it can predict the reply
+  subject, and nats.py's `request()` reply subjects are predictable. That covers every public
+  request (discovery, `meta.actions`, legacy actions), in the same class as spoofable discovery.
+  Private and session requests are safe only because they use `private_request()`.
 - **Legacy public request endpoints.** Requests and replies on the legacy public request
-  subjects can be read and raced (tracked in the same work item).
+  subjects can be read, raced and forged (tracked in the same work item).
 - **Public broadcasts** are readable and forgeable by anyone.
 
 The bus doesn't claim stronger service identity than the control system underneath it: EPICS

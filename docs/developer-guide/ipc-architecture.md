@@ -127,15 +127,24 @@ connection may subscribe to on bcgnats (see the [NATS Use Model](nats-use-model.
 - **Inbox prefix**: every connection must set `inbox_prefix="_INBOX.<p>"` matching its connect
   token. On bcgnats a connection may subscribe only to its own `_INBOX.<p>.>`, so a client that
   keeps nats.py's default `_INBOX` prefix can't receive any reply.
+- **Unguessable reply subjects**: inbox isolation protects *reads* only. Any connection can
+  reflect a forged message into another connection's inbox through `allow_responses` if it can
+  guess the exact reply subject, and nats.py's `request()` reply subjects are predictable. So
+  clients send `auth.request` and every `{session_subject}.<suffix>` call with
+  `lightfall_utils.ipc.capability.private_request()`, which waits on a fresh
+  `_INBOX.<p>.<new_token()>` that only this instance ever sees. Replies to public requests
+  (discovery, `meta.*`) remain forgeable.
 - **Production posture**: on bcgnats, isolation is enforced by the broker's **auth callout**
   (`nats-auth-callout.service`). Each connection presents a random secret as its connect token;
   the callout derives `p` from it and issues a user JWT that may subscribe only to `_INBOX.<p>.>`,
   `_PRIV.<p>.>` and the allow-listed public roots, may not publish into `_INBOX.>`, and replies
   through `allow_responses` (one reply per received request, within 10 minutes). No per-client credentials are issued and
   connections stay anonymous. A hostile peer on the broker therefore can't read the handshake reply,
-  subscribe to another instance's session subjects, or answer them. It **can** still answer public
-  discovery with its own `priv_root` and impersonate an instance to a client that believes it, and
-  it can read and race the legacy public request subjects of other services. Both gaps are accepted
+  subscribe to another instance's session subjects, or answer them, and (because clients use
+  `private_request()`) it can't forge their replies either; the `_INBOX.>` publish deny alone would
+  not stop that. It **can** still answer public discovery with its own `priv_root` and impersonate
+  an instance to a client that believes it, forge replies to any public request, and read and race
+  the legacy public request subjects of other services. These gaps are accepted
   until CSM registration provides service identity (GitLab work item: TBD). The bundled
   `LocalNatsServer` (used for local/offline development) listens on 127.0.0.1, runs **plaintext with
   no callout**, and trusts everything on the host; do not point external, untrusted clients at it.
@@ -213,7 +222,7 @@ External client (_INBOX.<c>)                 Lightfall (_PRIV.<p>; main thread)
      │                                        trust.approve(app_name)
      │                                        mint_session_channel(app_name)
      │                                             │
-     │◀── reply to _INBOX.<c>.…                    │
+     │◀── reply to _INBOX.<c>.<random token>       │
      │    {status: "approved",                     │
      │     session_token: "...",                   │
      │     session_subject: "_PRIV.<p>.session.…", │
@@ -234,7 +243,8 @@ External client (_INBOX.<c>)                 Lightfall (_PRIV.<p>; main thread)
 
 A previously approved app receives the token immediately without a dialog. A previously denied app
 receives `{status: "denied"}` immediately. Clients can run the discovery and `auth.request` steps
-with `lightfall_utils.ipc.capability.private_auth_request()`.
+with `lightfall_utils.ipc.capability.private_auth_request()`, and send each capability-channel
+command with `private_request()` (never `nc.request()`, whose reply subjects are predictable).
 
 ## Registering a New Action
 
