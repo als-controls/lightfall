@@ -131,7 +131,7 @@ connection may subscribe to on bcgnats (see the [NATS Use Model](nats-use-model.
   (`nats-auth-callout.service`). Each connection presents a random secret as its connect token;
   the callout derives `p` from it and issues a user JWT that may subscribe only to `_INBOX.<p>.>`,
   `_PRIV.<p>.>` and the allow-listed public roots, may not publish into `_INBOX.>`, and replies
-  through `allow_responses` (one reply within 5 s). No per-client credentials are issued and
+  through `allow_responses` (one reply per received request, within 10 minutes). No per-client credentials are issued and
   connections stay anonymous. A hostile peer on the broker therefore can't read the handshake reply,
   subscribe to another instance's session subjects, or answer them. It **can** still answer public
   discovery with its own `priv_root` and impersonate an instance to a client that believes it, and

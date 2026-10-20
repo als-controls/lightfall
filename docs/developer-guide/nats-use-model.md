@@ -118,16 +118,9 @@ endpoints of this class; see "Migrating a legacy endpoint" below.
 nats.py builds request reply subjects from the connection's `inbox_prefix`, so every reply to a
 connection lands under `_INBOX.<p>`. Only the owner may subscribe there. Nobody may publish into
 `_INBOX.>` directly; a responder answers a request it received through NATS `allow_responses`,
-which permits exactly **one** reply within **5 seconds** of receiving the request. Long
-operations should reply promptly (for example with an accepted id) and report progress or results
-another way.
-
-```{warning}
-Open issue before cutover: a reply sent more than 5 s after the request is refused by the broker
-(confirmed against the replica on 2026-10-20). That currently affects Lightfall's first-time
-`auth.request` (the trust dialog waits up to 60 s) and slow commands such as
-`commands.device.put` with `wait=true`. Either the response expiry or those handlers must change.
-```
+which permits **one** reply per received request, within **10 minutes** of receiving it. That
+covers Lightfall's trust dialog (up to 60 s) and slow device waits. Longer-running work should
+reply immediately with an accepted id and report completion via events.
 
 ### `_PRIV.<p>`: private endpoints and channels
 
@@ -179,7 +172,7 @@ The callout issues the same permission template to every connection:
   also match `_PRIV.<p>.svc.x.heartbeat`. The callout refuses to load a template containing a
   leading-wildcard pattern, or one under `_INBOX` or `_PRIV`.
 - **Publish:** allow `>`, deny `_INBOX.>`.
-- **Responses:** `allow_responses` with at most 1 message and a 5 s expiry.
+- **Responses:** `allow_responses`: one reply per received request, within 10 minutes.
 - **Lifetime:** the connection's. A reconnect goes through the callout again.
 
 Public subscriptions are allow-listed rather than "everything except private namespaces", so a

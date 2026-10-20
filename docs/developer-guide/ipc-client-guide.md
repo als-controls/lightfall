@@ -95,13 +95,9 @@ A successful response has this shape:
 }
 ```
 
-```{warning}
-Open issue before the bcgnats cutover: the auth callout lets a responder answer a request only
-within **5 s** (`allow_responses`). A first-time `auth.request` that waits on the trust dialog, or
-any command that replies after more than 5 s (e.g. `commands.device.put` with `wait=true`), would
-have its reply refused by the broker (confirmed against the replica on 2026-10-20), and the client
-times out. Pre-approved apps are answered immediately and are not affected.
-```
+On bcgnats a responder may send one reply per received request, within 10 minutes, so the trust
+dialog and slow commands (e.g. `commands.device.put` with `wait=true`) are fine. Longer-running
+work should reply immediately with an accepted id and report completion via events.
 
 `session_token` (remote-control contract v1) identifies your **capability channel**, and
 `session_subject` is the channel's full subject root under the instance's private root; every
