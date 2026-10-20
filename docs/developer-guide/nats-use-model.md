@@ -7,9 +7,8 @@ model. [IPC Architecture](ipc-architecture.md) covers how Lightfall's `IPCServic
 side; the [IPC Client Integration Guide](ipc-client-guide.md) shows a working external client.
 
 ```{note}
-This model is enforced by the bcgnats **auth callout** (`bcgnats-auth-callout`). The callout and
-all client changes are built and tested against a local replica but are not yet deployed on
-bcgnats. Until the cutover, bcgnats is still an open broker.
+This model is enforced by the bcgnats **auth callout** (`bcgnats-auth-callout`), live on bcgnats
+since 2026-10-20. Clients that connect without a capability token are rejected.
 ```
 
 ## The problem it solves
