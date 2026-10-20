@@ -133,8 +133,8 @@ subjects nats.py's `request()` generates are predictable to anyone who has seen 
 public requests (they are a fixed per-connection prefix, a counter and 16 random bits).
 
 So **every private or session request must use `private_request()`**, never `nc.request()`.
-`private_request(nc, subject, payload, timeout=5.0)` subscribes a fresh reply subject
-`_INBOX.<p>.<new_token()>` (256 random bits) for one message, publishes the request with that
+`private_request(nc, subject, payload, timeout=5.0, inbox_prefix=None)` subscribes a fresh reply subject
+`<inbox_prefix>.<new_token()>` (256 random bits; `inbox_prefix` defaults to the connection's own) for one message, publishes the request with that
 reply-to, and returns the decoded JSON reply. The reply subject only ever travels inside your
 `_PRIV` request to the owner, which only the owner reads, so nobody else can guess it.
 `private_auth_request()` uses it for the `auth.request` leg. Replies to *public* requests
