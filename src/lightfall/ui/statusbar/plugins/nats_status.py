@@ -23,6 +23,8 @@ _FALLBACK_COLORS = {
     "off": "#7f8c8d",
 }
 
+_ERROR_HEALTH = {"down", "unauthorized", "incompatible"}
+
 
 class NatsStatusPlugin(StatusBarPlugin):
     """Status bar indicator for the NATS / IPC bus connection.
@@ -42,9 +44,10 @@ class NatsStatusPlugin(StatusBarPlugin):
         tooltip="NATS connection status",
     )
 
-    def __init__(self, ipc: IPCService | None = None) -> None:
+    def __init__(self, ipc: IPCService | None = None, services: Any = None) -> None:
         super().__init__()
         self._ipc = ipc
+        self._services = services
         self._theme_manager = None
         self._peers: list[dict] = []
         self._last_refreshed: str | None = None
@@ -60,6 +63,18 @@ class NatsStatusPlugin(StatusBarPlugin):
             self._ipc = get_ipc_service()
         return self._ipc
 
+    def _get_services(self) -> Any:
+        """The ServiceManager (explicit, else from the ServiceRegistry), or None."""
+        if self._services is None:
+            try:
+                from lightfall.core.services import ServiceRegistry
+                from lightfall.services.manager import ServiceManager
+
+                self._services = ServiceRegistry.get_instance().get(ServiceManager, None)
+            except Exception as e:
+                logger.debug("NatsStatus: no ServiceManager: {}", e)
+        return self._services
+
     # -- wiring ---------------------------------------------------------------
 
     def connect_signals(self) -> None:
@@ -72,6 +87,11 @@ class NatsStatusPlugin(StatusBarPlugin):
         except Exception as e:
             logger.debug("NatsStatus: could not connect ThemeManager: {}", e)
 
+        # The manager re-emits services_changed on every client state_changed.
+        services = self._get_services()
+        if services is not None:
+            services.services_changed.connect(self.update)
+
         ipc = self._get_ipc()
         if ipc is not None:
             ipc.sigConnectionChanged.connect(self._on_connection_changed)
@@ -80,6 +100,11 @@ class NatsStatusPlugin(StatusBarPlugin):
 
     def disconnect_signals(self) -> None:
         self._alive = False
+        if self._services is not None:
+            try:
+                self._services.services_changed.disconnect(self.update)
+            except (RuntimeError, TypeError):
+                pass
         ipc = self._get_ipc()
         if ipc is not None:
             try:
@@ -160,7 +185,27 @@ class NatsStatusPlugin(StatusBarPlugin):
             logger.debug("NatsStatus: could not set icon {}: {}", self._icon_name, e)
         self.set_text(text)
         self.set_color(color)
-        self.set_tooltip(tooltip)
+        self.set_tooltip(tooltip + self._services_section())
+
+    def _services_section(self) -> str:
+        services = self._get_services()
+        if services is None:
+            return ""
+        try:
+            statuses = services.statuses()
+        except Exception as e:
+            logger.debug("NatsStatus: statuses() failed: {}", e)
+            return ""
+        if not statuses:
+            return ""
+        lines = ["", "Services:"]
+        for st in statuses:
+            health = st.get("health", "unknown")
+            line = f"  • {st.get('name', '?')} — {health} ({st.get('version') or '?'})"
+            if health in _ERROR_HEALTH and st.get("last_error"):
+                line += f" — {st['last_error']}"
+            lines.append(line)
+        return "\n".join(lines)
 
     def _build_tooltip(self, ipc: IPCService) -> str:
         lines = ["NATS connection — Connected", f"Server: {ipc.nats_url}", ""]
