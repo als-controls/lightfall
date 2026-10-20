@@ -253,7 +253,8 @@ Channel Access to the IOCs is unauthenticated. Service identity is deferred to C
 ## Migrating a legacy endpoint
 
 A service that serves commands on public subjects moves onto the target model like this, ideally
-by adopting the IPC services pattern (`ServiceHost` in `lightfall-utils`, in design):
+by adopting the IPC services pattern (`ServiceHost` in `lightfall-utils`; see its
+[`docs/ipc.md#services`](https://github.com/als-controls/lightfall-utils/blob/master/docs/ipc.md#services)):
 
 1. Keep only discovery and metadata public, and add the service's `priv_root` to its discovery
    and `meta.*` answers.

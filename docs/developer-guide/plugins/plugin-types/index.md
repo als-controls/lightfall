@@ -14,6 +14,7 @@ This section provides detailed documentation for each plugin type in Lightfall.
 | [`statusbar`](statusbar.md) | `StatusBarPlugin` | Add status bar indicators | Yes |
 | [`controller`](controller.md) | `ControllerPlugin` | Device-specific control widgets | Yes |
 | [`agent`](agent.md) | `AgentPlugin` | Extend the embedded Claude agent: skill prompts and/or MCP tools | Yes |
+| [`service`](service.md) | `ServicePlugin` | Declare an out-of-process service managed by Lightfall | Yes |
 
 ## Common Interface
 
@@ -106,4 +107,5 @@ theme
 statusbar
 controller
 agent
+service
 ```
