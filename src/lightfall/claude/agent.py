@@ -854,6 +854,15 @@ class QtClaudeAgent(QObject):
 
         return AGY if getattr(self, "_agy", False) else CLAUDE_CODE
 
+    @property
+    def current_session_id(self) -> str | None:
+        """The conversation this agent is in.
+
+        The live session id once the backend has reported one, else the id the
+        agent was built to resume; None for a fresh, not-yet-started conversation.
+        """
+        return self._current_session_id or self._resume_session_id
+
     def _store_session_id(self, session_id: str) -> None:
         """Remember + persist the current session id for restore/auto-restore."""
         self._current_session_id = session_id

@@ -307,6 +307,9 @@ class _FakeTab:
     def close_session(self, **_kwargs):  # panel teardown closes every tab
         pass
 
+    def discard_voice_queue(self, reason):  # ... after dropping its voice queue
+        return 0
+
 
 def test_backend_prefs_are_watched(panel):
     for key in ("agent_backend", "agy_path", "agy_gcp_project", "agy_gcp_location", "agy_model"):

@@ -76,6 +76,14 @@ class VoiceQueue(QObject):
         self.changed.emit()
         return item
 
+    def clear(self) -> int:
+        """Drop every queued prompt (the pause flag is kept); returns how many."""
+        n = len(self._items)
+        if n:
+            self._items = []
+            self.changed.emit()
+        return n
+
     @property
     def paused(self) -> bool:
         return self._paused

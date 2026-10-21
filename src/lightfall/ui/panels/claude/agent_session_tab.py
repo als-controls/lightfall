@@ -121,6 +121,28 @@ def unregister_bus_endpoint(claude_widget) -> None:
         logger.debug("Error unregistering bus endpoint: {}", e)
 
 
+def _new_voice_queue(parent: QWidget):
+    """A ``VoiceQueue`` parented to ``parent``; None if lightfall.claude is unusable
+    (the tab then shows its "unavailable" UI anyway)."""
+    try:
+        from lightfall.claude.voice_queue import VoiceQueue
+    except ImportError as e:
+        logger.debug("Voice queue unavailable: {}", e)
+        return None
+    return VoiceQueue(parent)
+
+
+def _session_id_of(widget) -> str | None:
+    """The conversation ``widget``'s agent is in, or None."""
+    agent = getattr(widget, "agent", None) if widget is not None else None
+    if agent is None:
+        return None
+    try:
+        return agent.current_session_id
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class AgentSessionTab(QWidget):
     """A single agent chat session hosted in the Claude panel's tab bar.
 
@@ -138,6 +160,10 @@ class AgentSessionTab(QWidget):
     widget_destroyed = Signal()
     bus_pending_changed = Signal(int)
 
+    # Set in __init__ (class defaults cover tabs assembled without it).
+    voice_queue = None  # VoiceQueue | None
+    _rebuild_from_session_id: str | None = None
+
     def __init__(
         self,
         spec=None,
@@ -154,6 +180,13 @@ class AgentSessionTab(QWidget):
         self._error_label: QLabel | None = None
         self._loading_label: QLabel | None = None
         self._pending_resume_session_id: str | None = None
+        # Conversation of the widget torn down by the rebuild in progress (see
+        # reload_agent); decides whether the voice queue carries over.
+        self._rebuild_from_session_id: str | None = None
+        # Voice prompts waiting for this session. Owned by the tab and handed
+        # to every widget it builds, so a rebuild that resumes the same
+        # conversation keeps them.
+        self.voice_queue = _new_voice_queue(self)
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -267,6 +300,8 @@ class AgentSessionTab(QWidget):
             launched_by=self.launched_by,
             parent=self,
         )
+        # Before widget_created: listeners see the widget with the tab's queue.
+        self._attach_voice_queue(self.claude_widget)
 
         # Add to layout
         self._layout.addWidget(self.claude_widget)
@@ -283,6 +318,64 @@ class AgentSessionTab(QWidget):
         register_bus_endpoint(self.claude_widget)
 
         logger.info("Claude assistant session initialized: {}", self.agent_name)
+
+    def _attach_voice_queue(self, widget) -> None:
+        """Hand the tab's voice queue to a freshly built ``widget``.
+
+        Queued prompts carry over only when ``widget`` resumes the conversation
+        the torn-down widget was in; otherwise they are dropped, with a notice
+        in the new chat saying how many.
+        """
+        queue = self.voice_queue
+        old_sid = self._rebuild_from_session_id
+        self._rebuild_from_session_id = None
+        if queue is None or getattr(widget, "voice_queue", None) is None:
+            return  # degraded widget (error UI): nothing to attach to
+        new_sid = _session_id_of(widget)
+        same_conversation = old_sid is not None and new_sid == old_sid
+        dropped = 0 if same_conversation else queue.clear()
+        widget.set_voice_queue(queue)
+        if dropped:
+            logger.info(
+                "Discarded {} queued voice message(s) for {}: new conversation",
+                dropped, self.agent_name,
+            )
+            widget.show_system_notice(
+                f"{dropped} queued voice message(s) discarded: new conversation"
+            )
+        elif len(queue):
+            # After the caller's own zero-delay work (e.g. repainting a
+            # restored transcript), send the next one if the session is idle.
+            QTimer.singleShot(0, widget, widget.drain_voice_queue)
+
+    def _detach_voice_queue(self) -> None:
+        """Take the voice queue back from the widget about to be torn down, so
+        its deletion does not delete the queue and it cannot drain into a
+        stopping agent."""
+        queue = self.voice_queue
+        widget = self.claude_widget
+        if queue is None or widget is None:
+            return
+        if getattr(widget, "voice_queue", None) is queue:
+            widget.voice_queue = None
+        if queue.parent() is not self:
+            queue.setParent(self)
+
+    def discard_voice_queue(self, reason: str) -> int:
+        """Drop all queued voice prompts, logging how many; returns the count."""
+        queue = self.voice_queue
+        if queue is None:
+            return 0
+        n = queue.clear()
+        if n:
+            logger.info(
+                "Discarded {} queued voice message(s) for {}: {}", n, self.agent_name, reason
+            )
+        return n
+
+    def queued_voice_count(self) -> int:
+        """Number of voice prompts waiting in this tab's queue."""
+        return len(self.voice_queue) if self.voice_queue is not None else 0
 
     def _setup_error_ui(self, message: str) -> None:
         """Setup error UI when Claude is not available."""
@@ -307,7 +400,11 @@ class AgentSessionTab(QWidget):
         registered tools.
         """
         logger.info("Reloading Claude agent with new tools: {}", self.agent_name)
+        # The voice queue follows only if the rebuilt widget resumes this
+        # conversation (see _attach_voice_queue).
+        old_sid = _session_id_of(self.claude_widget)
         self.teardown()
+        self._rebuild_from_session_id = old_sid
 
         # Remove a prior "Unavailable" error label so a recovery rebuild doesn't
         # stack the new widget beneath it, and clear the error state.
@@ -320,6 +417,7 @@ class AgentSessionTab(QWidget):
         # Re-initialize
         self.is_agent_ready = False
         self.initialize()
+        self._rebuild_from_session_id = None  # if the build failed before attaching
 
     def teardown(self, wait_for_worker: bool = True) -> None:
         """Stop the agent, unregister the bus endpoint, drop the widget.
@@ -330,6 +428,8 @@ class AgentSessionTab(QWidget):
                 on the GUI thread there can exceed the exit watchdog and
                 crash the forced teardown.
         """
+        self._detach_voice_queue()
+
         # Stop current agent
         if self.claude_widget and hasattr(self.claude_widget, "agent"):
             try:

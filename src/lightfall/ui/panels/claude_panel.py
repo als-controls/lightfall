@@ -42,6 +42,18 @@ if TYPE_CHECKING:
     pass
 
 
+def _voice_queue_pending(widget) -> bool:
+    """True if ``widget`` has queued voice prompts that will still drain
+    (non-empty and not paused after an error)."""
+    queue = getattr(widget, "voice_queue", None) if widget is not None else None
+    if queue is None:
+        return False
+    try:
+        return len(queue) > 0 and not queue.paused
+    except TypeError:  # not a real queue (e.g. a test double)
+        return False
+
+
 class ReloadBannerWidget(QFrame):
     """Banner widget shown when new plugins are detected.
 
@@ -416,6 +428,19 @@ class ClaudePanel(BasePanel):
             return []
         return [self._tabs.widget(i) for i in range(self._tabs.count())]
 
+    def current_assistant_widget(self):
+        """The visible tab's ``ClaudeAssistantWidget``, or None (no tab, or the
+        session has no live widget)."""
+        if self._tabs is None:
+            return None
+        tab = self._tabs.currentWidget()
+        return getattr(tab, "claude_widget", None) if tab is not None else None
+
+    def assistant_widgets(self) -> list:
+        """Every open session's live ``ClaudeAssistantWidget``, in tab order."""
+        widgets = (getattr(t, "claude_widget", None) for t in self._session_tabs())
+        return [w for w in widgets if w is not None]
+
     def _open_tab_names(self) -> set[str]:
         return {t.agent_name for t in self._session_tabs()}
 
@@ -432,6 +457,20 @@ class ClaudePanel(BasePanel):
         # tabs are movable, so index 0 may hold any session.
         if tab is self._lightfall_tab:
             return
+        queued = tab.queued_voice_count()
+        if queued:
+            from PySide6.QtWidgets import QMessageBox
+
+            reply = QMessageBox.question(
+                self,
+                "Close session",
+                f"Discard {queued} queued voice messages?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            tab.discard_voice_queue("tab closed")
         self._deferred_reload.discard(tab)
         self._deferred_polling.discard(tab)
         tab.close_session()
@@ -906,7 +945,7 @@ class ClaudePanel(BasePanel):
                 self._reload_tab_when_idle(tab)
         widget = self._claude_widget
         agent = getattr(widget, "agent", None) if widget is not None else None
-        if agent is not None and agent.is_busy():
+        if (agent is not None and agent.is_busy()) or _voice_queue_pending(widget):
             self._show_settings_reload_banner()
             self._reload_tab_when_idle(None)  # registers the auto-reload
         else:
@@ -921,7 +960,8 @@ class ClaudePanel(BasePanel):
         """
         widget = self._claude_widget if tab is None else tab.claude_widget
         agent = getattr(widget, "agent", None) if widget is not None else None
-        if agent is None or not agent.is_busy():
+        voice_pending = _voice_queue_pending(widget)
+        if (agent is None or not agent.is_busy()) and not voice_pending:
             self._deferred_reload.discard(tab)
             self._deferred_polling.discard(tab)
             if tab is None:
@@ -932,6 +972,13 @@ class ClaudePanel(BasePanel):
         if tab in self._deferred_reload:
             return
         self._deferred_reload.add(tab)
+        if agent is None or not agent.is_busy():
+            # Idle, but queued voice prompts go first: poll until they drain.
+            self._deferred_polling.add(tab)
+            QTimer.singleShot(
+                self._DEFERRED_POLL_MS, self, lambda: self._poll_deferred_reload(tab)
+            )
+            return
         end_signals = (agent.query_completed, agent.query_cancelled, agent.error_occurred)
 
         def _fire(*_args, t=tab) -> None:
@@ -963,7 +1010,8 @@ class ClaudePanel(BasePanel):
         """After a turn ends, reload ``tab`` once it is idle.
 
         Polls for as long as the reload stays pending: a new turn started in
-        the meantime keeps it waiting, so a reply is never torn down.
+        the meantime keeps it waiting, so a reply is never torn down. Queued
+        (unpaused) voice prompts also keep it waiting: the queue drains first.
         """
         if tab not in self._deferred_reload or tab not in self._deferred_polling:
             self._deferred_polling.discard(tab)  # closed / reloaded meanwhile
@@ -972,7 +1020,7 @@ class ClaudePanel(BasePanel):
             return
         widget = self._claude_widget if tab is None else tab.claude_widget
         agent = getattr(widget, "agent", None) if widget is not None else None
-        if agent is not None and agent.is_busy():
+        if (agent is not None and agent.is_busy()) or _voice_queue_pending(widget):
             QTimer.singleShot(
                 self._DEFERRED_POLL_MS, self, lambda: self._poll_deferred_reload(tab)
             )
@@ -1224,6 +1272,7 @@ class ClaudePanel(BasePanel):
             # os._exit() then crashes mid-teardown (0xC0000005). Signal the
             # workers and abandon them, as the pre-tab close path did.
             for tab in tabs:
+                tab.discard_voice_queue("application closing")
                 tab.close_session(wait_for_worker=False)
             self._claude_widget = None
         else:

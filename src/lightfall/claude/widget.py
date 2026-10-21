@@ -755,6 +755,15 @@ class ClaudeAssistantWidget(QWidget):
         if item is not None:
             self._send_prompt(item.text)
 
+    def drain_voice_queue(self) -> None:
+        """Send the next queued voice prompt if the session is idle (e.g. right
+        after a queue was handed over to this widget)."""
+        self._drain_voice_queue()
+
+    def show_system_notice(self, text: str) -> None:
+        """Append ``text`` to the chat as a system notice."""
+        self._append_system_message(text)
+
     @Slot()
     def _on_send_queued(self) -> None:
         """The strip's "Send queued" button: lift the pause and send one."""
