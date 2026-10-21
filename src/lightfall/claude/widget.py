@@ -747,9 +747,9 @@ class ClaudeAssistantWidget(QWidget):
         return not self._is_busy and not self._pending_permission_widgets
 
     def _drain_voice_queue(self) -> None:
-        """Send the next queued prompt, if not paused and the session is idle."""
+        """Send the next queued prompt, if not paused or held and the session is idle."""
         queue = self.voice_queue
-        if queue is None or queue.paused or not self._can_send_now():
+        if queue is None or queue.paused or queue.held or not self._can_send_now():
             return
         item = queue.pop_next()
         if item is not None:
@@ -766,9 +766,11 @@ class ClaudeAssistantWidget(QWidget):
 
     @Slot()
     def _on_send_queued(self) -> None:
-        """The strip's "Send queued" button: lift the pause and send one."""
+        """The strip's "Send queued" button: lift the pause (and any hold) and
+        send one."""
         if self.voice_queue is not None:
             self.voice_queue.resume()
+            self.voice_queue.release()
         self._drain_voice_queue()
 
     def _submit_bus_prompt(self, text: str) -> bool:
@@ -803,7 +805,9 @@ class ClaudeAssistantWidget(QWidget):
         messages wait for a later completion.
         """
         queue = self.voice_queue
-        voice_first = queue is not None and len(queue) and not queue.paused
+        voice_first = (
+            queue is not None and len(queue) and not queue.paused and not queue.held
+        )
         if not voice_first:
             if self.bus_endpoint.policy == "auto":
                 self.bus_endpoint.flush_pending()

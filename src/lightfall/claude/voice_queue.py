@@ -1,8 +1,9 @@
 """Queue of spoken prompts waiting for the agent, plus the strip that shows them.
 
 ``VoiceQueue`` is the model: a FIFO of ``QueuedPrompt`` with a sticky
-``paused`` flag (set after a turn ends in error). ``VoiceQueueStrip`` is the
-view: it sits directly above the chat input row, lists each queued prompt as
+``paused`` flag (set after a turn ends in error) and a ``held`` flag (set
+while a rebuilt session has not yet confirmed its conversation).
+``VoiceQueueStrip`` is the view: it sits directly above the chat input row, lists each queued prompt as
 a dimmed label with a ✕, and when paused shows "Paused after error" with a
 "Send queued" button.
 """
@@ -50,6 +51,7 @@ class VoiceQueue(QObject):
         super().__init__(parent)
         self._items: list[QueuedPrompt] = []
         self._paused = False
+        self._held = False
 
     def items(self) -> list[QueuedPrompt]:
         return list(self._items)
@@ -96,6 +98,22 @@ class VoiceQueue(QObject):
     def resume(self) -> None:
         if self._paused:
             self._paused = False
+            self.changed.emit()
+
+    @property
+    def held(self) -> bool:
+        """Handed across a widget rebuild and waiting for the new agent to
+        confirm it resumed the same conversation; nothing drains meanwhile."""
+        return self._held
+
+    def hold(self) -> None:
+        if not self._held:
+            self._held = True
+            self.changed.emit()
+
+    def release(self) -> None:
+        if self._held:
+            self._held = False
             self.changed.emit()
 
 

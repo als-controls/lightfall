@@ -2,7 +2,8 @@
 
 The queue is owned by the ``AgentSessionTab`` and handed to each new
 ``ClaudeAssistantWidget``; it survives a rebuild only when the new widget
-resumes the same conversation. The real widget is built around a fake agent
+resumes the same conversation, and stays held until the new agent confirms
+that with its first session id. The real widget is built around a fake agent
 (as in ``tests/claude/test_submit_user_prompt.py``); the panel tests stub
 session construction.
 """
@@ -19,6 +20,7 @@ from lightfall.agents.backends import info as info_mod
 from lightfall.agents.spec import AgentSpec
 from lightfall.claude import widget as widget_mod
 from lightfall.claude.voice_queue import VoiceQueue
+from lightfall.ui.panels import claude_panel as panel_mod
 from lightfall.ui.panels.claude import agent_session_tab as tab_mod
 from lightfall.ui.panels.claude.agent_session_tab import AgentSessionTab
 from lightfall.ui.panels.claude_panel import ClaudePanel
@@ -28,6 +30,8 @@ from tests.claude.test_submit_user_prompt import FakeAgent, _Info
 
 class SidAgent(FakeAgent):
     """FakeAgent that knows which conversation it is in."""
+
+    session_id_changed = Signal(str)
 
     def __init__(self, *args, resume=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -41,6 +45,11 @@ class SidAgent(FakeAgent):
 
     def stop(self, wait_ms=5000):
         self.busy = False
+
+    def confirm(self, sid):
+        """The backend reports the session id (as after a turn's result)."""
+        self._current_session_id = sid
+        self.session_id_changed.emit(sid)
 
 
 class _Store:
@@ -89,6 +98,10 @@ def _labels(widget) -> list[str]:
     return [lbl.text() for lbl in widget.findChildren(QLabel)]
 
 
+def _info_messages(log: MagicMock) -> list[str]:
+    return [c.args[0].format(*c.args[1:]) for c in log.info.call_args_list]
+
+
 def test_rebuild_same_session_keeps_queue(qtbot, build_env):
     build_env.update(auto_restore=True, last="S1")
     tab = AgentSessionTab()
@@ -101,7 +114,6 @@ def test_rebuild_same_session_keeps_queue(qtbot, build_env):
     old.submit_user_prompt("two")
     QCoreApplication.processEvents()  # let the old widget's scroll timers run
     assert len(tab.voice_queue) == 2
-    tab.voice_queue.pause()  # e.g. after an error; otherwise it drains (below)
 
     tab.reload_agent()
     _flush_deletes()
@@ -110,6 +122,10 @@ def test_rebuild_same_session_keeps_queue(qtbot, build_env):
     assert new is not old
     assert new.voice_queue is tab.voice_queue
     assert [it.text for it in tab.voice_queue.items()] == ["one", "two"]
+    # Held until the new agent confirms the conversation; still shown.
+    assert tab.voice_queue.held
+    assert new.agent.sent == []
+    assert not new._voice_queue_strip.isHidden()
     # The tab-owned queue outlived the old widget's deletion.
     tab.voice_queue.push("three")
     assert len(new._voice_queue_strip.item_rows()) == 3
@@ -160,14 +176,16 @@ def test_restore_same_session_keeps_queue(qtbot, build_env):
     tab.claude_widget.submit_user_prompt("zero")  # sent; now busy
     tab.claude_widget.submit_user_prompt("one")
     QCoreApplication.processEvents()  # let the old widget's scroll timers run
-    tab.voice_queue.pause()  # keep it from draining into the new widget
 
     tab.restore_session("S1")
+    _flush_deletes()
     assert [it.text for it in tab.voice_queue.items()] == ["one"]
     assert tab.claude_widget.voice_queue is tab.voice_queue
+    assert tab.voice_queue.held
 
 
-def test_handed_over_queue_drains_into_new_widget(qtbot, build_env):
+def _handed_over(qtbot, build_env):
+    """A tab rebuilt (same requested conversation S1) with "one" queued."""
     build_env.update(auto_restore=True, last="S1")
     tab = AgentSessionTab()
     qtbot.addWidget(tab)
@@ -175,11 +193,63 @@ def test_handed_over_queue_drains_into_new_widget(qtbot, build_env):
     tab.claude_widget.submit_user_prompt("zero")  # sent; now busy
     tab.claude_widget.submit_user_prompt("one")
     QCoreApplication.processEvents()  # let the old widget's scroll timers run
-
     tab.reload_agent()
-    new = tab.claude_widget
+    _flush_deletes()
+    return tab, tab.claude_widget
+
+
+def test_no_drain_before_confirmation(qtbot, build_env):
+    tab, new = _handed_over(qtbot, build_env)
+    qtbot.wait(50)
+    assert new.agent.sent == []
+    assert [it.text for it in tab.voice_queue.items()] == ["one"]
+    # A new voice prompt waits behind the held ones.
+    assert new.submit_user_prompt("later") == "queued"
+
+
+def test_confirmed_same_session_drains(qtbot, build_env):
+    tab, new = _handed_over(qtbot, build_env)
+    new.agent.confirm("S1")
     qtbot.waitUntil(lambda: new.agent.sent == ["one"], timeout=2000)
     assert len(tab.voice_queue) == 0
+    assert not tab.voice_queue.held
+
+
+def test_confirmed_other_session_clears_with_notice(qtbot, build_env):
+    tab, new = _handed_over(qtbot, build_env)
+    new.agent.confirm("S-fresh")  # the resume silently started a new conversation
+    QCoreApplication.processEvents()
+    assert len(tab.voice_queue) == 0
+    assert not tab.voice_queue.held
+    assert new.agent.sent == []
+    assert "1 queued voice message(s) discarded: new conversation" in _labels(new)
+
+
+def test_error_before_confirmation_stays_held(qtbot, build_env):
+    tab, new = _handed_over(qtbot, build_env)
+    new._send_prompt("typed")  # a typed turn...
+    assert new.agent.sent == ["typed"]
+    new.agent.fail()  # ...errors before any session id is reported
+    QCoreApplication.processEvents()
+    assert tab.voice_queue.held and tab.voice_queue.paused
+    assert new.agent.sent == ["typed"]
+    assert [it.text for it in tab.voice_queue.items()] == ["one"]
+
+
+def test_init_failure_discards_queue(qtbot, build_env, monkeypatch):
+    tab = AgentSessionTab()
+    qtbot.addWidget(tab)
+    tab.voice_queue.push("orphan")
+    monkeypatch.setattr(ClaudeSettingsProvider, "is_configured", staticmethod(lambda: False))
+    monkeypatch.setattr(
+        ClaudeSettingsProvider, "get_agent_backend", staticmethod(lambda: "agy")
+    )
+    log = MagicMock()
+    monkeypatch.setattr(tab_mod, "logger", log)
+    tab.initialize()
+    assert tab.error_message is not None
+    assert len(tab.voice_queue) == 0
+    assert any("1 queued voice message(s)" in m for m in _info_messages(log))
 
 
 # --- panel --------------------------------------------------------------------
@@ -206,58 +276,71 @@ def bare_panel(qtbot, monkeypatch):
     return p
 
 
-def test_deferred_reload_waits_for_queue(bare_panel, monkeypatch, qtbot):
-    panel = bare_panel
+def _main_session(panel, monkeypatch, busy, *items):
     monkeypatch.setattr(ClaudePanel, "_DEFERRED_POLL_MS", 10)
     reloads = []
     monkeypatch.setattr(panel, "_reload_agent", lambda: reloads.append(1))
-    agent = _FakeAgent(busy=True)
+    agent = _FakeAgent(busy=busy)
     queue = VoiceQueue()
-    queue.push("queued one")
+    for text in items:
+        queue.push(text)
     panel._claude_widget = MagicMock()
     panel._claude_widget.agent = agent
     panel._claude_widget.voice_queue = queue
+    return agent, queue, reloads
 
-    panel._reload_tab_when_idle(None)
-    agent.busy = False
-    agent.query_completed.emit()  # the turn ended, but a voice prompt waits
+
+def test_deferred_reload_waits_for_queue(bare_panel, monkeypatch, qtbot):
+    agent, queue, reloads = _main_session(bare_panel, monkeypatch, True, "a", "b")
+
+    bare_panel._reload_tab_when_idle(None)
+    # The turn ends and the widget drains "a": the next turn starts.
+    queue.pop_next()
+    agent.query_completed.emit()
+    qtbot.wait(80)  # many polls, all busy
+    assert reloads == []
+    queue.pop_next()  # that turn ends; the widget drains "b"
     qtbot.wait(80)
     assert reloads == []
-
-    queue.pop_next()  # the queue drained
+    agent.busy = False  # the last turn ends with the queue empty
     qtbot.waitUntil(lambda: reloads == [1], timeout=2000)
 
 
 def test_deferred_reload_idle_with_queue_still_waits(bare_panel, monkeypatch, qtbot):
-    panel = bare_panel
-    monkeypatch.setattr(ClaudePanel, "_DEFERRED_POLL_MS", 10)
-    reloads = []
-    monkeypatch.setattr(panel, "_reload_agent", lambda: reloads.append(1))
-    queue = VoiceQueue()
-    queue.push("queued one")
-    panel._claude_widget = MagicMock()
-    panel._claude_widget.agent = _FakeAgent(busy=False)
-    panel._claude_widget.voice_queue = queue
+    _agent, queue, reloads = _main_session(bare_panel, monkeypatch, False, "queued")
 
-    panel._reload_tab_when_idle(None)
-    qtbot.wait(60)
-    assert reloads == []
+    bare_panel._reload_tab_when_idle(None)
+    assert reloads == []  # deferred: queued prompts go first
     queue.pop_next()
     qtbot.waitUntil(lambda: reloads == [1], timeout=2000)
 
 
-def test_deferred_reload_ignores_paused_queue(bare_panel, monkeypatch):
-    panel = bare_panel
-    reloads = []
-    monkeypatch.setattr(panel, "_reload_agent", lambda: reloads.append(1))
-    queue = VoiceQueue()
-    queue.push("queued one")
-    queue.pause()
-    panel._claude_widget = MagicMock()
-    panel._claude_widget.agent = _FakeAgent(busy=False)
-    panel._claude_widget.voice_queue = queue
+def test_deferred_reload_stops_waiting_for_a_stuck_queue(bare_panel, monkeypatch, qtbot):
+    agent, queue, reloads = _main_session(
+        bare_panel, monkeypatch, True, "blocked by a permission card"
+    )
+    log = MagicMock()
+    monkeypatch.setattr(panel_mod, "logger", log)
 
-    panel._reload_tab_when_idle(None)
+    bare_panel._reload_tab_when_idle(None)
+    agent.busy = False
+    agent.query_completed.emit()  # idle, but the queue cannot drain
+    qtbot.waitUntil(lambda: reloads == [1], timeout=2000)
+    assert len(queue) == 1
+    assert any("not draining" in m for m in _info_messages(log))
+
+
+def test_deferred_reload_ignores_paused_queue(bare_panel, monkeypatch):
+    _agent, queue, reloads = _main_session(bare_panel, monkeypatch, False, "queued")
+    queue.pause()
+    bare_panel._reload_tab_when_idle(None)
+    assert reloads == [1]
+
+
+def test_deferred_reload_ignores_held_queue(bare_panel, monkeypatch):
+    _agent, queue, reloads = _main_session(bare_panel, monkeypatch, False, "queued")
+    queue.hold()
+    bare_panel._reload_tab_when_idle(None)
     assert reloads == [1]
 
 
@@ -320,15 +403,13 @@ def test_quit_discards_queue_with_log(tab_panel, monkeypatch):
     panel = tab_panel
     tab = panel._open_agent_tab(_spec("saxs"))
     tab.voice_queue.push("a")
-    messages = []
-    from lightfall.ui.panels import claude_panel as panel_mod
-
-    monkeypatch.setattr(
-        panel_mod.logger, "info", lambda msg, *a, **k: messages.append(msg.format(*a))
-    )
+    log = MagicMock()
+    monkeypatch.setattr(tab_mod, "logger", log)  # AgentSessionTab.discard_voice_queue logs
     panel._on_closing()
     assert len(tab.voice_queue) == 0
-    assert any("1 queued voice message" in m for m in messages)
+    assert any(
+        "1 queued voice message(s)" in m and "closing" in m for m in _info_messages(log)
+    )
 
 
 def test_current_assistant_widget_tracks_tab(tab_panel):

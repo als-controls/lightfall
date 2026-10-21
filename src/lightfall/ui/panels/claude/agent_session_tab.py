@@ -324,29 +324,70 @@ class AgentSessionTab(QWidget):
 
         Queued prompts carry over only when ``widget`` resumes the conversation
         the torn-down widget was in; otherwise they are dropped, with a notice
-        in the new chat saying how many.
+        in the new chat saying how many. A requested resume is not proof (the
+        backend may start fresh), so carried-over prompts stay *held* -- shown,
+        not sent -- until the new agent reports its session id.
         """
         queue = self.voice_queue
         old_sid = self._rebuild_from_session_id
         self._rebuild_from_session_id = None
-        if queue is None or getattr(widget, "voice_queue", None) is None:
-            return  # degraded widget (error UI): nothing to attach to
+        if queue is None:
+            return
+        if getattr(widget, "voice_queue", None) is None:
+            # Degraded widget (its own error UI): nothing to carry prompts into.
+            self.discard_voice_queue("assistant unavailable")
+            return
         new_sid = _session_id_of(widget)
         same_conversation = old_sid is not None and new_sid == old_sid
-        dropped = 0 if same_conversation else queue.clear()
         widget.set_voice_queue(queue)
-        if dropped:
-            logger.info(
-                "Discarded {} queued voice message(s) for {}: new conversation",
-                dropped, self.agent_name,
-            )
-            widget.show_system_notice(
-                f"{dropped} queued voice message(s) discarded: new conversation"
-            )
-        elif len(queue):
-            # After the caller's own zero-delay work (e.g. repainting a
-            # restored transcript), send the next one if the session is idle.
+        if not same_conversation:
+            self._drop_voice_queue_for_new_conversation(widget)
+            return
+        if not len(queue):
+            queue.release()
+            return
+        queue.hold()
+        agent = widget.agent
+
+        def _confirmed(sid: str, w=widget, expected=old_sid) -> None:
+            try:
+                agent.session_id_changed.disconnect(_confirmed)
+            except (RuntimeError, TypeError):
+                pass
+            self._on_handover_confirmed(w, expected, sid)
+
+        agent.session_id_changed.connect(_confirmed)
+
+    def _on_handover_confirmed(self, widget, expected: str, sid: str) -> None:
+        """The rebuilt agent reported its first session id: release the held
+        queue if it is the conversation the prompts were queued for."""
+        queue = self.voice_queue
+        if queue is None or widget is not self.claude_widget or widget.voice_queue is not queue:
+            return  # rebuilt again / torn down meanwhile
+        if sid == expected:
+            queue.release()
+            # After the finishing turn's own slots, send the next one if idle.
             QTimer.singleShot(0, widget, widget.drain_voice_queue)
+            return
+        logger.info(
+            "Resume of {} for {} came back as {}: new conversation", expected,
+            self.agent_name, sid,
+        )
+        self._drop_voice_queue_for_new_conversation(widget)
+
+    def _drop_voice_queue_for_new_conversation(self, widget) -> None:
+        queue = self.voice_queue
+        queue.release()
+        dropped = queue.clear()
+        if not dropped:
+            return
+        logger.info(
+            "Discarded {} queued voice message(s) for {}: new conversation",
+            dropped, self.agent_name,
+        )
+        widget.show_system_notice(
+            f"{dropped} queued voice message(s) discarded: new conversation"
+        )
 
     def _detach_voice_queue(self) -> None:
         """Take the voice queue back from the widget about to be torn down, so
@@ -366,6 +407,7 @@ class AgentSessionTab(QWidget):
         queue = self.voice_queue
         if queue is None:
             return 0
+        queue.release()
         n = queue.clear()
         if n:
             logger.info(
@@ -379,6 +421,9 @@ class AgentSessionTab(QWidget):
 
     def _setup_error_ui(self, message: str) -> None:
         """Setup error UI when Claude is not available."""
+        # No widget to carry queued voice prompts into.
+        self.discard_voice_queue("assistant unavailable")
+        self._rebuild_from_session_id = None
         error_label = QLabel(f"Assistant unavailable\n\n{message}")
         error_label.setWordWrap(True)
         error_label.setStyleSheet(f"""

@@ -43,15 +43,22 @@ if TYPE_CHECKING:
 
 
 def _voice_queue_pending(widget) -> bool:
-    """True if ``widget`` has queued voice prompts that will still drain
-    (non-empty and not paused after an error)."""
+    """True if ``widget`` has queued voice prompts that may still drain
+    (non-empty, not paused after an error, not held across a rebuild)."""
+    return _voice_queue_len(widget) > 0
+
+
+def _voice_queue_len(widget) -> int:
+    """Length of ``widget``'s voice queue if it can drain, else 0."""
     queue = getattr(widget, "voice_queue", None) if widget is not None else None
     if queue is None:
-        return False
+        return 0
     try:
-        return len(queue) > 0 and not queue.paused
+        if queue.paused or getattr(queue, "held", False):
+            return 0
+        return len(queue)
     except TypeError:  # not a real queue (e.g. a test double)
-        return False
+        return 0
 
 
 class ReloadBannerWidget(QFrame):
@@ -218,6 +225,9 @@ class ClaudePanel(BasePanel):
     # for idleness at this interval, for as long as the reload stays pending (a
     # new turn just keeps it waiting -- a reply is never torn down).
     _DEFERRED_POLL_MS = 200
+    # Idle polls without the voice queue shrinking before a deferred reload
+    # stops waiting for it (it cannot drain, e.g. a permission card is up).
+    _VOICE_STALL_POLLS = 3
 
     _WATCHED_CLAUDE_KEYS = (
         "claude_model",
@@ -265,6 +275,8 @@ class ClaudePanel(BasePanel):
         # Tabs (main or "+") whose reload waits for their in-flight reply to end.
         self._deferred_reload: set = set()
         self._deferred_polling: set = set()  # tabs with a poll chain running
+        # tab -> (voice queue length last seen, idle polls without it shrinking)
+        self._voice_drain_watch: dict = {}
 
         # Session restore state
         self._pending_resume_session_id: str | None = None
@@ -471,6 +483,7 @@ class ClaudePanel(BasePanel):
             if reply != QMessageBox.StandardButton.Yes:
                 return
             tab.discard_voice_queue("tab closed")
+        self._voice_drain_watch.pop(tab, None)
         self._deferred_reload.discard(tab)
         self._deferred_polling.discard(tab)
         tab.close_session()
@@ -960,7 +973,8 @@ class ClaudePanel(BasePanel):
         """
         widget = self._claude_widget if tab is None else tab.claude_widget
         agent = getattr(widget, "agent", None) if widget is not None else None
-        voice_pending = _voice_queue_pending(widget)
+        self._voice_drain_watch.pop(tab, None)
+        voice_pending = self._waiting_on_voice(tab, widget, agent)
         if (agent is None or not agent.is_busy()) and not voice_pending:
             self._deferred_reload.discard(tab)
             self._deferred_polling.discard(tab)
@@ -995,6 +1009,34 @@ class ClaudePanel(BasePanel):
         for sig in end_signals:
             sig.connect(_fire)
 
+    def _waiting_on_voice(self, tab, widget, agent) -> bool:
+        """Should ``tab``'s deferred reload keep waiting for its voice queue?
+
+        Yes while the queue can drain. An idle session whose queue has not
+        shrunk for ``_VOICE_STALL_POLLS`` polls is stuck (e.g. a permission card
+        blocks sending), so the reload stops waiting rather than never running.
+        """
+        n = _voice_queue_len(widget)
+        if n == 0:
+            self._voice_drain_watch.pop(tab, None)
+            return False
+        busy = agent is not None and agent.is_busy()
+        last = self._voice_drain_watch.get(tab)
+        if busy or last is None or n < last[0]:
+            self._voice_drain_watch[tab] = (n, 0)
+            return True
+        stalled = last[1] + 1
+        if stalled >= self._VOICE_STALL_POLLS:
+            self._voice_drain_watch.pop(tab, None)
+            logger.info(
+                "Deferred reload of {}: {} queued voice message(s) are not draining; "
+                "reloading anyway",
+                "lightfall" if tab is None else getattr(tab, "agent_name", tab), n,
+            )
+            return False
+        self._voice_drain_watch[tab] = (n, stalled)
+        return True
+
     def _deferred_tab_gone(self, tab) -> bool:
         """True (and the deferral dropped) if extra tab ``tab`` left the panel.
 
@@ -1002,6 +1044,7 @@ class ClaudePanel(BasePanel):
         """
         if tab is None or tab in self._session_tabs():
             return False
+        self._voice_drain_watch.pop(tab, None)
         self._deferred_reload.discard(tab)
         self._deferred_polling.discard(tab)
         return True
@@ -1020,7 +1063,8 @@ class ClaudePanel(BasePanel):
             return
         widget = self._claude_widget if tab is None else tab.claude_widget
         agent = getattr(widget, "agent", None) if widget is not None else None
-        if (agent is not None and agent.is_busy()) or _voice_queue_pending(widget):
+        waiting_on_voice = self._waiting_on_voice(tab, widget, agent)
+        if (agent is not None and agent.is_busy()) or waiting_on_voice:
             QTimer.singleShot(
                 self._DEFERRED_POLL_MS, self, lambda: self._poll_deferred_reload(tab)
             )
