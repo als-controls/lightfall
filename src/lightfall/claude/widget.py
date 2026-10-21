@@ -3,6 +3,7 @@
 import math
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 import qtawesome as qta
 import shiboken6
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 from lightfall.agents.backend import TranscriptEntry
 from lightfall.claude.agent import QtClaudeAgent
 from lightfall.claude.bus_endpoint import BusCardEntry, BusCardModel, ClaudeSessionEndpoint
+from lightfall.claude.voice_queue import VoiceQueue, VoiceQueueStrip
 from lightfall.claude.widgets.permission_request import PermissionRequestWidget
 from lightfall.claude.widgets.question_request import QuestionRequestWidget
 from lightfall.claude.widgets.task_card import TaskCard
@@ -203,6 +205,9 @@ class ClaudeAssistantWidget(QWidget):
     _sign_in_hint: QFrame | None = None
     _auth_future = None
     _auth_generation = 0
+    # Built in __init__; None only for widgets assembled without it (tests).
+    voice_queue: VoiceQueue | None = None
+    _turn_errored = False
 
     @property
     def backend_info(self):
@@ -346,6 +351,12 @@ class ClaudeAssistantWidget(QWidget):
             self._on_bus_message_auto_accepted
         )
 
+        # Prompts submitted (by voice) while the agent was busy; see
+        # submit_user_prompt. Drains before AgentBus pending messages.
+        self.voice_queue = VoiceQueue(self)
+        # True once error_occurred fires during the current turn.
+        self._turn_errored = False
+
         # Setup UI
         self._setup_ui()
         self._connect_signals()
@@ -395,8 +406,14 @@ class ClaudeAssistantWidget(QWidget):
         sb.valueChanged.connect(self._on_scroll_value_changed)
         sb.rangeChanged.connect(self._on_scroll_range_changed)
 
+        # Voice queue strip: prompts waiting for the agent, just above the input row.
+        self._voice_queue_strip = VoiceQueueStrip(self.voice_queue)
+        self._voice_queue_strip.send_queued_requested.connect(self._on_send_queued)
+        layout.addWidget(self._voice_queue_strip)
+
         # Input area
         input_layout = QHBoxLayout()
+        self._input_layout = input_layout
         input_layout.setAlignment(Qt.AlignmentFlag.AlignBottom)
 
         self.input_field = _ChatInput()
@@ -437,6 +454,40 @@ class ClaudeAssistantWidget(QWidget):
         self._default_placeholder = (
             f"Hi {self.speaker_name}, Tell me about Lightfall...  (Shift+Enter for a new line)"
         )
+        # placeholder_flash bookkeeping: (flashed text, placeholder to restore).
+        self._flash: tuple[str, str] | None = None
+        self._flash_timer = QTimer(self)
+        self._flash_timer.setSingleShot(True)
+        self._flash_timer.timeout.connect(self._end_placeholder_flash)
+
+    def add_input_accessory(self, widget: QWidget) -> None:
+        """Insert ``widget`` into the input row, immediately after the Send button."""
+        index = self._input_layout.indexOf(self.send_button)
+        self._input_layout.insertWidget(index + 1, widget)
+
+    def set_voice_queue(self, queue: VoiceQueue) -> None:
+        """Adopt ``queue`` (e.g. handed across a widget rebuild) and show it in the strip."""
+        self.voice_queue = queue
+        self._voice_queue_strip.set_queue(queue)
+
+    def placeholder_flash(self, text: str, ms: int = 1500) -> None:
+        """Show ``text`` as the input placeholder for ``ms`` milliseconds.
+
+        On expiry the previous placeholder comes back, unless something else
+        (e.g. a busy-state change) replaced the flashed text meanwhile.
+        """
+        restore = self._flash[1] if self._flash else self.input_field.placeholderText()
+        self._flash = (text, restore)
+        self.input_field.setPlaceholderText(text)
+        self._flash_timer.start(max(0, int(ms)))
+
+    def _end_placeholder_flash(self) -> None:
+        if self._flash is None:
+            return
+        text, restore = self._flash
+        self._flash = None
+        if self.input_field.placeholderText() == text:
+            self.input_field.setPlaceholderText(restore)
 
     def _setup_error_ui(self, error_message: str) -> None:
         """Setup error UI when initialization fails."""
@@ -489,7 +540,7 @@ class ClaudeAssistantWidget(QWidget):
 
     @Slot()
     def _send_query(self) -> None:
-        """Send the user's query to Claude."""
+        """Send the text typed in the input field."""
         prompt = self.input_field.toPlainText().strip()
 
         if not prompt:
@@ -501,9 +552,13 @@ class ClaudeAssistantWidget(QWidget):
 
         # Clear input
         self.input_field.clear()
+        self._send_prompt(prompt)
 
+    def _send_prompt(self, prompt: str) -> None:
+        """Show ``prompt`` as a user message and start a turn with it."""
         # Show user message
         self._append_user_message(prompt)
+        self._turn_errored = False
 
         # Set busy state - disable input and change button to Cancel
         self._set_busy_state(True, f"{self.speaker_name} is thinking...")
@@ -649,6 +704,52 @@ class ClaudeAssistantWidget(QWidget):
         """Settings-menu toggle: switch the bus endpoint's delivery policy."""
         self.bus_endpoint.set_policy("auto" if checked else "queue")
 
+    def submit_user_prompt(
+        self, text: str, *, source: str = "voice"
+    ) -> Literal["answered", "sent", "queued", "ignored"]:
+        """Submit ``text`` as a user prompt without touching the input field.
+
+        - ``"ignored"``: ``text`` is blank.
+        - ``"answered"``: a question card is showing; ``text`` answered the oldest one.
+        - ``"sent"``: the session was idle (not cancelling, no permission card,
+          nothing queued), so a turn started with ``text``.
+        - ``"queued"``: otherwise; it waits in ``voice_queue``.
+        """
+        text = text.strip()
+        if not text:
+            return "ignored"
+        for card in list(self._pending_question_widgets.values()):
+            if card.is_resolved:
+                continue
+            if card.answer_by_text(text):
+                return "answered"
+            break
+        if self._can_send_now() and len(self.voice_queue) == 0:
+            self._send_prompt(text)
+            return "sent"
+        self.voice_queue.push(text)
+        logger.debug("Assistant: queued {} prompt ({} waiting)", source, len(self.voice_queue))
+        return "queued"
+
+    def _can_send_now(self) -> bool:
+        """Idle: no turn running or cancelling, and no permission card waiting."""
+        return not self._is_busy and not self._pending_permission_widgets
+
+    def _drain_voice_queue(self) -> None:
+        """Send the next queued prompt, if not paused and the session is idle."""
+        queue = self.voice_queue
+        if queue is None or queue.paused or not self._can_send_now():
+            return
+        item = queue.pop_next()
+        if item is not None:
+            self._send_prompt(item.text)
+
+    @Slot()
+    def _on_send_queued(self) -> None:
+        """The strip's "Send queued" button: lift the pause and send one."""
+        self.voice_queue.resume()
+        self._drain_voice_queue()
+
     def _submit_bus_prompt(self, text: str) -> bool:
         """Inject a bus-delivered prompt into the session, as if the user typed it.
 
@@ -660,8 +761,7 @@ class ClaudeAssistantWidget(QWidget):
             return False
         if self.input_field.toPlainText().strip():
             return False
-        self.input_field.setPlainText(text)
-        self._send_query()
+        self._send_prompt(text)
         return True
 
     def _flush_bus_on_completion(self) -> None:
@@ -674,7 +774,13 @@ class ClaudeAssistantWidget(QWidget):
         re-emitted afterward so it stays truthful (the per-message
         ``message_auto_accepted`` handler already emits it per drained
         message, but this final emission guarantees the settled count).
+
+        The voice queue goes first: while it holds unpaused prompts, bus
+        messages wait for a later completion.
         """
+        queue = self.voice_queue
+        if queue is not None and len(queue) and not queue.paused:
+            return
         if self.bus_endpoint.policy == "auto":
             self.bus_endpoint.flush_pending()
         else:
@@ -1113,6 +1219,10 @@ class ClaudeAssistantWidget(QWidget):
     @Slot(str)
     def _on_error(self, error: str) -> None:
         """Handle error."""
+        self._turn_errored = True
+        # Don't fire queued prompts into back-to-back failures (e.g. auth).
+        if self.voice_queue is not None:
+            self.voice_queue.pause()
         self._append_error_message(error)
         self._set_busy_state(False)
 
@@ -1134,6 +1244,12 @@ class ClaudeAssistantWidget(QWidget):
         """Handle query completion."""
         self._finalize_open_fragments(cancelled=False)
         self._set_busy_state(False)
+        # A turn that finished without error lifts a sticky error pause.
+        if not self._turn_errored and self.voice_queue is not None:
+            self.voice_queue.resume()
+        # Runs before _flush_bus_on_completion (connected later), so the
+        # voice queue drains ahead of AgentBus messages.
+        self._drain_voice_queue()
 
     @Slot()
     def _on_query_cancelled(self) -> None:
@@ -1141,6 +1257,8 @@ class ClaudeAssistantWidget(QWidget):
         self._finalize_open_fragments(cancelled=True)
         self._append_system_message("Query cancelled")
         self._set_busy_state(False)
+        # Stop keeps the queue; the next prompt goes once the stop settles.
+        self._drain_voice_queue()
 
     # --- Permission handling ---
 
