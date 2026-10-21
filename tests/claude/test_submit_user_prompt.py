@@ -329,3 +329,77 @@ def test_bus_prompt_is_stripped_and_empty_refused(w):
     assert w._submit_bus_prompt("   ") is False
     assert w._submit_bus_prompt("  hi  ") is True
     assert w.agent.sent == ["hi"]
+
+
+def _two_question_card(w):
+    qs = [
+        {"question": "Go?", "header": "A", "multiSelect": False,
+         "options": [{"label": "Yes", "description": ""},
+                     {"label": "No", "description": ""}]},
+        {"question": "Colour?", "header": "B", "multiSelect": False,
+         "options": [{"label": "Red", "description": ""},
+                     {"label": "Blue", "description": ""}]},
+    ]
+    w.agent.question_requested.emit("q2", qs)
+
+
+def test_intermediate_answer_on_multi_question_card_is_consumed(w):
+    w.submit_user_prompt("start")
+    _two_question_card(w)
+    assert w.submit_user_prompt("yes") == "answered"
+    assert w.agent.sent == ["start"]
+    assert len(w.voice_queue) == 0
+    assert w.agent.question_answers == []
+
+    assert w.submit_user_prompt("blue") == "answered"
+    assert w.agent.question_answers == [("q2", {"Go?": "Yes", "Colour?": "Blue"})]
+    assert w.agent.sent == ["start"]
+    assert len(w.voice_queue) == 0
+
+
+def test_text_rejected_by_card_is_dropped_not_sent(w):
+    q = {"question": "Which?", "header": "M", "multiSelect": True,
+         "options": [{"label": "Red", "description": ""},
+                     {"label": "Blue", "description": ""}]}
+    w.agent.question_requested.emit("q3", [q])
+    assert w.submit_user_prompt("and") == "ignored"
+    assert w.agent.sent == []
+    assert len(w.voice_queue) == 0
+    assert not w._pending_question_widgets["q3"].is_resolved
+
+
+def test_held_queue_shows_release_row(w):
+    w.voice_queue.hold()
+    w.voice_queue.push("waiting")
+    strip = _strip(w)
+    assert not strip.isHidden()
+    assert strip.paused_label.isVisibleTo(strip)
+    assert strip.paused_label.text() == "Held: waiting for resumed session"
+    button = strip.findChild(QPushButton, "voiceQueueSendQueued")
+    assert button.isVisibleTo(strip)
+
+    button.click()
+    assert not w.voice_queue.held
+    assert w.agent.sent == ["waiting"]
+    assert len(w.voice_queue) == 0
+
+
+def test_paused_label_wins_over_held(w):
+    w.voice_queue.hold()
+    w.voice_queue.pause()
+    w.voice_queue.push("x")
+    assert _strip(w).paused_label.text() == "Paused after error"
+
+
+def test_placeholder_flash_after_busy_ends_restores_idle(w, qtbot):
+    idle = w.input_field.placeholderText()
+    w.submit_user_prompt("one")  # busy: placeholder shows the status
+    busy_text = w.input_field.placeholderText()
+    assert busy_text != idle
+    w.placeholder_flash("Transcribing…", ms=10_000)
+    w.agent.complete()  # busy ends during the flash
+    assert w.input_field.placeholderText() == idle
+    w.placeholder_flash("Didn't catch that", ms=50)  # e.g. a cancel after the turn
+    qtbot.waitUntil(lambda: w.input_field.placeholderText() == idle, timeout=2000)
+    qtbot.wait(100)
+    assert w.input_field.placeholderText() == idle

@@ -484,7 +484,14 @@ class ClaudeAssistantWidget(QWidget):
         On expiry the previous placeholder comes back, unless something else
         (e.g. a busy-state change) replaced the flashed text meanwhile.
         """
-        restore = self._flash[1] if self._flash else self.input_field.placeholderText()
+        current = self.input_field.placeholderText()
+        # Chain onto a running flash only while it is still showing; if something
+        # (e.g. _set_busy_state) replaced it, the current placeholder is the one
+        # to come back to.
+        if self._flash is not None and current == self._flash[0]:
+            restore = self._flash[1]
+        else:
+            restore = current
         self._flash = (text, restore)
         self.input_field.setPlaceholderText(text)
         self._flash_timer.start(max(0, int(ms)))
@@ -717,8 +724,12 @@ class ClaudeAssistantWidget(QWidget):
     ) -> Literal["answered", "sent", "queued", "ignored"]:
         """Submit ``text`` as a user prompt without touching the input field.
 
-        - ``"ignored"``: ``text`` is blank.
-        - ``"answered"``: a question card is showing; ``text`` answered the oldest one.
+        - ``"ignored"``: ``text`` is blank, or a question card is showing but
+          ``text`` gave it nothing usable (e.g. just "and"). An unresolved card
+          always consumes the text: it is never also sent or queued, since a
+          prompt sent mid-question would reach the agent out of turn.
+        - ``"answered"``: a question card is showing; ``text`` answered the current
+          question of the oldest one (whether or not that completed the card).
         - ``"sent"``: the session was idle (not cancelling, no permission card,
           nothing queued), so a turn started with ``text``.
         - ``"queued"``: otherwise; it waits in ``voice_queue``.
@@ -730,9 +741,8 @@ class ClaudeAssistantWidget(QWidget):
         for card in list(self._pending_question_widgets.values()):
             if card.is_resolved:
                 continue
-            if card.answer_by_text(text):
-                return "answered"
-            break
+            result = card.answer_text(text)
+            return "ignored" if result == "rejected" else "answered"
         if self._can_send_now() and (queue is None or len(queue) == 0):
             self._send_prompt(text)
             return "sent"

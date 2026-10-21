@@ -5,7 +5,8 @@
 while a rebuilt session has not yet confirmed its conversation).
 ``VoiceQueueStrip`` is the view: it sits directly above the chat input row, lists each queued prompt as
 a dimmed label with a ✕, and when paused shows "Paused after error" with a
-"Send queued" button.
+"Send queued" button. A held queue shows the same button under
+"Held: waiting for resumed session", so it can always be released by hand.
 """
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
 from lightfall.ui.theme import scaled_pt
 
 PAUSED_TEXT = "Paused after error"
+HELD_TEXT = "Held: waiting for resumed session"
 SEND_QUEUED_TEXT = "Send queued"
 
 
@@ -238,7 +240,10 @@ class VoiceQueueStrip(QWidget):
             self._items_layout.addWidget(row)
 
         paused = bool(queue is not None and queue.paused)
-        self._paused_row.setVisible(paused)
+        held = bool(queue is not None and queue.held)
+        # "Paused" wins the label: it needs the user, a hold may lift by itself.
+        self.paused_label.setText(PAUSED_TEXT if paused else HELD_TEXT)
+        self._paused_row.setVisible(paused or held)
         self.setVisible(bool(items))
 
     def item_rows(self) -> list[QWidget]:

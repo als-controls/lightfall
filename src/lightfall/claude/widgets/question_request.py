@@ -11,6 +11,7 @@ answered by text (e.g. from voice input) via ``answer_by_text``.
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPalette
@@ -236,11 +237,21 @@ class QuestionRequestWidget(QFrame):
 
         Returns True when this completed the card and it was submitted.
         """
+        return self.answer_text(text) == "completed"
+
+    def answer_text(self, text: str) -> Literal["completed", "partial", "rejected"]:
+        """Answer the current question by text, reporting what happened.
+
+        - ``"completed"``: this answered the last open question; the card was submitted.
+        - ``"partial"``: the text answered the current question, but others remain.
+        - ``"rejected"``: the text was not taken at all (the card is resolved, or
+          the text holds no option and nothing for "Other", e.g. just "and").
+        """
         if self._is_resolved:
-            return False
+            return "rejected"
         i = self.current_index
         if i >= len(self._question_widgets):
-            return False
+            return "rejected"
         q, widgets = self._question_widgets[i]
         other = self.other_edits[i]
         labels = [o.get("label", "") for o in (q.get("options") or [])]
@@ -253,6 +264,8 @@ class QuestionRequestWidget(QFrame):
                 other.clear()
             elif text.strip():
                 other.setText(text.strip())
+            else:
+                return "rejected"
         else:
             checked: list[str] = []
             unmatched: list[str] = []
@@ -265,14 +278,16 @@ class QuestionRequestWidget(QFrame):
                         checked.append(m[0])
                 else:
                     unmatched.append(part.strip())
+            if not checked and not unmatched:
+                return "rejected"
             for cb in widgets:
                 cb.setChecked(cb.text() in checked)
             other.setText(",".join(unmatched))
         self._update_submit_state()
         if self.current_index >= len(self._question_widgets):
             self._on_submit()
-            return True
-        return False
+            return "completed"
+        return "partial"
 
     def _update_submit_state(self, *_args) -> None:
         self.submit_btn.setEnabled(
