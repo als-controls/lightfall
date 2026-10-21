@@ -278,3 +278,54 @@ def test_placeholder_flash_restores(w, qtbot):
     w.placeholder_flash("Didn't catch that", ms=50)
     assert w.input_field.placeholderText() == "Didn't catch that"
     qtbot.waitUntil(lambda: w.input_field.placeholderText() == before, timeout=2000)
+
+
+def test_stop_during_permission_card_does_not_jam_queue(w):
+    w.submit_user_prompt("one")
+    w.agent.permission_requested.emit("r1", "Bash", {"command": "ls"})
+    assert w.submit_user_prompt("two") == "queued"
+    w.send_button.click()  # Stop: the worker releases the wait without permission_expired
+    w.agent.settle_cancel()
+    assert w._pending_permission_widgets == {}
+    assert w.agent.sent == ["one", "two"]
+    w.agent.complete()
+    assert w.submit_user_prompt("three") == "sent"
+
+
+def test_resolving_permission_card_while_idle_drains_one(w):
+    w.agent.permission_requested.emit("r1", "Bash", {"command": "ls"})
+    w.submit_user_prompt("one")
+    w.submit_user_prompt("two")
+    assert w.agent.sent == []
+    w._pending_permission_widgets["r1"].allowed.emit("r1", False)
+    assert w.agent.sent == ["one"]
+    assert _texts(w) == ["two"]
+
+
+def test_handed_over_queue_survives_old_widget_deletion(qtbot, monkeypatch):
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    monkeypatch.setattr(widget_mod, "QtClaudeAgent", FakeAgent)
+    monkeypatch.setattr(info_mod, "backend_info", lambda *a, **k: _Info())
+    spec = SimpleNamespace(name="lightfall", description="d", on_message="queue")
+    target = QWidget()
+    qtbot.addWidget(target)
+    a = widget_mod.ClaudeAssistantWidget(target_window=target, spec=spec)
+    b = widget_mod.ClaudeAssistantWidget(target_window=target, spec=spec)
+    qtbot.addWidget(b)
+    queue = a.voice_queue
+    b.set_voice_queue(queue)
+    a.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    QCoreApplication.processEvents()
+
+    queue.push("still alive")
+    assert b.voice_queue is queue
+    assert not b._voice_queue_strip.isHidden()
+    assert len(b._voice_queue_strip.item_rows()) == 1
+
+
+def test_bus_prompt_is_stripped_and_empty_refused(w):
+    assert w._submit_bus_prompt("   ") is False
+    assert w._submit_bus_prompt("  hi  ") is True
+    assert w.agent.sent == ["hi"]

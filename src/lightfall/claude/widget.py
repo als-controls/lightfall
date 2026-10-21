@@ -467,8 +467,16 @@ class ClaudeAssistantWidget(QWidget):
 
     def set_voice_queue(self, queue: VoiceQueue) -> None:
         """Adopt ``queue`` (e.g. handed across a widget rebuild) and show it in the strip."""
+        old = self.voice_queue
+        if old is queue:
+            return
+        # Take Qt ownership: the queue was parented to the widget that built it,
+        # and that widget's deletion would otherwise delete the queue with it.
+        queue.setParent(self)
         self.voice_queue = queue
-        self._voice_queue_strip.set_queue(queue)
+        self._voice_queue_strip.set_queue(queue)  # also disconnects the old queue
+        if old is not None and shiboken6.isValid(old) and old.parent() is self:
+            old.deleteLater()
 
     def placeholder_flash(self, text: str, ms: int = 1500) -> None:
         """Show ``text`` as the input placeholder for ``ms`` milliseconds.
@@ -718,17 +726,20 @@ class ClaudeAssistantWidget(QWidget):
         text = text.strip()
         if not text:
             return "ignored"
+        queue = self.voice_queue
         for card in list(self._pending_question_widgets.values()):
             if card.is_resolved:
                 continue
             if card.answer_by_text(text):
                 return "answered"
             break
-        if self._can_send_now() and len(self.voice_queue) == 0:
+        if self._can_send_now() and (queue is None or len(queue) == 0):
             self._send_prompt(text)
             return "sent"
-        self.voice_queue.push(text)
-        logger.debug("Assistant: queued {} prompt ({} waiting)", source, len(self.voice_queue))
+        if queue is None:
+            return "ignored"
+        queue.push(text)
+        logger.debug("Assistant: queued {} prompt ({} waiting)", source, len(queue))
         return "queued"
 
     def _can_send_now(self) -> bool:
@@ -747,7 +758,8 @@ class ClaudeAssistantWidget(QWidget):
     @Slot()
     def _on_send_queued(self) -> None:
         """The strip's "Send queued" button: lift the pause and send one."""
-        self.voice_queue.resume()
+        if self.voice_queue is not None:
+            self.voice_queue.resume()
         self._drain_voice_queue()
 
     def _submit_bus_prompt(self, text: str) -> bool:
@@ -757,6 +769,9 @@ class ClaudeAssistantWidget(QWidget):
         or if the user has an in-progress draft in the input field (the
         endpoint re-queues the message and the banner reflects the residue).
         """
+        text = text.strip()
+        if not text:
+            return False
         if self.agent.is_busy() or self._is_busy:
             return False
         if self.input_field.toPlainText().strip():
@@ -779,12 +794,12 @@ class ClaudeAssistantWidget(QWidget):
         messages wait for a later completion.
         """
         queue = self.voice_queue
-        if queue is not None and len(queue) and not queue.paused:
-            return
-        if self.bus_endpoint.policy == "auto":
-            self.bus_endpoint.flush_pending()
-        else:
-            self.bus_endpoint.flush_whitelisted()
+        voice_first = queue is not None and len(queue) and not queue.paused
+        if not voice_first:
+            if self.bus_endpoint.policy == "auto":
+                self.bus_endpoint.flush_pending()
+            else:
+                self.bus_endpoint.flush_whitelisted()
         self.bus_pending_changed.emit(self._bus_card_model.pending_count())
 
     def _on_bus_message_queued(self, sender: str, message: str) -> None:
@@ -1243,6 +1258,7 @@ class ClaudeAssistantWidget(QWidget):
     def _on_query_completed(self) -> None:
         """Handle query completion."""
         self._finalize_open_fragments(cancelled=False)
+        self._withdraw_stale_cards()
         self._set_busy_state(False)
         # A turn that finished without error lifts a sticky error pause.
         if not self._turn_errored and self.voice_queue is not None:
@@ -1256,6 +1272,7 @@ class ClaudeAssistantWidget(QWidget):
         """Handle query cancellation."""
         self._finalize_open_fragments(cancelled=True)
         self._append_system_message("Query cancelled")
+        self._withdraw_stale_cards()
         self._set_busy_state(False)
         # Stop keeps the queue; the next prompt goes once the stop settles.
         self._drain_voice_queue()
@@ -1375,6 +1392,21 @@ class ClaudeAssistantWidget(QWidget):
             self._permission_container.hide()
             # Update placeholder to show working state
             self.input_field.setPlaceholderText(f"{self.speaker_name} is working...")
+        # A card resolved while idle may have been the only thing holding the queue.
+        self._drain_voice_queue()
+
+    def _withdraw_stale_cards(self) -> None:
+        """Drop permission/question cards left over from a turn that has ended.
+
+        A Stop releases pending permission waits without emitting
+        ``permission_expired``, so without this the card would linger and keep
+        ``_can_send_now`` False forever.
+        """
+        for request_id in list(getattr(self, "_pending_permission_widgets", {})):
+            self.approval_resolved.emit(request_id, False)
+            self._cleanup_permission_widget(request_id)
+        for request_id in list(getattr(self, "_pending_question_widgets", {})):
+            self._cleanup_question_widget(request_id)
 
     @Slot(str, list)
     def _on_question_requested(
