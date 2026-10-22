@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -689,7 +690,7 @@ class ClaudePanel(BasePanel):
         if self._cost_label is None:
             self._cost_label = QLabel(self._cockpit.format())
             self._cost_label.setObjectName("ClaudeCockpitLabel")
-            self._cost_label.setStyleSheet("color: palette(mid); padding: 0 6px;")
+            self._apply_cockpit_label_style()
             self._cost_label.setToolTip(self._cockpit.tooltip())
             self.add_title_bar_widget(self._cost_label)
 
@@ -1219,8 +1220,30 @@ class ClaudePanel(BasePanel):
         self._cockpit.reset()
         self._refresh_cockpit_label()
 
+    def _apply_cockpit_label_style(self) -> None:
+        """Style the title-bar cockpit label with a muted, theme-tracking color.
+
+        Two things were wrong with the old ``color: palette(mid)`` stylesheet:
+        ``Mid`` is a border/shade role (near-black in the dark theme), and the
+        label's *own* palette is the unthemed Qt default (black window, dark
+        text), so every ``palette(...)`` reference resolved against dark defaults
+        — hence dark-on-dark. We instead resolve the muted-text role
+        (``PlaceholderText``) from the *application* palette, which carries the
+        active theme, and set a concrete color (the stylesheet ``palette(...)``
+        function does not accept ``placeholder-text`` anyway).
+        """
+        label = self._cost_label
+        if label is None:
+            return
+        app = QApplication.instance()
+        palette = app.palette() if app is not None else label.palette()
+        color = palette.color(QPalette.ColorRole.PlaceholderText)
+        label.setStyleSheet(f"color: {color.name()}; padding: 0 6px;")
+
     def _refresh_cockpit_label(self) -> None:
         if self._cost_label is not None:
+            # Re-resolve the color so the label follows live theme changes.
+            self._apply_cockpit_label_style()
             safe_call(self._cost_label, "setText", self._cockpit.format())
             safe_call(self._cost_label, "setToolTip", self._cockpit.tooltip())
 
