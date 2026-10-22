@@ -28,9 +28,12 @@ import getpass
 import importlib.metadata
 import importlib.resources
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
-from lightfall.agents.spec import AgentSpecError, resolve_template
+import yaml
+
+from lightfall.agents.spec import _FRONTMATTER_RE, AgentSpecError, resolve_template
 from lightfall.utils.logging import logger
 
 _DRAFTS_DIR_NAME = "_drafts"
@@ -121,23 +124,31 @@ def plugin_extra_skill_dirs() -> dict[str, Path]:
     return dirs
 
 
-def entry_point_skill_dirs() -> dict[str, Path]:
-    """Skills advertised by installed packages via the ``agent_skills``
-    entry-point group, keyed by skill name (the folder name).
+@dataclass(frozen=True)
+class EntryPointSkill:
+    """One skill folder offered by an ``agent_skills`` entry point."""
+
+    entry_point: str  #: entry-point name, e.g. ``gpcam``; the skill's namespace
+    distribution: str | None  #: installing distribution, e.g. ``gpcam``
+    path: Path
+
+
+def entry_point_skills() -> list[EntryPointSkill]:
+    """Every skill offered through the ``agent_skills`` entry-point group.
 
     Each entry point must load to a package whose resource folder holds one
     subfolder per skill. An entry point that fails to load or resolve logs a
     warning and is skipped; folders without SKILL.md and ``_drafts`` are
-    ignored. Entry points are read in name order, and when two of them offer
-    the same skill name the later one wins, with a warning.
+    ignored. Entry points are read in name order. Skills from different
+    entry points may share a name; see ``entry_point_skill_dirs``.
     """
     try:
         eps = importlib.metadata.entry_points(group=ENTRY_POINT_GROUP)
     except Exception as exc:  # noqa: BLE001 - skills must resolve without metadata
-        logger.warning("entry_point_skill_dirs: reading entry points failed: {}", exc)
-        return {}
+        logger.warning("entry_point_skills: reading entry points failed: {}", exc)
+        return []
 
-    dirs: dict[str, Path] = {}
+    skills: list[EntryPointSkill] = []
     for ep in sorted(eps, key=lambda e: e.name):
         try:
             root = Path(str(importlib.resources.files(ep.load())))
@@ -146,15 +157,36 @@ def entry_point_skill_dirs() -> dict[str, Path]:
                 "agent_skills entry point '{}' ({}) failed to load: {}", ep.name, ep.value, exc
             )
             continue
+        dist = getattr(ep, "dist", None)
+        dist_name = getattr(dist, "name", None) if dist is not None else None
         for skill_dir in _iter_skill_dirs(root):
-            previous = dirs.get(skill_dir.name)
-            if previous is not None and previous.resolve() != skill_dir.resolve():
-                logger.warning(
-                    "agent_skills entry point '{}': skill '{}' at {} overrides {}",
-                    ep.name, skill_dir.name, skill_dir, previous,
-                )
-            dirs[skill_dir.name] = skill_dir
-    return dirs
+            skills.append(EntryPointSkill(ep.name, dist_name, skill_dir))
+    return skills
+
+
+def _entry_point_winners() -> dict[str, EntryPointSkill]:
+    winners: dict[str, EntryPointSkill] = {}
+    for skill in entry_point_skills():
+        name = skill.path.name
+        previous = winners.get(name)
+        if previous is not None and previous.path.resolve() != skill.path.resolve():
+            logger.warning(
+                "agent_skills entry point '{}': skill '{}' at {} overrides {}",
+                skill.entry_point, name, skill.path, previous.path,
+            )
+        winners[name] = skill
+    return winners
+
+
+def entry_point_skill_dirs() -> dict[str, Path]:
+    """Skills advertised by installed packages via the ``agent_skills``
+    entry-point group, keyed by skill name (the folder name).
+
+    When two entry points offer the same skill name the later one (in
+    entry-point name order) wins, with a warning. ``skill_catalog`` still
+    lists both under namespaced ids.
+    """
+    return {name: skill.path for name, skill in _entry_point_winners().items()}
 
 
 def _iter_skill_dirs(root: Path):
@@ -179,17 +211,82 @@ def resolve_skills(extra_dirs: list[Path] | None = None) -> dict[str, Path]:
     ``agent_skills`` group (see ``entry_point_skill_dirs``). "plugin" skills are single dirs contributed by registered ToolPlugins
     via ``get_skill_dir()``, keyed by plugin name (see ``plugin_skill_dirs``).
     """
-    resolved: dict[str, Path] = {}
+    return {name: located.path for name, located in _resolve_located(extra_dirs).items()}
+
+
+@dataclass(frozen=True)
+class _Located:
+    path: Path
+    source: str  # "builtin" | "package" | "beamline" | "plugin" | "user"
+
+
+def _resolve_located(extra_dirs: list[Path] | None) -> dict[str, _Located]:
+    resolved: dict[str, _Located] = {}
     for skill_dir in _iter_skill_dirs(builtin_skills_dir()):
-        resolved[skill_dir.name] = skill_dir
-    resolved.update(entry_point_skill_dirs())
+        resolved[skill_dir.name] = _Located(skill_dir, "builtin")
+    for name, ep_skill in _entry_point_winners().items():
+        resolved[name] = _Located(ep_skill.path, "package")
     for root in extra_dirs or []:
         for skill_dir in _iter_skill_dirs(root):
-            resolved[skill_dir.name] = skill_dir
-    resolved.update(plugin_skill_dirs())
+            resolved[skill_dir.name] = _Located(skill_dir, "beamline")
+    for name, skill_dir in plugin_skill_dirs().items():
+        resolved[name] = _Located(skill_dir, "plugin")
     for skill_dir in _iter_skill_dirs(user_skills_dir()):
-        resolved[skill_dir.name] = skill_dir
+        resolved[skill_dir.name] = _Located(skill_dir, "user")
     return resolved
+
+
+@dataclass(frozen=True)
+class SkillInfo:
+    """One entry of the skill catalog an agent can browse."""
+
+    id: str  #: ``<entry point>:<name>`` for package skills, else the bare name
+    name: str  #: folder name; the name the skill is materialized under
+    description: str  #: the SKILL.md frontmatter ``description`` ("" if none)
+    source: str  #: "builtin" | "package" | "beamline" | "plugin" | "user"
+    distribution: str | None  #: installing distribution, for package skills
+    path: Path
+
+
+def read_skill_description(skill_dir: Path) -> str:
+    """Return the ``description`` from a skill's SKILL.md frontmatter, or ""."""
+    try:
+        m = _FRONTMATTER_RE.match((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
+        meta = yaml.safe_load(m.group(1)) if m else None
+    except Exception:  # noqa: BLE001 - an unreadable skill just has no description
+        return ""
+    description = meta.get("description") if isinstance(meta, dict) else None
+    return " ".join(description.split()) if isinstance(description, str) else ""
+
+
+def skill_catalog(extra_dirs: list[Path] | None = None) -> dict[str, SkillInfo]:
+    """Every skill an agent could load, keyed by id.
+
+    Package skills (from ``agent_skills`` entry points) always get namespaced
+    ids such as ``gpcam:kernel-designer``, including any whose bare name is
+    shadowed by a higher-precedence source, so two packages may ship
+    same-named skills. Skills from the other sources keep their bare names,
+    and only the resolved winner of each name is listed.
+    """
+    catalog: dict[str, SkillInfo] = {}
+
+    def add(skill_id: str, path: Path, source: str, distribution: str | None) -> None:
+        catalog[skill_id] = SkillInfo(
+            id=skill_id,
+            name=path.name,
+            description=read_skill_description(path),
+            source=source,
+            distribution=distribution,
+            path=path,
+        )
+
+    for name, located in _resolve_located(extra_dirs).items():
+        if located.source != "package":
+            add(name, located.path, located.source, None)
+    for ep_skill in entry_point_skills():
+        add(f"{ep_skill.entry_point}:{ep_skill.path.name}", ep_skill.path, "package",
+            ep_skill.distribution)
+    return dict(sorted(catalog.items()))
 
 
 def template_variables() -> dict[str, str]:
@@ -230,6 +327,7 @@ def materialize_skills(
     names: tuple[str, ...],
     session_plugin_dir: Path,
     variables: dict[str, str] | None = None,
+    approved_for: str | None = None,
 ) -> list[str]:
     """Copy each resolved skill in `names` into `<session_plugin_dir>/skills/<name>/`.
 
@@ -238,6 +336,10 @@ def materialize_skills(
     resolved against `variables` (defaulting to `template_variables()`); an
     unknown placeholder logs a warning and the skill is materialized with its
     raw (unresolved) body rather than being dropped.
+
+    When `approved_for` names an agent, the skills that agent was given
+    "always allow" for (see ``lightfall.agents.skill_approvals``) are
+    materialized too, under their folder names, unless that name is taken.
 
     Returns the list of names actually materialized (in `names` order).
     """
@@ -259,6 +361,26 @@ def materialize_skills(
         _resolve_skill_md_template(dest / "SKILL.md", effective_variables)
         materialized.append(name)
 
+    if approved_for:
+        from lightfall.agents.skill_approvals import approved_skill_ids
+
+        approved = approved_skill_ids(approved_for)
+        catalog = skill_catalog() if approved else {}
+        for skill_id in approved:
+            info = catalog.get(skill_id)
+            if info is None:
+                logger.warning(
+                    "skills_store: agent '{}' has approved skill '{}', which no longer "
+                    "resolves; skipping", approved_for, skill_id,
+                )
+                continue
+            if info.name in materialized:
+                continue
+            dest = dest_root / info.name
+            shutil.copytree(info.path, dest, dirs_exist_ok=True)
+            _resolve_skill_md_template(dest / "SKILL.md", effective_variables)
+            materialized.append(info.name)
+
     # Extra skills contributed by enabled plugins from their own dependencies
     # (e.g. gpCAM's design skills). Materialized under their own names so the
     # Skill tool can lazy-load them. Explicit `names` take precedence.
@@ -273,16 +395,18 @@ def materialize_skills(
     return materialized
 
 
-def _resolve_skill_md_template(skill_md: Path, variables: dict[str, str]) -> None:
-    if not skill_md.is_file():
-        return
-    text = skill_md.read_text(encoding="utf-8")
+def render_skill_md(text: str, variables: dict[str, str], origin: object = "SKILL.md") -> str:
+    """Resolve ``{{variable}}`` placeholders in a SKILL.md body.
+
+    The frontmatter is left untouched. Text without frontmatter, or whose
+    body has an unknown placeholder (logged as a warning), is returned as is.
+    """
     # text is "---\n<meta>\n---\n\n<body>"; split on the SECOND "---\n" to
     # isolate the body from the frontmatter block.
     parts = text.split("---\n", 2)
     if len(parts) != 3:
         # No (or malformed) frontmatter; nothing safe to split -- leave as-is.
-        return
+        return text
     head = "---\n" + parts[1] + "---\n"
     body = parts[2]
 
@@ -291,9 +415,17 @@ def _resolve_skill_md_template(skill_md: Path, variables: dict[str, str]) -> Non
     except AgentSpecError as e:
         logger.warning(
             "skills_store: {} contains an unresolvable template variable ({}); "
-            "materializing with raw body",
-            skill_md, e,
+            "using the raw body",
+            origin, e,
         )
-        return
+        return text
+    return head + resolved_body
 
-    skill_md.write_text(head + resolved_body, encoding="utf-8")
+
+def _resolve_skill_md_template(skill_md: Path, variables: dict[str, str]) -> None:
+    if not skill_md.is_file():
+        return
+    text = skill_md.read_text(encoding="utf-8")
+    rendered = render_skill_md(text, variables, origin=skill_md)
+    if rendered != text:
+        skill_md.write_text(rendered, encoding="utf-8")

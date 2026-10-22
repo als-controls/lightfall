@@ -225,7 +225,9 @@ def assemble_spec_options(
     filtered_plugins = [p for p in tool_registry.enabled_plugins() if p.name in wanted_tools]
     tool_servers, external_servers, allowed_tools = collect_tool_servers(filtered_plugins)
 
-    materialize_skills(spec.skills, session_plugin_dir, variables=variables)
+    materialize_skills(
+        spec.skills, session_plugin_dir, variables=variables, approved_for=spec.name
+    )
 
     try:
         subagents = subagent_specs(spec, spec_registry, variables=variables)

@@ -80,6 +80,8 @@ def test_qtclaudeagent_uses_per_plugin_servers_and_plugins_param(mock_sdk, qtbot
     # skills server + tool are always present, on every session
     assert "skills" in options.mcp_servers
     assert "mcp__skills__draft_skill" in options.allowed_tools
+    for name in ("list_skills", "get_skill", "get_skill_reference"):
+        assert f"mcp__skills__{name}" in options.allowed_tools
     # tool_agent gets its own server (per-plugin split)
     assert "tool_agent" in options.mcp_servers
     # scan_planning has no tools so no server
@@ -99,3 +101,40 @@ def test_qtclaudeagent_uses_per_plugin_servers_and_plugins_param(mock_sdk, qtbot
     # Must not inherit the developer's user-scope Claude settings (global
     # CLAUDE.md, personal plugins/hooks/skills) into an embedded session.
     assert options.setting_sources == []
+
+
+def test_always_allowed_skill_is_materialized_into_new_session(mock_sdk, qtbot, monkeypatch,
+                                                                tmp_path):
+    """A skill the user chose "always allow" for this agent is copied into the
+    agent's next session, without being in any skills list."""
+    from lightfall.agents import skill_approvals, skills_store
+
+    extra = tmp_path / "beamline"
+    (extra / "approved-one").mkdir(parents=True)
+    (extra / "approved-one" / "SKILL.md").write_text(
+        "---\nname: approved-one\ndescription: d\n---\nbody", encoding="utf-8"
+    )
+    real_catalog = skills_store.skill_catalog
+    monkeypatch.setattr(skills_store, "skill_catalog",
+                        lambda extra_dirs=None: real_catalog([extra]))
+    monkeypatch.setattr(skill_approvals, "approvals_path", lambda: tmp_path / "approvals.json")
+    skill_approvals.approve_skill("lightfall", "approved-one")
+    monkeypatch.setattr(
+        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._read_list_pref",
+        lambda self, key: None,
+    )
+    monkeypatch.setattr(
+        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._migrate_legacy_pref_if_needed",
+        lambda self: None,
+    )
+
+    from PySide6.QtWidgets import QWidget
+
+    from lightfall.claude.agent import QtClaudeAgent
+
+    target = QWidget()
+    qtbot.addWidget(target)
+    agent = QtClaudeAgent(target_window=target, require_approval=False)
+
+    plugin_path = Path(agent.options.plugins[0]["path"])
+    assert (plugin_path / "skills" / "approved-one" / "SKILL.md").is_file()

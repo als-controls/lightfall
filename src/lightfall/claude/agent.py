@@ -385,9 +385,15 @@ class QtClaudeAgent(QObject):
         allowed_tools.extend(BUS_ALLOWED_TOOLS)
 
         # The skills server is likewise always-on: any session can propose a
-        # skill draft, gated on human approval before it takes effect.
+        # skill draft, gated on human approval before it takes effect, and
+        # browse/load skills it wasn't configured with, each approved by the
+        # user in chat (once, or always for this agent).
         tool_servers.append(("skills", create_skill_tools_server(
-            lambda: self.bus_name, lambda: self._current_session_id
+            lambda: self.bus_name,
+            lambda: self._current_session_id,
+            agent_name=self._approval_agent_name,
+            session_plugin_dir=lambda: getattr(self, "_session_plugin_dir", None),
+            permission_manager=self._permission_manager,
         )))
         allowed_tools.extend(SKILLS_ALLOWED_TOOLS)
 
@@ -444,7 +450,10 @@ class QtClaudeAgent(QObject):
             external_servers.update(external)
             allowed_tools.extend(allowed)
             subagents = []
-            materialize_skills(tuple(p.name for p in enabled), self._session_plugin_dir)
+            materialize_skills(
+                tuple(p.name for p in enabled), self._session_plugin_dir,
+                approved_for=self._approval_agent_name(),
+            )
 
             system_prompt = QT_SYSTEM_PROMPT
             project_cwd = lightfall_agent_cwd()
@@ -848,6 +857,17 @@ class QtClaudeAgent(QObject):
             MAIN_AGENT_NAME = "lightfall"
         return self._spec.name == MAIN_AGENT_NAME
 
+    def _approval_agent_name(self) -> str:
+        """The agent name "always allow" skill approvals are recorded under:
+        the spec name, or the main agent's name on the legacy (spec-less) path."""
+        if self._spec is not None:
+            return self._spec.name
+        try:
+            from lightfall.ui.panels.claude.agent_session_tab import MAIN_AGENT_NAME
+        except Exception:  # noqa: BLE001
+            MAIN_AGENT_NAME = "lightfall"
+        return MAIN_AGENT_NAME
+
     def _backend_kind_for_session(self) -> str:
         """The backend kind this agent was BUILT for (not the live pref)."""
         from lightfall.agents.backends.select import AGY, CLAUDE_CODE
@@ -920,10 +940,15 @@ class QtClaudeAgent(QObject):
             plugin_dir = Path(tempfile.mkdtemp(prefix="lightfall_claude_"))
             init_session_plugin_dir(plugin_dir)
             if self._spec is not None:
-                materialize_skills(self._spec.skills, plugin_dir)
+                materialize_skills(
+                    self._spec.skills, plugin_dir, approved_for=self._approval_agent_name()
+                )
             else:
                 enabled = ToolRegistry.get_instance().enabled_plugins()
-                materialize_skills(tuple(p.name for p in enabled), plugin_dir)
+                materialize_skills(
+                    tuple(p.name for p in enabled), plugin_dir,
+                    approved_for=self._approval_agent_name(),
+                )
             self._session_plugin_dir = plugin_dir
 
             if self._agy:
