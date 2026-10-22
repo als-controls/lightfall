@@ -81,7 +81,8 @@ class TaskFinishedEvent:
 @dataclass(frozen=True)
 class TurnResultEvent:
     """End of turn. ``info`` keeps the legacy result_received dict shape:
-    total_cost_usd, input_tokens, output_tokens, session_id."""
+    total_cost_usd, input_tokens, output_tokens, session_id; backends may add
+    ``text``, the turn's final assistant text."""
 
     info: dict[str, Any] = field(default_factory=dict)
 

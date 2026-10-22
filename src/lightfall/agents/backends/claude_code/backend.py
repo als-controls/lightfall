@@ -112,6 +112,14 @@ class ClaudeCodeBackend:
         # that content_block_start / content_block_delta / content_block_stop
         # events for the same block correlate.
         self._current_message_id = ""
+        # The turn's final assistant text, carried on TurnResultEvent.info
+        # ["text"] for consumers that don't render partial_text (voice
+        # summaries). Streaming suppresses TextBlockEvent, so this is the
+        # only place the complete text survives. Keep the last contiguous
+        # run of top-level text: a tool call starts a new run, and subagent
+        # messages (parent_tool_use_id set) never count.
+        final_text: list[str] = []
+        tool_since_text = False
 
         try:
             from claude_agent_sdk.types import (
@@ -152,6 +160,7 @@ class ClaudeCodeBackend:
                     break
 
                 if isinstance(msg, AssistantMessage):
+                    top_level = getattr(msg, "parent_tool_use_id", None) is None
                     for block in msg.content:
                         # Check cancel between blocks too
                         if cancelled():
@@ -161,6 +170,11 @@ class ClaudeCodeBackend:
                             return
 
                         if isinstance(block, TextBlock):
+                            if top_level and block.text:
+                                if tool_since_text:
+                                    final_text.clear()
+                                    tool_since_text = False
+                                final_text.append(block.text)
                             # If we streamed content for this turn, the
                             # widget already rendered it via partial_text.
                             # Otherwise emit so the chat doesn't go blank.
@@ -189,6 +203,8 @@ class ClaudeCodeBackend:
                                 )
                                 yield ThinkingBlockEvent(thinking_text)
                         elif isinstance(block, ToolUseBlock):
+                            if top_level:
+                                tool_since_text = True
                             logger.info(
                                 "[sdk-stream] ToolUseBlock name={} id={}",
                                 block.name,
@@ -247,6 +263,7 @@ class ClaudeCodeBackend:
                         "input_tokens": msg.usage.get("input_tokens", 0) if msg.usage else 0,
                         "output_tokens": msg.usage.get("output_tokens", 0) if msg.usage else 0,
                         "session_id": getattr(msg, "session_id", "") or "",
+                        "text": "\n\n".join(final_text),
                     })
                     sid = getattr(msg, "session_id", "") or ""
                     if sid:
