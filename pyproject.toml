@@ -74,7 +74,7 @@ dependencies = [
     # ipython
     "qtconsole>=5.5",
     "ipykernel>=6.0",
-    "claude-agent-sdk>=0.2.93",
+    "claude-agent-sdk>=0.2.158",
     # agy host uses the mcp 2 low-level Server (on_* handlers); its test uses httpx2,
     # which mcp 2 depends on.
     "mcp>=2.3,<3",
@@ -273,7 +273,7 @@ requires = [
     "cryptography>=41.0",
     "bidict>=0.23",
 
-    "claude-agent-sdk>=0.2.93",
+    "claude-agent-sdk>=0.2.158",
     # agy host uses the mcp 2 low-level Server (on_* handlers); its test uses httpx2,
     # which mcp 2 depends on.
     "mcp>=2.3,<3",
