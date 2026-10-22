@@ -1589,10 +1589,12 @@ class ClaudeAssistantWidget(QWidget):
             QTimer.singleShot(0, self._scroll_to_bottom)
 
     def _add_widget(self, widget: QWidget) -> None:
-        """Add a widget to the chat layout and scroll to bottom."""
+        """Add a widget to the chat layout, auto-scrolling only if already at the
+        bottom so a user who has scrolled up is not yanked down."""
         self._chat_layout.addWidget(widget)
-        # Defer scroll so layout has time to update
-        QTimer.singleShot(0, self._scroll_to_bottom)
+        # Decide now (before any deferred layout change can flip the flag), then
+        # defer the actual scroll so the layout has time to update.
+        self._scroll_to_bottom_if_needed()
 
     # --- Verbose fragments (thinking + tool usage) ---
 
