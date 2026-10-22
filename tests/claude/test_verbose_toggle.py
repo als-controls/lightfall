@@ -71,6 +71,27 @@ def test_streaming_thinking_bubble_tracked(widget):
     assert widget._verbose_widgets == []
 
 
+def test_thinking_strips_trailing_newlines(widget):
+    # Thinking blocks arrive with a trailing newline (often two); without
+    # stripping, _escape_html turns them into a stray <br> at the end.
+    widget._append_thinking_message("first thought\n\nsecond thought\n\n")
+    (card,) = _chat_widgets(widget)
+    text = widget._find_body_label(card).text()
+    assert not text.endswith("<br>")
+    assert text.endswith("second thought")
+    assert "<br>" in text  # internal line breaks preserved
+
+
+def test_streaming_thinking_strips_trailing_newlines(widget):
+    widget._on_partial_block_started("b1", "thinking")
+    widget._on_partial_thinking("b1", "pondering")
+    widget._on_partial_thinking("b1", "\n\n")
+    widget._on_partial_block_finished("b1")
+    (frame,) = _chat_widgets(widget)
+    text = widget._find_body_label(frame).text()
+    assert text == "pondering"
+
+
 def test_regular_messages_unaffected(widget):
     widget._append_system_message("Conversation reset")
     (lbl,) = _chat_widgets(widget)

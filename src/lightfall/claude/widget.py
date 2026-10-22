@@ -1208,7 +1208,11 @@ class ClaudeAssistantWidget(QWidget):
             # One markdown render at end — see spec for the perf rationale.
             from lightfall.claude.markdown import render_markdown
             bubble.label.setText(render_markdown(bubble.buffer))
-        # thinking stays plaintext (existing widget style).
+        elif bubble.kind == "thinking":
+            # Thinking stays plaintext, but re-render once without the trailing
+            # newline(s) the model appends — otherwise _escape_html's "\n"->"<br>"
+            # leaves a stray blank line at the end of the fragment.
+            bubble.label.setText(self._escape_html(bubble.buffer.rstrip()))
 
     @Slot(str, dict)
     def _on_tool_called(self, tool_name: str, tool_input: dict) -> None:
@@ -1630,8 +1634,11 @@ class ClaudeAssistantWidget(QWidget):
 
     def _append_thinking_message(self, thinking: str) -> None:
         """Append thinking block to chat display."""
+        # Thinking blocks usually arrive with a trailing newline (often two);
+        # _escape_html turns each "\n" into "<br>", so a bare rstrip() here
+        # avoids a stray blank line at the end of the fragment.
         card = self._create_card(
-            self._escape_html(thinking),
+            self._escape_html(thinking.rstrip()),
             label="Thinking", italic=True, small=True,
         )
         self._register_verbose_widget(card)
