@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QApplication,
@@ -196,7 +196,13 @@ class ClaudePanel(BasePanel):
 
     The panel requires an
     Anthropic API key to be configured.
+
+    Signals:
+        current_session_changed(): the visible session tab changed; read it
+            back with ``current_assistant_widget()``.
     """
+
+    current_session_changed = Signal()
 
     panel_metadata = PanelMetadata(
         id="lightfall.panels.claude",
@@ -494,6 +500,7 @@ class ClaudePanel(BasePanel):
 
     def _on_current_tab_changed(self, index: int) -> None:
         """Focusing a tab clears its pending badge."""
+        self.current_session_changed.emit()
         if index < 0:
             return
         tab = self._tabs.widget(index)
