@@ -554,6 +554,106 @@ def test_pick_effort_while_reload_pending_targets_the_live_backend(panel, fake_p
     panel._claude_widget.agent.set_effort.assert_called_once_with("high")
 
 
+# --- secondary session tabs: model/effort menus must be wired too -----------
+
+
+class _SessionWidget(QObject):
+    """Minimal stand-in for a session tab's ClaudeAssistantWidget: real pick
+    signals + an agent, so emitting goes through the panel like the real menu."""
+
+    model_change_requested = Signal(str)
+    effort_change_requested = Signal(str)
+
+    def __init__(self, backend_info):
+        super().__init__()
+        self.agent = MagicMock()
+        self.backend_info = backend_info
+
+
+class _Tab:
+    """Stand-in AgentSessionTab: per-tab picks, reload counter, teardown hooks."""
+
+    def __init__(self, w):
+        self.claude_widget = w
+        self.reloads = 0
+        self.model_preset = None
+        self.effort_level = None
+
+    def set_model_preset(self, preset):
+        self.model_preset = preset
+
+    def set_effort_level(self, level):
+        self.effort_level = level
+
+    def effective_effort(self):
+        return self.effort_level if self.effort_level is not None else ""
+
+    def reload_agent(self):
+        self.reloads += 1
+
+    # Panel teardown (closeEvent) closes every tab in _session_tabs().
+    def discard_voice_queue(self, reason):
+        return 0
+
+    def close_session(self, **_kwargs):
+        pass
+
+
+def _two_tabs(panel, monkeypatch):
+    from lightfall.agents.backends.info import ClaudeCodeInfo
+
+    secondary = _SessionWidget(ClaudeCodeInfo())
+    main = _SessionWidget(ClaudeCodeInfo())
+    sec_tab, main_tab = _Tab(secondary), _Tab(main)
+    panel._claude_widget = main
+    panel._lightfall_tab = main_tab
+    monkeypatch.setattr(panel, "_session_tabs", lambda: [main_tab, sec_tab])
+    panel._wire_session_controls(secondary)
+    panel._wire_session_controls(main)
+    return secondary, sec_tab, main, main_tab
+
+
+def test_secondary_tab_model_pick_stays_on_that_tab(panel, fake_prefs, monkeypatch):
+    secondary, sec_tab, main, _ = _two_tabs(panel, monkeypatch)
+    secondary.model_change_requested.emit("claude-opus")
+
+    # Reached the handler (the regression: it previously went nowhere), went
+    # live on that tab only, and left the global preference alone.
+    secondary.agent.set_model.assert_called_once_with("opus")
+    main.agent.set_model.assert_not_called()
+    assert sec_tab.model_preset == "claude-opus"
+    assert "claude_model" not in fake_prefs.values
+
+
+def test_main_tab_model_pick_still_sets_the_preference(panel, fake_prefs, monkeypatch):
+    _, sec_tab, main, _ = _two_tabs(panel, monkeypatch)
+    main.model_change_requested.emit("claude-opus")
+    assert fake_prefs.values["claude_model"] == "claude-opus"
+    main.agent.set_model.assert_called_once_with("opus")
+    assert sec_tab.model_preset is None
+
+
+def test_secondary_tab_effort_pick_reloads_that_tab_only(panel, fake_prefs, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    secondary, sec_tab, _, main_tab = _two_tabs(panel, monkeypatch)
+    main_reload = []
+    monkeypatch.setattr(panel, "_reload_agent", lambda: main_reload.append(1))
+
+    secondary.effort_change_requested.emit("low")
+
+    assert sec_tab.effort_level == "low"
+    assert sec_tab.reloads == 1          # the emitting tab rebuilt
+    assert main_reload == []             # the main conversation left alone
+    assert "claude_effort" not in fake_prefs.values
+
+    # Picking the level it already runs at is a no-op.
+    secondary.effort_change_requested.emit("low")
+    assert sec_tab.reloads == 1
+
+
 def test_approval_toast_names_the_live_backend(panel, fake_prefs, monkeypatch, qtbot):
     from PySide6.QtWidgets import QWidget
 

@@ -197,6 +197,11 @@ class ClaudeAssistantWidget(QWidget):
     approval_resolved = Signal(str, bool)       # request_id, was_allowed
     model_change_requested = Signal(str)   # combo preset the user picked
     effort_change_requested = Signal(str)  # effort level the user picked
+
+    # Set by the hosting session tab when its picks differ from the global
+    # preference (secondary tabs); None = the menu ticks the preference.
+    model_override: str | None = None
+    effort_override: str | None = None
     bus_pending_changed = Signal(int)      # pending agent-message card count
 
     # Snapshotted in __init__ (class defaults cover widgets built without it).
@@ -677,8 +682,14 @@ class ClaudeAssistantWidget(QWidget):
         menu = self._tune_menu
         menu.clear()
         info = self.backend_info
-        current_model = info.current_model()
-        current_effort = info.current_effort()
+        current_model = (
+            self.model_override if self.model_override is not None
+            else info.current_model()
+        )
+        current_effort = (
+            self.effort_override if self.effort_override is not None
+            else info.current_effort()
+        )
 
         menu.addSection("Model (live)" if info.caps.live_set_model else "Model (next turn)")
         models = list(info.cached_models())

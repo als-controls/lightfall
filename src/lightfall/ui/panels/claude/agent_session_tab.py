@@ -187,6 +187,11 @@ class AgentSessionTab(QWidget):
         # to every widget it builds, so a rebuild that resumes the same
         # conversation keeps them.
         self.voice_queue = _new_voice_queue(self)
+        # Model/effort picked from this tab's own menu (secondary tabs only;
+        # the main tab's picks are the global preference). None = follow the
+        # preference. Kept on the tab so a rebuild builds with them.
+        self.model_preset: str | None = None
+        self.effort_level: str | None = None
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -292,8 +297,8 @@ class AgentSessionTab(QWidget):
             additional_system_prompt=ncs_system_prompt,
             permission_mode=permission_mode,
             require_approval=(permission_mode != "bypassPermissions"),
-            model=session_model(),
-            effort=session_effort(),
+            model=self._build_model(),
+            effort=self._build_effort(),
             resume=resume,
             disable_betas=ClaudeSettingsProvider.get_disable_betas(),
             spec=self.spec,
@@ -302,6 +307,7 @@ class AgentSessionTab(QWidget):
         )
         # Before widget_created: listeners see the widget with the tab's queue.
         self._attach_voice_queue(self.claude_widget)
+        self._push_overrides()
 
         # Add to layout
         self._layout.addWidget(self.claude_widget)
@@ -437,6 +443,44 @@ class AgentSessionTab(QWidget):
         # the new agent widget stacks beneath an orphaned error label).
         self._error_label = error_label
         self._layout.addWidget(error_label)
+
+    # --- per-tab model / effort ----------------------------------------------
+
+    def set_model_preset(self, preset: str) -> None:
+        self.model_preset = preset
+        self._push_overrides()
+
+    def set_effort_level(self, level: str) -> None:
+        self.effort_level = level
+        self._push_overrides()
+
+    def effective_effort(self) -> str:
+        """The effort this tab runs at: its own pick, else the preference."""
+        if self.effort_level is not None:
+            return self.effort_level
+        from lightfall.agents.backends.info import backend_info
+
+        return backend_info().current_effort()
+
+    def _build_model(self) -> str | None:
+        if self.model_preset is None:
+            return session_model()
+        from lightfall.agents.backends.info import backend_info
+
+        return backend_info().live_model_id(self.model_preset)
+
+    def _build_effort(self) -> str | None:
+        if self.effort_level is None:
+            return session_effort()
+        return self.effort_level or None
+
+    def _push_overrides(self) -> None:
+        """Let the widget's menu tick this tab's picks instead of the preference."""
+        widget = self.claude_widget
+        if widget is None:
+            return
+        widget.model_override = self.model_preset
+        widget.effort_override = self.effort_level
 
     def reload_agent(self) -> None:
         """Reload this session's agent with new tools.

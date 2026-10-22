@@ -394,6 +394,9 @@ class ClaudePanel(BasePanel):
         # New session widgets adopt the panel's current thinking/tool-usage
         # visibility (the widget itself defaults to hidden).
         tab.widget_created.connect(self._apply_verbose_state)
+        # Every session's model/effort menu must reach the panel handlers --
+        # not just the main tab's -- or picks on secondary tabs do nothing.
+        tab.widget_created.connect(self._wire_session_controls)
         if tab is self._lightfall_tab or self._lightfall_tab is None:
             # Panel-scoped extras (cockpit, sidebar icon, permission toasts)
             # track the main assistant only.
@@ -732,8 +735,9 @@ class ClaudePanel(BasePanel):
         # Connect icon state: query_started for immediate feedback
         claude_widget.query_started.connect(lambda: self._icon_set_thinking())
 
-        claude_widget.model_change_requested.connect(self._on_pick_model)
-        claude_widget.effort_change_requested.connect(self._on_pick_effort)
+        # NOTE: model/effort menu signals are wired for every tab in
+        # _wire_session_controls (via _add_tab), not here -- this method only
+        # handles main-session-scoped chrome.
 
         # Connect agent signals to sidebar icon state
         self._connect_icon_signals()
@@ -828,15 +832,61 @@ class ClaudePanel(BasePanel):
             logger.warning("Assistant panel: backend lookup failed ({})", exc)
             return backend_infos.ClaudeCodeInfo()
 
+    def _wire_session_controls(self, claude_widget) -> None:
+        """Wire a session widget's model/effort menu to the panel handlers.
+
+        Runs for every tab (via ``_add_tab`` -> ``widget_created``), not just the
+        main one. Without it, a model/effort pick on a secondary session tab
+        emitted a signal with no receiver, so the menu did nothing.
+        """
+        # Degraded or stub widgets may lack the menu signals.
+        for name, slot in (("model_change_requested", self._on_pick_model),
+                           ("effort_change_requested", self._on_pick_effort)):
+            signal = getattr(claude_widget, name, None)
+            if signal is not None:
+                signal.connect(slot)
+
+    def _picking_widget(self):
+        """The session widget whose menu emitted the current pick.
+
+        Resolved from ``sender()`` so a pick targets the tab it was made on.
+        Falls back to the main widget when there is no signal sender (direct
+        calls, e.g. tests) or the sender is not a session widget.
+        """
+        sender = self.sender()
+        if sender is not None and hasattr(sender, "agent") \
+                and hasattr(sender, "model_change_requested"):
+            return sender
+        return self._claude_widget
+
+    def _tab_of_widget(self, widget):
+        """The ``AgentSessionTab`` hosting ``widget``, or None."""
+        if widget is None:
+            return None
+        for tab in self._session_tabs():
+            if getattr(tab, "claude_widget", None) is widget:
+                return tab
+        return None
+
     def _on_pick_model(self, preset: str) -> None:
         from lightfall.ui.preferences.manager import PreferencesManager
 
-        info = self._session_info()
-        # Persist the raw preset under the active backend's key (the menu
-        # re-checks against it); send the backend's live id to the agent.
+        widget = self._picking_widget()
+        info = self._session_info(widget)
+        tab = self._tab_of_widget(widget)
+        if tab is not None and tab is not self._lightfall_tab:
+            # A secondary tab's pick stays on that tab: the global preference
+            # (the main session's model and the default for new tabs) is not
+            # touched, so the main tab's menu and live model keep agreeing.
+            tab.set_model_preset(preset)
+            if hasattr(widget, "agent"):
+                widget.agent.set_model(info.live_model_id(preset))
+            return
+        # Main tab: persist the raw preset under the active backend's key (the
+        # menu re-checks against it); send the backend's live id to the agent.
         PreferencesManager.get_instance().set(info.model_pref_key, preset)
-        if self._claude_widget is not None and hasattr(self._claude_widget, "agent"):
-            self._claude_widget.agent.set_model(info.live_model_id(preset))
+        if widget is not None and hasattr(widget, "agent"):
+            widget.agent.set_model(info.live_model_id(preset))
         # The agent now reflects the new model (live on Claude; next turn on
         # agy). Update the tracked config so the debounced subscription sees no
         # change and does not tear the conversation down with a full reload.
@@ -847,15 +897,20 @@ class ClaudePanel(BasePanel):
 
         from lightfall.ui.preferences.manager import PreferencesManager
 
-        info = self._session_info()
+        widget = self._picking_widget()
+        info = self._session_info(widget)
+        tab = self._tab_of_widget(widget)
+        if tab is not None and tab is not self._lightfall_tab:
+            self._pick_tab_effort(tab, widget, info, level)
+            return
         if level == info.current_effort():
             return
         if info.caps.live_set_effort:
             # agy: effort is a spawn flag; the next turn respawns with
             # --conversation, so the conversation is kept -- no dialog, no rebuild.
             PreferencesManager.get_instance().set(info.effort_pref_key, level)
-            if self._claude_widget is not None and hasattr(self._claude_widget, "agent"):
-                self._claude_widget.agent.set_effort(level or None)
+            if widget is not None and hasattr(widget, "agent"):
+                widget.agent.set_effort(level or None)
             # As for a live model pick: the debounced subscription must see no change.
             self._active_agent_config = self._current_claude_config()
             return
@@ -871,6 +926,30 @@ class ClaudePanel(BasePanel):
         # so the debounced subscription sees no further change and won't reload
         # a second time. Effort is read at construction.
         self._reload_agent()
+
+    def _pick_tab_effort(self, tab, widget, info, level: str) -> None:
+        """Effort pick on a secondary tab: kept on the tab, never the global pref."""
+        from PySide6.QtWidgets import QMessageBox
+
+        if level == tab.effective_effort():
+            return
+        if info.caps.live_set_effort:
+            # agy: a spawn flag; the next turn picks it up, conversation kept.
+            tab.set_effort_level(level)
+            if hasattr(widget, "agent"):
+                widget.agent.set_effort(level or None)
+            return
+        reply = QMessageBox.question(
+            self, "Change effort",
+            "Changing reasoning effort restarts this tab's conversation "
+            "(a fresh session). Continue?",
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        # Effort is read at construction: rebuild just this tab, which builds
+        # its agent with the tab's own level.
+        tab.set_effort_level(level)
+        tab.reload_agent()
 
     # --- Claude-settings hot-reload ------------------------------------------
 
