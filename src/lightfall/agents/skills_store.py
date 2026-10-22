@@ -1,14 +1,17 @@
 """Shipped-skills store: resolve and materialize SKILL.md-bearing skill dirs.
 
 A "skill" is any directory containing a ``SKILL.md`` file (plus an optional
-``references/`` subdirectory). Skills are discovered from three sources, in
+``references/`` subdirectory). Skills are discovered from these sources, in
 increasing precedence:
 
 1. Built-in skills shipped with Lightfall (``builtin_skills_dir()``).
-2. Beamline-provided skills (caller-supplied ``extra_dirs``).
-3. Skills packaged inside ToolPlugins (``ToolPlugin.get_skill_dir()``,
+2. Skills advertised by installed Python packages through the
+   ``agent_skills`` entry-point group (``entry_point_skill_dirs()``), e.g.
+   gpCAM's design skills.
+3. Beamline-provided skills (caller-supplied ``extra_dirs``).
+4. Skills packaged inside ToolPlugins (``ToolPlugin.get_skill_dir()``,
    collected via ``plugin_skill_dirs()``).
-4. User skills under ``~/lightfall/skills`` (``user_skills_dir()``).
+5. User skills under ``~/lightfall/skills`` (``user_skills_dir()``).
 
 Later sources override earlier ones for skills sharing the same name. A
 ``_drafts`` subdirectory under any skill root is never resolved (phase-3
@@ -22,6 +25,8 @@ them against ``template_variables()`` by default.
 from __future__ import annotations
 
 import getpass
+import importlib.metadata
+import importlib.resources
 import shutil
 from pathlib import Path
 
@@ -29,6 +34,12 @@ from lightfall.agents.spec import AgentSpecError, resolve_template
 from lightfall.utils.logging import logger
 
 _DRAFTS_DIR_NAME = "_drafts"
+
+#: Entry-point group through which installed packages advertise agent skills.
+#: Contract: each entry point loads to a package; every subfolder of
+#: ``importlib.resources.files(<package>)`` that contains a ``SKILL.md`` is one
+#: skill, named after its folder. gpCAM registers ``gpcam = "gpcam.skills"``.
+ENTRY_POINT_GROUP = "agent_skills"
 
 
 def builtin_skills_dir() -> Path:
@@ -110,6 +121,42 @@ def plugin_extra_skill_dirs() -> dict[str, Path]:
     return dirs
 
 
+def entry_point_skill_dirs() -> dict[str, Path]:
+    """Skills advertised by installed packages via the ``agent_skills``
+    entry-point group, keyed by skill name (the folder name).
+
+    Each entry point must load to a package whose resource folder holds one
+    subfolder per skill. An entry point that fails to load or resolve logs a
+    warning and is skipped; folders without SKILL.md and ``_drafts`` are
+    ignored. Entry points are read in name order, and when two of them offer
+    the same skill name the later one wins, with a warning.
+    """
+    try:
+        eps = importlib.metadata.entry_points(group=ENTRY_POINT_GROUP)
+    except Exception as exc:  # noqa: BLE001 - skills must resolve without metadata
+        logger.warning("entry_point_skill_dirs: reading entry points failed: {}", exc)
+        return {}
+
+    dirs: dict[str, Path] = {}
+    for ep in sorted(eps, key=lambda e: e.name):
+        try:
+            root = Path(str(importlib.resources.files(ep.load())))
+        except Exception as exc:  # noqa: BLE001 - one bad entry point must not break the rest
+            logger.warning(
+                "agent_skills entry point '{}' ({}) failed to load: {}", ep.name, ep.value, exc
+            )
+            continue
+        for skill_dir in _iter_skill_dirs(root):
+            previous = dirs.get(skill_dir.name)
+            if previous is not None and previous.resolve() != skill_dir.resolve():
+                logger.warning(
+                    "agent_skills entry point '{}': skill '{}' at {} overrides {}",
+                    ep.name, skill_dir.name, skill_dir, previous,
+                )
+            dirs[skill_dir.name] = skill_dir
+    return dirs
+
+
 def _iter_skill_dirs(root: Path):
     if not root.is_dir():
         return
@@ -125,13 +172,18 @@ def _iter_skill_dirs(root: Path):
 def resolve_skills(extra_dirs: list[Path] | None = None) -> dict[str, Path]:
     """Resolve skill name -> skill directory across all roots.
 
-    Precedence (later wins): builtin < extra_dirs (beamline) < plugin < user.
+    Precedence (later wins): builtin < entry points < extra_dirs (beamline)
+    < plugin < user.
 
-    "plugin" skills are single dirs contributed by registered ToolPlugins
+    "entry points" are skills advertised by installed packages through the
+    ``agent_skills`` group (see ``entry_point_skill_dirs``). "plugin" skills are single dirs contributed by registered ToolPlugins
     via ``get_skill_dir()``, keyed by plugin name (see ``plugin_skill_dirs``).
     """
     resolved: dict[str, Path] = {}
-    for root in (builtin_skills_dir(), *(extra_dirs or [])):
+    for skill_dir in _iter_skill_dirs(builtin_skills_dir()):
+        resolved[skill_dir.name] = skill_dir
+    resolved.update(entry_point_skill_dirs())
+    for root in extra_dirs or []:
         for skill_dir in _iter_skill_dirs(root):
             resolved[skill_dir.name] = skill_dir
     resolved.update(plugin_skill_dirs())

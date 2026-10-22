@@ -50,15 +50,17 @@ class AutonomousExperimentAgent(ToolPlugin):
     def get_references_dir(self) -> Path | None:
         """Locate gpCAM's design skills, wherever the installed gpCAM keeps them.
 
-        gpCAM ships its ``experiment-designer`` (and sibling) skills at the
-        repository root, not inside the importable package. So we try, in
-        order:
+        Newer gpCAM ships its ``experiment-designer`` (and sibling) skills
+        inside the package as ``gpcam.skills`` and advertises them through the
+        ``agent_skills`` entry point, which ``skills_store.resolve_skills``
+        also reads; gpCAM 8.6.1 and earlier kept them at the repository root,
+        outside the package. So we try, in order:
 
-        1. ``gpcam.skills`` as a package resource — the preferred layout if a
-           future gpCAM release packages the skills. This path is picked up
-           automatically the day that lands, with no change here.
+        1. ``gpcam.skills`` as a package resource — the same folder the
+           ``agent_skills`` entry point names, so a skill reached both ways
+           resolves to one directory.
         2. A ``skills/`` directory sibling to the ``gpcam`` package — the
-           layout of a source / editable checkout today.
+           layout of an older gpCAM's source / editable checkout.
 
         Either way the skills are read *from the installed gpCAM*; nothing is
         vendored into Lightfall. Returns ``None`` when gpCAM is absent or its
@@ -70,13 +72,13 @@ class AutonomousExperimentAgent(ToolPlugin):
         return None
 
     def _candidate_skill_dirs(self):
-        # 1) Packaged as gpcam.skills (future gpCAM).
+        # 1) Packaged as gpcam.skills (gpCAM after 8.6.1).
         try:
             import importlib.resources as ir
             yield Path(str(ir.files("gpcam.skills")))
         except (ImportError, ModuleNotFoundError, FileNotFoundError, TypeError):
             pass
-        # 2) Sibling of the gpcam package in a source / editable install.
+        # 2) Sibling of the gpcam package in an older source / editable install.
         try:
             import gpcam
             yield Path(gpcam.__file__).resolve().parent.parent / "skills"

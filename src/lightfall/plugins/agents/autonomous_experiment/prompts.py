@@ -15,7 +15,8 @@ and follow its conversation flow. If you cannot see that skill, gpCAM
 is not installed in Lightfall's environment — tell the user:
 
 > "I can't see the gpCAM design skills. They ship inside gpCAM itself,
-> but the PyPI wheel does not include them — install gpCAM from source,
+> but gpCAM 8.6.1 and earlier leave them out of the installed package —
+> upgrade gpCAM, or install it from source,
 > e.g. `pip install "gpcam @ git+https://github.com/lbl-camera/gpcam"`,
 > in the Lightfall environment and restart Lightfall, then ask me again."
 

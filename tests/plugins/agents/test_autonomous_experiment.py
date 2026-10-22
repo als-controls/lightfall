@@ -62,8 +62,8 @@ def test_stub_prompt_mentions_key_tools_and_steps():
     ):
         assert skill in prompt, f"prompt missing skill reference {skill!r}"
 
-    # Install hint for the gpcam-missing path — the wheel omits the design
-    # skills, so the prompt points at a source install.
+    # Install hint for the gpcam-missing path — gpCAM 8.6.1 and earlier omit
+    # the design skills from the package, so the prompt points at a source install.
     assert "git+" in prompt and "gpcam" in prompt
 
 
