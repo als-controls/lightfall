@@ -361,6 +361,40 @@ def _setup_devices() -> None:
         logger.warning("No device backends enabled (Settings -> Devices)")
 
 
+def _start_devices() -> None:
+    """Build and connect the device catalog, then start any CA tunnel retries."""
+    _setup_devices()
+
+    app_module = __import__(__name__)
+    retry_fn = getattr(app_module, "_ca_tunnel_schedule_retries", None)
+    if retry_fn:
+        retry_fn()
+        del app_module._ca_tunnel_schedule_retries
+
+
+def _make_device_starter() -> Callable[[], None]:
+    """One-shot that starts the device catalog on the next event-loop turn.
+
+    Called when the startup login screen (or first-run wizard) is dismissed.
+    Deferring one turn lets ``app.run()`` show the main window first. Devices
+    used to load before login: backend workers were queued pre-login and
+    their results registered inside the login dialog's event loop. Rows that
+    need a login (CSM) still wait for AUTHENTICATED if the user chose guest.
+    """
+    from PySide6.QtCore import QTimer
+
+    started = False
+
+    def start() -> None:
+        nonlocal started
+        if started:
+            return
+        started = True
+        QTimer.singleShot(0, _start_devices)
+
+    return start
+
+
 def _setup_bluesky(app: LFApplication) -> None:
     """Setup Bluesky engine and plan registry.
 
@@ -839,15 +873,9 @@ def main() -> int:
     # Start CA tunnel if configured (must be before device setup)
     _setup_ca_tunnel()
 
-    # Setup device catalog with mock backend
-    _setup_devices()
-
-    # Start CA tunnel retries if tunnel is active
-    app_module = __import__(__name__)
-    _retry_fn = getattr(app_module, "_ca_tunnel_schedule_retries", None)
-    if _retry_fn:
-        _retry_fn()
-        del app_module._ca_tunnel_schedule_retries
+    # The device catalog is NOT built here: it starts once the login screen is
+    # dismissed and the main window shows (see _make_device_starter), so no
+    # backend loads, and CSM's Instantiables are not fetched, before login.
 
     # Setup Bluesky RunEngine and plans
     _setup_bluesky(app)
@@ -918,8 +946,15 @@ def main() -> int:
         def fire_plugin_wave() -> None:
             return None
 
-    # Startup sign-in: the login dialog, or on first run the setup wizard
-    _startup_login(window, config, fire_plugin_wave)
+    # Startup sign-in: the login dialog, or on first run the setup wizard. Both the
+    # plugin wave and the device catalog start once that screen is dismissed.
+    start_devices = _make_device_starter()
+
+    def _on_login_screen_done() -> None:
+        fire_plugin_wave()
+        start_devices()
+
+    _startup_login(window, config, _on_login_screen_done)
 
     # Register cleanup on exit — order matters:
     # 1. Stop CA tunnel (kills relay sockets, stops new data arriving)
