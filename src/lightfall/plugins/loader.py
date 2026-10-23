@@ -713,11 +713,19 @@ class PluginLoader(QObject):
         elif plugin_info.type_name == "device_backend":
             try:
                 from lightfall.devices import DeviceCatalog
+                from lightfall.devices.backend_types.session import current_session_mode
                 from lightfall.ui.preferences.manager import PreferencesManager
 
                 plugin = plugin_info.instance
                 prefs = PreferencesManager.get_instance()
-                if prefs.get(f"device_plugin_{plugin.name}_enabled", True):
+                mode = current_session_mode()
+                if mode is not None:
+                    # An exclusive session has one device source; the plugin's
+                    # own preference is left as it is for the next session.
+                    logger.info(
+                        "Device backend plugin '{}' not loaded: {} is on", plugin.name, mode.label
+                    )
+                elif prefs.get(f"device_plugin_{plugin.name}_enabled", True):
                     backend = plugin.create_backend()
                     DeviceCatalog.get_instance().add_and_connect_backend(backend)
                     logger.debug(
