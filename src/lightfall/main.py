@@ -1138,7 +1138,15 @@ def main() -> int:
     QCoreApplication.instance().aboutToQuit.connect(_cleanup_on_exit)
 
     # Run the application
-    return app.run()
+    code = app.run()
+
+    # A restart (e.g. to switch an exclusive device backend on or off) starts
+    # the new process only after this one has quit and cleaned up.
+    from lightfall.utils.restart import relaunch, restart_requested
+
+    if restart_requested():
+        relaunch()
+    return code
 
 
 def cli() -> None:
