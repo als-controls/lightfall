@@ -973,6 +973,21 @@ def main() -> int:
         _threading.Thread(
             target=_force_exit, daemon=True, name="shutdown-watchdog"
         ).start()
+        _cleanup_started = _time.monotonic()
+
+        # 0a. Signal every Claude agent to stop (no join yet). Each worker
+        #     disconnects its SDK client on its own thread while the steps
+        #     below run; without this the SDK's atexit hook kills the
+        #     still-connected CLIs and each reader logs "Fatal error in
+        #     message reader" (GlitchTip LIGHTFALL-5).
+        #     Looked up, not imported: no agent exists unless it was loaded.
+        _claude_agent_mod = sys.modules.get("lightfall.claude.agent")
+        _claude_workers = []
+        if _claude_agent_mod is not None:
+            try:
+                _claude_workers = _claude_agent_mod.stop_all_agents()
+            except Exception:
+                pass
 
         # 0. Revoke this session's unleased service keys while the network
         #    stack is still fully alive. Keys embedded in dispatched pipeline
@@ -1055,6 +1070,18 @@ def main() -> int:
                 logger.debug("Drained {} caproto user-callback executor(s)", n)
         except Exception as e:
             logger.warning("caproto shutdown step failed: {}", e)
+
+        # 6. Give the Claude workers signalled in 0a the time left before the
+        #    watchdog (keeping a 1 s margin) to finish disconnecting. One
+        #    shared deadline, never a per-worker join; a worker that is
+        #    still busy is abandoned, as before.
+        if _claude_workers:
+            try:
+                _budget_ms = int((4.0 - (_time.monotonic() - _cleanup_started)) * 1000)
+                if not _claude_agent_mod.wait_for_workers(_claude_workers, min(_budget_ms, 3000)):
+                    logger.info("Claude workers still disconnecting; abandoning them")
+            except Exception:
+                pass
 
         # Log remaining threads so we can see what's blocking exit
         _log_active_threads("post-cleanup")

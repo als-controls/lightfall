@@ -4,6 +4,8 @@ import os
 import platform
 import shutil
 import tempfile
+import time
+import weakref
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -155,6 +157,47 @@ def _patch_sdk_for_windows_cmdline_limit():
 
 # Apply the patch on module load
 _patch_sdk_for_windows_cmdline_limit()
+
+
+# Every constructed agent, so app exit can stop them all: docked panels never
+# get a closeEvent when the main window closes, so the Claude panel's own
+# _on_closing cannot be relied on to stop its sessions.
+_live_agents: "weakref.WeakSet[QtClaudeAgent]" = weakref.WeakSet()
+
+
+def stop_all_agents() -> list[Any]:
+    """Signal every live agent's worker to stop, without joining (shutdown path).
+
+    Each worker then closes its backend on its own thread, which disconnects
+    the SDK client. Returns the workers that were running, for
+    :func:`wait_for_workers`.
+    """
+    workers = []
+    for agent in list(_live_agents):
+        worker = getattr(agent, "_worker", None)
+        if worker is None or not worker.isRunning():
+            continue
+        try:
+            agent.stop(wait_ms=0)
+        except Exception as exc:  # noqa: BLE001 - shutdown must not raise
+            logger.debug("Error stopping Claude agent on exit: {}", exc)
+            continue
+        workers.append(worker)
+    return workers
+
+
+def wait_for_workers(workers: list[Any], timeout_ms: int) -> bool:
+    """Join *workers* against one shared deadline; True if all finished.
+
+    One budget for all of them, not one per worker: N sessions x a per-worker
+    join is what once outlasted the 5 s exit watchdog (0xC0000005).
+    """
+    deadline = time.monotonic() + timeout_ms / 1000
+    for worker in workers:
+        remaining_ms = int((deadline - time.monotonic()) * 1000)
+        if remaining_ms <= 0 or not worker.wait(remaining_ms):
+            return False
+    return True
 
 
 # System prompt for Qt understanding
@@ -526,6 +569,7 @@ class QtClaudeAgent(QObject):
             self.client = ClaudeSDKClient(options=self.options)
 
         self.session_id_changed.connect(self._store_session_id)
+        _live_agents.add(self)
 
     def _make_agy_backend(self):
         """Build an AgyCliBackend from the current ``_session_config`` and prefs.
