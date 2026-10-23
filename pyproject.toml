@@ -80,7 +80,7 @@ dependencies = [
     "mcp>=2.3,<3",
     "happi>=2.0",
     "nats-py>=2.1",
-    "lightfall-utils>=0.2.0",
+    "lightfall-utils>=0.3.0",
     "lightfall-settings>=0.1.3,<0.2",
 ]
 
@@ -100,6 +100,8 @@ dev = [
     "ruff>=0.1",
     "mypy>=1.8",
     "pre-commit>=3.6",
+    # tests/services start a real local broker (same as lightfall-utils' dev extra).
+    "nats-server-bin>=2.14",
 ]
 docs = [
     "sphinx>=8.0,<9.0",
@@ -277,7 +279,7 @@ requires = [
     # agy host uses the mcp 2 low-level Server (on_* handlers); its test uses httpx2,
     # which mcp 2 depends on.
     "mcp>=2.3,<3",
-    "lightfall-utils>=0.2.0",
+    "lightfall-utils>=0.3.0",
     "lightfall-settings>=0.1.3,<0.2",
 ]
 
