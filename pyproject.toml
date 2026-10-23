@@ -100,6 +100,8 @@ dev = [
     "ruff>=0.1",
     "mypy>=1.8",
     "pre-commit>=3.6",
+    # tests/services start a real local broker (same as lightfall-utils' dev extra).
+    "nats-server-bin>=2.14",
 ]
 docs = [
     "sphinx>=8.0,<9.0",
