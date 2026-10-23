@@ -303,6 +303,7 @@ class DeviceCatalog(QObject):
             if device and device.name in self._name_index:
                 del self._name_index[device.name]
             del self._device_backend_map[did]
+            self.device_removed.emit(str(did))
 
         if self._backend is backend:
             self._backend = next(iter(self._backends.values()), None)
@@ -505,8 +506,44 @@ class DeviceCatalog(QObject):
         Returns:
             True if at least one backend supported reload.
         """
+        any_reloaded = self._reload_sources()
+        self._resync_after_reload()
+        return any_reloaded
+
+    def reload_backends_async(self, callback: Any = None) -> QThreadFuture:
+        """:meth:`reload_backends` with the source reads on a worker thread.
+
+        Backend ``reload()`` can be slow I/O (CSM re-fetches its instantiables
+        over HTTP), so it runs off the GUI thread; the cache rebuild and the
+        ``device_added``/``device_removed`` signals then run back on the main
+        thread. ``callback(any_reloaded)`` runs on the main thread afterwards.
+        """
+
+        def _on_done(any_reloaded: bool) -> None:
+            self._resync_after_reload()
+            if callback is not None:
+                callback(any_reloaded)
+
+        def _on_error(exc: Exception) -> None:
+            logger.error("Device backend reload failed: {}", exc)
+            self._resync_after_reload()
+            if callback is not None:
+                callback(False)
+
+        future = QThreadFuture(
+            self._reload_sources,
+            callback_slot=_on_done,
+            except_slot=_on_error,
+            key="reload_device_backends",
+            name="reload_device_backends",
+        )
+        future.start()
+        return future
+
+    def _reload_sources(self) -> bool:
+        """Re-read every connected backend's source. Safe off the GUI thread."""
         any_reloaded = False
-        for name, backend in self._backends.items():
+        for name, backend in list(self._backends.items()):
             if not backend.is_connected:
                 continue
             try:
@@ -515,7 +552,10 @@ class DeviceCatalog(QObject):
                     logger.info("Reloaded backend: {}", name)
             except Exception as e:
                 logger.error("Error reloading backend '{}': {}", name, e)
+        return any_reloaded
 
+    def _resync_after_reload(self) -> None:
+        """Rebuild the cache and emit add/remove signals. Main thread only."""
         # Snapshot pre-reload name -> id map so we can emit add/remove
         # signals (carrying UUID strings per existing contract) for
         # entries that appeared or disappeared.
@@ -529,8 +569,6 @@ class DeviceCatalog(QObject):
                 self.device_added.emit(device)
         for removed in old_name_ids.keys() - new_names:
             self.device_removed.emit(str(old_name_ids[removed]))
-
-        return any_reloaded
 
     # === On-Demand Connection ===
 

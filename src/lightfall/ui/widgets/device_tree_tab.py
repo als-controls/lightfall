@@ -376,20 +376,24 @@ class DeviceTreeTab(QWidget):
         from lightfall.utils.threads import QThreadFuture
         # Pick up out-of-band edits to the backing store (e.g. someone
         # edited the happi JSON) before retrying connections. Without
-        # this, Sync only reconnected the existing cached entries.
-        self._catalog.reload_backends()
-        for backend in self._catalog.backends.values():
-            if hasattr(backend, "reset_failed_devices"):
-                backend.reset_failed_devices()
+        # this, Sync only reconnected the existing cached entries. The reload
+        # runs on a worker (CSM re-fetches over HTTP), then reconnect follows.
         def _do_reconnect():
             return self._catalog.reconnect_failed_devices(timeout=5.0)
+
         def _on_done(result):
             connected, failed = result
             self._model.refresh()
             logger.info("Sync: {} connected, {} still offline", connected, failed)
-        thread = QThreadFuture(_do_reconnect, callback_slot=_on_done, name="sync-devices")
-        thread.start()
-        self._model.refresh()
+
+        def _on_reloaded(_any_reloaded: bool) -> None:
+            self._model.refresh()
+            for backend in self._catalog.backends.values():
+                if hasattr(backend, "reset_failed_devices"):
+                    backend.reset_failed_devices()
+            QThreadFuture(_do_reconnect, callback_slot=_on_done, name="sync-devices").start()
+
+        self._catalog.reload_backends_async(_on_reloaded)
         logger.info("Syncing devices...")
 
     def _on_device_changed(self, _: Any) -> None:

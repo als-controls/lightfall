@@ -6,6 +6,7 @@ import pytest
 from PySide6.QtCore import QObject, Signal
 
 from lightfall.auth.session import AuthState
+from lightfall.devices.backend_types import startup
 from lightfall.devices.backend_types.base import BuildContext
 from lightfall.devices.backend_types.registry import BackendTypeRegistry
 from lightfall.devices.backend_types.rows import BackendRow
@@ -49,6 +50,7 @@ def registry():
     BackendTypeRegistry.reset()
     yield BackendTypeRegistry.get_instance()
     BackendTypeRegistry.reset()
+    startup._INSTALLER = None  # don't let later tests' saves apply to this FakeCatalog
 
 
 def _install(rows, registry, session, catalog=None):

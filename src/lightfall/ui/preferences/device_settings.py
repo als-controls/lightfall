@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QPushButton,
     QStackedWidget,
     QTableWidget,
@@ -43,6 +44,7 @@ from lightfall.devices.backend_types.rows import (
 )
 from lightfall.plugins.settings_plugin import SettingsPlugin
 from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
@@ -57,7 +59,9 @@ class DeviceSettingsPlugin(SettingsPlugin):
     type's settings form below it. Devices from all enabled rows are
     merged into a single catalog.
 
-    Note: Changes require application restart to take effect.
+    Saving applies backend rows to the running catalog: removed or changed
+    rows drop their backend, new or changed rows build one. The connection
+    settings apply to backends built from then on.
     """
 
     def __init__(self) -> None:
@@ -128,7 +132,10 @@ class DeviceSettingsPlugin(SettingsPlugin):
         """)
 
         # Restart notice
-        notice = QLabel("<i>⚠ Changes to device backends require application restart.</i>")
+        notice = QLabel(
+            "<i>Backend changes apply when you save. Edited backends reconnect their "
+            "devices; connection settings apply to backends built after that.</i>"
+        )
         notice.setWordWrap(True)
         layout.addWidget(notice)
 
@@ -514,6 +521,24 @@ class DeviceSettingsPlugin(SettingsPlugin):
         for row in self._rows:
             self._sync_row(row)
         save_rows(prefs, self._rows)
+        self._apply_rows_live(prefs)
+
+    def _apply_rows_live(self, prefs: PreferencesManager) -> None:
+        """Bring the running device catalog in line with the saved rows."""
+        from lightfall.devices.backend_types.rows import build_context
+        from lightfall.devices.backend_types.startup import apply_backend_rows
+
+        if _plan_active():
+            # Removing a backend drops its devices; never do that under a plan.
+            logger.warning("Device backend changes saved; not applied while a plan is running")
+            QMessageBox.information(
+                self._widget,
+                "Device backends",
+                "A plan is running, so the backend changes were saved but not applied. "
+                "Save again once it finishes (or restart).",
+            )
+            return
+        apply_backend_rows([deepcopy(row) for row in self._rows], build_context(prefs.get))
 
     def validate(self) -> list[str]:
         errors: list[str] = []
@@ -532,3 +557,12 @@ class DeviceSettingsPlugin(SettingsPlugin):
             if row.enabled and backend_type is not None:
                 errors.extend(f"{row.name}: {e}" for e in backend_type.validate(row.config))
         return errors
+
+
+def _plan_active() -> bool:
+    """Whether the acquisition engine is running, paused or stopping a plan."""
+    import lightfall.acquire.engine as engine_mod
+    from lightfall.acquire.engine import EngineState
+
+    engine = engine_mod._engine
+    return engine is not None and engine.state not in (EngineState.IDLE, EngineState.ERROR)

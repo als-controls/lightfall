@@ -344,8 +344,7 @@ class DevicePanel(BasePanel):
         return actions
 
     def action_refresh(self) -> bool:
-        self._catalog.reload_backends()
-        self._tree_tab.model.refresh()
+        self._catalog.reload_backends_async(lambda _ok: self._tree_tab.model.refresh())
         return True
 
     def action_search(self, query: str) -> bool:
