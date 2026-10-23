@@ -37,6 +37,10 @@ class BackendType(ABC):
     type_id: str
     display_name: str
     requires_auth: bool = False
+    #: An enabled row of an exclusive type is the session's only device source:
+    #: every other row and device-backend plugin stays off, and switching into
+    #: or out of it takes a restart (see ``backend_types.session``).
+    exclusive: bool = False
 
     @abstractmethod
     def default_config(self) -> dict[str, Any]:
@@ -57,6 +61,18 @@ class BackendType(ABC):
     @abstractmethod
     def build(self, config: dict[str, Any], name: str, ctx: BuildContext) -> DeviceBackend:
         """Construct the device backend for a row, keyed ``name`` in the catalog."""
+
+    def session_env(self, config: dict[str, Any]) -> dict[str, str]:
+        """Environment an exclusive row's session needs (e.g. EPICS addresses).
+
+        Applied at startup before any EPICS client exists. Computed from
+        ``config`` alone: no I/O.
+        """
+        return {}
+
+    def session_label(self, config: dict[str, Any]) -> str:
+        """How an exclusive row's session is named in the window title."""
+        return self.display_name
 
 
 def hint(text: str) -> QLabel:
