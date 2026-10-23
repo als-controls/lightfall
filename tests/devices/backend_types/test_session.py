@@ -72,3 +72,38 @@ def test_crosses_mode_boundary(registry):
     assert crosses_mode_boundary([mock], registry) is True
     edited = _excl(addr="10.0.0.2", id=row.id)
     assert crosses_mode_boundary([edited], registry) is False
+
+
+def _get(rows):
+    stored = {"device_backends": [r.to_dict() for r in rows] if rows is not None else None}
+    return lambda key, default=None: stored.get(key, default)
+
+
+def test_start_session_mode_applies_env(registry):
+    from lightfall.devices.backend_types.session import current_session_mode, start_session_mode
+
+    environ: dict[str, str] = {}
+    mode = start_session_mode(_get([_excl()]), registry, environ)
+    assert mode is not None and mode.label == "Excl: 127.0.0.1"
+    assert environ == {"EPICS_CA_ADDR_LIST": "127.0.0.1"}
+    assert current_session_mode() is mode
+
+
+def test_start_session_mode_unknown_type(no_session_mode):  # noqa: F811
+    from lightfall.devices.backend_types.session import current_session_mode, start_session_mode
+
+    BackendTypeRegistry.reset()
+    try:
+        environ: dict[str, str] = {}
+        assert start_session_mode(_get([_excl()]), BackendTypeRegistry.get_instance(), environ) is None
+        assert environ == {} and current_session_mode() is None
+    finally:
+        BackendTypeRegistry.reset()
+
+
+def test_start_session_mode_no_rows(registry):
+    from lightfall.devices.backend_types.session import start_session_mode
+
+    environ: dict[str, str] = {}
+    assert start_session_mode(_get(None), registry, environ) is None
+    assert environ == {}

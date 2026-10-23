@@ -93,6 +93,10 @@ from lightfall.devices.backend_types.rows import (  # noqa: E402
 from lightfall.devices.backend_types.rows import (  # noqa: E402
     resolve_enabled_backends as _resolve_enabled_backends,  # noqa: F401  (re-export for tests)
 )
+from lightfall.devices.backend_types.session import (  # noqa: E402
+    current_session_mode,
+    start_session_mode,
+)
 from lightfall.devices.backend_types.startup import install_backend_rows  # noqa: E402
 from lightfall.ui import LFMainWindow  # noqa: E402
 from lightfall.ui.panels.registry import PanelRegistry  # noqa: E402
@@ -244,6 +248,10 @@ def _setup_ca_tunnel() -> None:
 
     enabled = prefs.get("ca_tunnel_enabled", False)
     if not enabled:
+        return
+    mode = current_session_mode()
+    if mode is not None:
+        logger.info("CA tunnel not started: {} sets the EPICS addresses", mode.label)
         return
 
     gateway = prefs.get("ca_tunnel_gateway", "localhost:5099")
@@ -869,6 +877,10 @@ def main() -> int:
 
     # Setup authentication
     _setup_auth(config)
+
+    # An exclusive device backend (e.g. a simulated beamline) sets the
+    # session's EPICS environment before any EPICS client exists.
+    start_session_mode(PreferencesManager.get_instance().get, BackendTypeRegistry.get_instance())
 
     # Start CA tunnel if configured (must be before device setup)
     _setup_ca_tunnel()

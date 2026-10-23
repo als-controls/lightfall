@@ -9,12 +9,14 @@ installer, the plugin loader, Settings -> Devices and the main window all ask
 
 from __future__ import annotations
 
+import os
+from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 
 from loguru import logger
 
 from lightfall.devices.backend_types.registry import BackendTypeRegistry
-from lightfall.devices.backend_types.rows import BackendRow
+from lightfall.devices.backend_types.rows import BackendRow, Getter, load_rows
 
 
 @dataclass(frozen=True)
@@ -84,3 +86,22 @@ def crosses_mode_boundary(rows: list[BackendRow], registry: BackendTypeRegistry)
     row = exclusive_row(rows, registry)
     current = current_session_mode()
     return (row.id if row else None) != (current.row_id if current else None)
+
+
+def start_session_mode(
+    get: Getter,
+    registry: BackendTypeRegistry,
+    environ: MutableMapping[str, str] = os.environ,
+) -> SessionMode | None:
+    """Startup: decide the session mode from the saved rows and apply its env.
+
+    Must run before any EPICS client context exists. Never migrates legacy
+    preferences (a fresh install has no exclusive row).
+    """
+    rows = load_rows(get)
+    mode = resolve_session_mode(rows, registry) if rows else None
+    if mode is not None:
+        environ.update(mode.env)
+        logger.info("Session mode: {}", mode.label)
+    set_session_mode(mode)
+    return mode
