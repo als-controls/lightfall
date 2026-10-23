@@ -786,30 +786,6 @@ def _check_editor_protocol(main_window: LFMainWindow) -> None:
     QTimer.singleShot(500, show_banner)
 
 
-# Loggers whose errors during shutdown are expected and harmless.
-# caproto: stale commands arriving on closed channels/circuits.
-# claude_agent_sdk._internal.query: at interpreter exit the SDK's own atexit
-#   hook terminates every Claude CLI it spawned (exit code 1 on Windows), and
-#   a still-live session's message reader logs that as "Fatal error in message
-#   reader: Command failed with exit code 1" (GlitchTip LIGHTFALL-5).
-_SHUTDOWN_MUTED_LOGGERS = (
-    "caproto",
-    "caproto.ch",
-    "caproto.circ",
-    "caproto.ctx",
-    "caproto.bcast",
-    "claude_agent_sdk._internal.query",
-)
-
-
-def _mute_shutdown_loggers() -> None:
-    """Silence loggers whose shutdown-time errors are expected noise."""
-    import logging
-
-    for name in _SHUTDOWN_MUTED_LOGGERS:
-        logging.getLogger(name).setLevel(logging.CRITICAL)
-
-
 def main() -> int:
     """Run the Lightfall application.
 
@@ -958,11 +934,14 @@ def main() -> int:
         # Schedule a hard exit as a safety net. If cleanup takes more
         # than 5 seconds (e.g. caproto ThreadPoolExecutor.shutdown()
         # blocks waiting for callbacks), force-terminate the process.
+        import logging as _logging
         import os
         import time as _time
 
-        # Mute loggers whose shutdown-time errors are expected and harmless.
-        _mute_shutdown_loggers()
+        # Mute caproto loggers during shutdown — stale commands arriving
+        # on closed channels/circuits are expected and harmless.
+        for _name in ("caproto", "caproto.ch", "caproto.circ", "caproto.ctx", "caproto.bcast"):
+            _logging.getLogger(_name).setLevel(_logging.CRITICAL)
 
         def _log_active_threads(label: str = ""):
             threads = _threading.enumerate()
