@@ -137,3 +137,29 @@ def test_claude_oneshot_uses_isolated_bypass_options(monkeypatch, tmp_path):
         "SYS", "bypassPermissions", 1, [], "haiku",
     )
     assert o.allowed_tools == [] and o.mcp_servers == {}
+
+
+class _ClosableClient:
+    def __init__(self, raises=False):
+        self.disconnects = 0
+        self.raises = raises
+
+    async def disconnect(self):
+        self.disconnects += 1
+        if self.raises:
+            raise RuntimeError("transport already gone")
+
+
+def test_close_disconnects_the_sdk_client():
+    # An undisconnected client keeps its CLI child and message reader alive;
+    # at exit the SDK's atexit hook kills the child and the reader logs
+    # "Fatal error in message reader" (GlitchTip LIGHTFALL-5).
+    client = _ClosableClient()
+    asyncio.run(ClaudeCodeBackend(client).close())
+    assert client.disconnects == 1
+
+
+def test_close_swallows_disconnect_errors():
+    client = _ClosableClient(raises=True)
+    asyncio.run(ClaudeCodeBackend(client).close())  # must not raise
+    assert client.disconnects == 1

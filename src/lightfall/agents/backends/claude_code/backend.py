@@ -83,7 +83,16 @@ class ClaudeCodeBackend:
         return None  # read at construction only; callers rebuild the agent
 
     async def close(self) -> None:
-        return None
+        """Disconnect the SDK client: cancel its message reader, then end the CLI.
+
+        Left connected, the CLI child outlives the worker; at interpreter exit
+        the SDK's atexit hook kills it and the still-running reader logs
+        "Fatal error in message reader" (GlitchTip LIGHTFALL-5).
+        """
+        try:
+            await self.client.disconnect()
+        except Exception as exc:  # noqa: BLE001 - close must not raise
+            logger.warning("Claude client disconnect failed: {}", exc)
 
     async def run_turn(
         self,
