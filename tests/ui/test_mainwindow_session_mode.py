@@ -74,3 +74,20 @@ def test_close_confirmed_not_emitted_when_panel_vetoes(qtbot, monkeypatch):
     event = QCloseEvent()
     window.closeEvent(event)
     assert fired == [] and not event.isAccepted()
+
+
+def test_vetoed_close_cancels_a_requested_restart(qtbot, monkeypatch):
+    # I2: a refused quit must not leave a restart armed for a later quit.
+    from lightfall.utils import restart
+
+    window = _window(qtbot)
+
+    class _Busy:
+        def can_close(self, force=False):
+            return False
+
+    monkeypatch.setattr(window, "list_open_panels", lambda: ["busy"])
+    monkeypatch.setattr(window, "get_panel", lambda panel_id: _Busy())
+    monkeypatch.setattr(restart, "_RESTART_REQUESTED", True)
+    window.closeEvent(QCloseEvent())
+    assert restart.restart_requested() is False

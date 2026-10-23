@@ -1094,6 +1094,9 @@ class LFMainWindow(QMainWindow):
             panel = self.get_panel(panel_id)
             if panel and not panel.can_close(force=True):
                 # Panel has unsaved work or other reason to prevent shutdown
+                from lightfall.utils.restart import cancel_restart
+
+                cancel_restart()
                 event.ignore()
                 return
 

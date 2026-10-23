@@ -70,8 +70,11 @@ def test_crosses_mode_boundary(registry):
     # exclusive session on `row`
     session.set_session_mode(resolve_session_mode([row], registry))
     assert crosses_mode_boundary([mock], registry) is True
-    edited = _excl(addr="10.0.0.2", id=row.id)
-    assert crosses_mode_boundary([edited], registry) is False
+    same_env = BackendRow("excl", "excl", config={"addr": "127.0.0.1", "note": "x"}, id=row.id)
+    assert crosses_mode_boundary([same_env], registry) is False
+    # I4: an edit that changes the session's env can't be applied live either.
+    new_env = _excl(addr="10.0.0.2", id=row.id)
+    assert crosses_mode_boundary([new_env], registry) is True
 
 
 def _get(rows):
@@ -107,3 +110,30 @@ def test_start_session_mode_no_rows(registry):
     environ: dict[str, str] = {}
     assert start_session_mode(_get(None), registry, environ) is None
     assert environ == {}
+
+
+class _BrokenExcl(ExclType):
+    type_id = "broken"
+
+    def session_env(self, config):
+        raise KeyError("addr")
+
+
+def test_broken_session_env_is_no_mode_and_not_built(registry, qtbot):
+    # I5: a plugin bug must not crash startup, nor run its row without its env.
+    from lightfall.devices.backend_types.base import BuildContext
+    from lightfall.devices.backend_types.startup import install_backend_rows
+    from tests.devices.backend_types.test_startup import FakeCatalog, FakeSession
+
+    registry.register(_BrokenExcl())
+    rows = [BackendRow("mock", "mock"), BackendRow("broken", "sim", config={})]
+    msgs: list[str] = []
+    sink = logger.add(lambda m: msgs.append(str(m)), level="ERROR")
+    try:
+        assert resolve_session_mode(rows, registry) is None
+    finally:
+        logger.remove(sink)
+    assert any("'sim'" in m for m in msgs)
+    catalog = FakeCatalog()
+    install_backend_rows(rows, registry=registry, catalog=catalog, ctx=BuildContext(), session=FakeSession(True))
+    assert [b.name for b in catalog.added] == ["mock"]

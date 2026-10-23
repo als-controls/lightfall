@@ -32,18 +32,38 @@ class SessionMode:
 _MODE: SessionMode | None = None
 
 
-def exclusive_row(rows: list[BackendRow], registry: BackendTypeRegistry) -> BackendRow | None:
-    """The first enabled row whose registered type is exclusive, or None.
+def _session_parts(
+    row: BackendRow, registry: BackendTypeRegistry
+) -> tuple[str, dict[str, str]] | None:
+    """(label, env) for an exclusive row, or None if its type can't produce them."""
+    backend_type = registry.get(row.type)
+    if backend_type is None:
+        return None
+    try:
+        return backend_type.session_label(row.config), dict(backend_type.session_env(row.config))
+    except Exception as exc:
+        logger.error(
+            "Device backend '{}' ({}) can't set up its session: {}", row.name, row.type, exc
+        )
+        return None
 
-    Warns when more than one is enabled (hand-edited preferences); only the
-    first counts.
+
+def is_exclusive(row: BackendRow, registry: BackendTypeRegistry) -> bool:
+    backend_type = registry.get(row.type)
+    return backend_type is not None and backend_type.exclusive
+
+
+def exclusive_row(rows: list[BackendRow], registry: BackendTypeRegistry) -> BackendRow | None:
+    """The first enabled, usable row whose registered type is exclusive, or None.
+
+    A row whose type fails to give its session label/env is unusable (logged).
+    Warns when more than one usable one is enabled (hand-edited preferences);
+    only the first counts.
     """
     found = [
         row
         for row in rows
-        if row.enabled
-        and (backend_type := registry.get(row.type)) is not None
-        and backend_type.exclusive
+        if row.enabled and is_exclusive(row, registry) and _session_parts(row, registry)
     ]
     if len(found) > 1:
         logger.warning(
@@ -61,14 +81,11 @@ def resolve_session_mode(
     row = exclusive_row(rows, registry)
     if row is None:
         return None
-    backend_type = registry.get(row.type)
-    assert backend_type is not None
-    return SessionMode(
-        row_id=row.id,
-        type_id=row.type,
-        label=backend_type.session_label(row.config),
-        env=dict(backend_type.session_env(row.config)),
-    )
+    parts = _session_parts(row, registry)
+    if parts is None:
+        return None
+    label, env = parts
+    return SessionMode(row_id=row.id, type_id=row.type, label=label, env=env)
 
 
 def current_session_mode() -> SessionMode | None:
@@ -82,10 +99,18 @@ def set_session_mode(mode: SessionMode | None) -> None:
 
 
 def crosses_mode_boundary(rows: list[BackendRow], registry: BackendTypeRegistry) -> bool:
-    """Whether ``rows`` want a different session mode than the one running."""
-    row = exclusive_row(rows, registry)
+    """Whether ``rows`` want a different session mode than the one running.
+
+    A different exclusive row (or none), or the same row asking for a
+    different environment: either needs a fresh process.
+    """
+    wanted = resolve_session_mode(rows, registry)
     current = current_session_mode()
-    return (row.id if row else None) != (current.row_id if current else None)
+
+    def key(mode: SessionMode | None) -> tuple[str, dict[str, str]] | None:
+        return (mode.row_id, mode.env) if mode else None
+
+    return key(wanted) != key(current)
 
 
 def start_session_mode(

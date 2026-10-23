@@ -25,7 +25,11 @@ class ExclType(BackendType):
     def create_editor(self, config, parent=None):
         from lightfall.devices.backend_types.base import BackendEditor
 
-        return BackendEditor(parent)
+        class _Editor(BackendEditor):
+            def get_config(self):
+                return dict(config)
+
+        return _Editor(parent)
 
     def build(self, config, name, ctx):
         return SimpleNamespace(name=name)

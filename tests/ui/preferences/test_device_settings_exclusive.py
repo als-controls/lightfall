@@ -142,7 +142,7 @@ def test_save_within_same_mode_applies_live(plugin, monkeypatch):
         session.resolve_session_mode([row], BackendTypeRegistry.get_instance())
     )
     prefs, applied, restarts, asks, _ = _save_spies(monkeypatch)
-    edited = BackendRow("excl", "sim", config={"addr": "10.0.0.2"}, id=row.id)
+    edited = BackendRow("excl", "sim", config={"addr": "127.0.0.1", "note": "x"}, id=row.id)
     _set_rows(plugin, [edited])
     plugin._apply_rows_live(prefs)
     assert len(applied) == 1 and asks == [] and restarts == []
@@ -157,3 +157,29 @@ def test_leaving_mode_asks_with_current_label(plugin, monkeypatch):
     _set_rows(plugin, [BackendRow("mock", "mock")])
     plugin._apply_rows_live(prefs)
     assert applied == [] and asks == [("Excl: 127.0.0.1", False)]
+
+
+def test_added_exclusive_row_starts_disabled(plugin):
+    # I3: Add must not bypass the confirm-and-switch-off path.
+    _set_rows(plugin, [BackendRow("mock", "a")])
+    plugin._add_row("excl")
+    assert [r.enabled for r in plugin._rows] == [True, False]
+
+
+def test_duplicated_exclusive_row_starts_disabled(plugin, monkeypatch):
+    _confirm(monkeypatch, True)
+    _set_rows(plugin, _rows())
+    _tick(plugin, 2)
+    plugin._select(2)
+    plugin._duplicate_selected()
+    assert [r.enabled for r in plugin._rows] == [False, False, True, False]
+
+
+def test_removing_enabled_exclusive_row_restores_others(plugin, monkeypatch):
+    _confirm(monkeypatch, True)
+    _set_rows(plugin, _rows())
+    _tick(plugin, 2)
+    plugin._select(2)
+    plugin._remove_selected()
+    assert [r.enabled for r in plugin._rows] == [True, True]
+    assert plugin._restore_ids == []

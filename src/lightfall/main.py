@@ -834,6 +834,11 @@ def main() -> int:
     Returns:
         Exit code (0 for success, non-zero for errors).
     """
+    # Before anything rewrites EPICS variables: a restart relaunches with these.
+    from lightfall.utils.restart import remember_launch_env
+
+    remember_launch_env()
+
     # One-time rebrand migration of the user data directory.
     migrate_legacy_data_dir()
 
@@ -1013,6 +1018,12 @@ def main() -> int:
             _time.sleep(5)
             _log_active_threads("watchdog-5s")
             logger.warning("Shutdown taking too long, forcing exit")
+            try:
+                from lightfall.utils.restart import relaunch_if_requested
+
+                relaunch_if_requested()
+            except Exception as exc:
+                logger.error("Restart during forced exit failed: {}", exc)
             sys.stderr.flush()
             sys.stdout.flush()
             os._exit(0)
@@ -1142,10 +1153,9 @@ def main() -> int:
 
     # A restart (e.g. to switch an exclusive device backend on or off) starts
     # the new process only after this one has quit and cleaned up.
-    from lightfall.utils.restart import relaunch, restart_requested
+    from lightfall.utils.restart import relaunch_if_requested
 
-    if restart_requested():
-        relaunch()
+    relaunch_if_requested()
     return code
 
 

@@ -47,6 +47,7 @@ from lightfall.devices.backend_types.session import (
     crosses_mode_boundary,
     current_session_mode,
     exclusive_row,
+    is_exclusive,
 )
 from lightfall.plugins.settings_plugin import SettingsPlugin
 from lightfall.ui.preferences.manager import PreferencesManager
@@ -502,6 +503,8 @@ class DeviceSettingsPlugin(SettingsPlugin):
         row = BackendRow(
             type=type_id,
             name=unique_name(type_id, (r.name for r in self._rows)),
+            # An exclusive row is switched on with its own checkbox, which asks first.
+            enabled=not backend_type.exclusive,
             config=backend_type.default_config(),
         )
         self._rows.append(row)
@@ -517,7 +520,7 @@ class DeviceSettingsPlugin(SettingsPlugin):
         row = BackendRow(
             type=source.type,
             name=unique_name(source.type, (r.name for r in self._rows)),
-            enabled=source.enabled,
+            enabled=source.enabled and not is_exclusive(source, BackendTypeRegistry.get_instance()),
             config=deepcopy(source.config),
         )
         self._rows.insert(index + 1, row)
@@ -529,6 +532,13 @@ class DeviceSettingsPlugin(SettingsPlugin):
         if index < 0:
             return
         row = self._rows.pop(index)
+        if row.enabled and is_exclusive(row, BackendTypeRegistry.get_instance()):
+            # Same as unticking it: the rows it switched off come back.
+            restore = set(self._restore_ids)
+            for other in self._rows:
+                if other.id in restore:
+                    other.enabled = True
+            self._restore_ids = []
         editor = self._editors.pop(row.id, None)
         if editor is not None and self._stack is not None:
             self._stack.removeWidget(editor)

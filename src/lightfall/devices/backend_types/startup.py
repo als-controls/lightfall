@@ -16,7 +16,11 @@ from loguru import logger
 from lightfall.devices.backend_types.base import BackendType, BuildContext
 from lightfall.devices.backend_types.registry import BackendTypeRegistry
 from lightfall.devices.backend_types.rows import BackendRow
-from lightfall.devices.backend_types.session import crosses_mode_boundary, exclusive_row
+from lightfall.devices.backend_types.session import (
+    crosses_mode_boundary,
+    exclusive_row,
+    is_exclusive,
+)
 
 # The startup installer; apply_backend_rows() reconciles against it.
 _INSTALLER: BackendInstaller | None = None
@@ -110,6 +114,9 @@ class BackendInstaller:
         exclusive = exclusive_row(rows, self._registry)
         if exclusive is not None:
             rows = [exclusive]  # an exclusive row is the session's only source
+        else:
+            # An exclusive row that can't set up its session must not run without it.
+            rows = [row for row in rows if not is_exclusive(row, self._registry)]
         for row in rows:
             if not row.enabled:
                 continue
