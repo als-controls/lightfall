@@ -167,12 +167,22 @@ def _run_sync(db_path: str, server_url: str, user_id: str | None = None) -> tupl
                         )
                         continue
                     try:
+                        # Send our id: the image fragment already references it,
+                        # so the server must store the file under the same name.
                         with open(path, "rb") as f:
                             resp = client.post(
                                 "/logbook/images",
+                                params={"image_id": image_id},
                                 files={"file": (path.name, f, _mime_from_ext(path.suffix))},
                             )
-                        if resp.status_code == 201:
+                        if resp.status_code == 201 and resp.json().get("image_id") != image_id:
+                            # A server without client-chosen ids stored it under a new
+                            # id; the fragment can't resolve it, so retry once it's updated.
+                            logger.warning(
+                                "Logbook server ignored image_id {}; update the server",
+                                image_id,
+                            )
+                        elif resp.status_code == 201:
                             db.execute(
                                 "UPDATE image_sync SET sync_status = 'synced' WHERE image_id = ?",
                                 (image_id,),
