@@ -16,6 +16,11 @@ from loguru import logger
 from lightfall.devices.backend_types.base import BackendType, BuildContext
 from lightfall.devices.backend_types.registry import BackendTypeRegistry
 from lightfall.devices.backend_types.rows import BackendRow
+from lightfall.devices.backend_types.session import (
+    crosses_mode_boundary,
+    exclusive_row,
+    is_exclusive,
+)
 
 # The startup installer; apply_backend_rows() reconciles against it.
 _INSTALLER: BackendInstaller | None = None
@@ -57,6 +62,10 @@ class BackendInstaller:
         # row id -> (type, row) waiting for login
         self._deferred: dict[str, tuple[BackendType, BackendRow]] = {}
         self._login_hooked = False
+
+    @property
+    def registry(self) -> BackendTypeRegistry:
+        return self._registry
 
     @property
     def deferred_rows(self) -> list[BackendRow]:
@@ -102,6 +111,12 @@ class BackendInstaller:
 
     def _wanted(self, rows: list[BackendRow]) -> dict[str, tuple[BackendType, BackendRow]]:
         wanted: dict[str, tuple[BackendType, BackendRow]] = {}
+        exclusive = exclusive_row(rows, self._registry)
+        if exclusive is not None:
+            rows = [exclusive]  # an exclusive row is the session's only source
+        else:
+            # An exclusive row that can't set up its session must not run without it.
+            rows = [row for row in rows if not is_exclusive(row, self._registry)]
         for row in rows:
             if not row.enabled:
                 continue
@@ -172,8 +187,15 @@ def install_backend_rows(
 
 
 def apply_backend_rows(rows: list[BackendRow], ctx: BuildContext | None = None) -> bool:
-    """Bring the live catalog in line with edited rows. False if devices haven't started."""
+    """Bring the live catalog in line with edited rows.
+
+    False (nothing applied) if devices haven't started, or if the rows would
+    switch the session mode, which only a restart can do.
+    """
     if _INSTALLER is None:
+        return False
+    if crosses_mode_boundary(rows, _INSTALLER.registry):
+        logger.info("Device backend rows saved; switching session mode takes a restart")
         return False
     _INSTALLER.apply(rows, ctx)
     return True

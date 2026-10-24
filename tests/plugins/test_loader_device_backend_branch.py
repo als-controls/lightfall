@@ -89,3 +89,29 @@ def test_disabled_plugin_does_not_add_backend(fresh_catalog, monkeypatch):
     loader.load_manifest(_manifest())
     loader.load_all_sync()
     assert "stub_backend" not in fresh_catalog.backends
+
+
+def test_device_backend_plugin_skipped_in_session_mode(fresh_catalog, monkeypatch):
+    from lightfall.devices.backend_types.session import SessionMode, set_session_mode
+    from lightfall.ui.preferences import manager as prefs_mod
+
+    writes = []
+
+    class _Prefs:
+        def get(self, key, default=None):
+            return True if key == "device_plugin_stub_enabled" else default
+
+        def set(self, key, value):
+            writes.append((key, value))
+
+    monkeypatch.setattr(prefs_mod.PreferencesManager, "get_instance", classmethod(lambda cls: _Prefs()))
+    set_session_mode(SessionMode("r1", "excl", "Excl", {}))
+    try:
+        loader = PluginLoader()
+        loader.register_plugin_type("device_backend", DeviceBackendPlugin)
+        loader.load_manifest(_manifest())
+        loader.load_all_sync()
+    finally:
+        set_session_mode(None)
+    assert "stub_backend" not in fresh_catalog.backends
+    assert writes == []

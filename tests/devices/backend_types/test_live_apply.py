@@ -93,3 +93,25 @@ def test_csm_row_removed_before_login_is_never_built(registry, qtbot):
     session.state_changed.emit(AuthState.AUTHENTICATED, AuthState.UNAUTHENTICATED)
 
     assert catalog.added == [] and catalog.added_and_connected == []
+
+
+def test_apply_refuses_to_cross_mode_boundary(registry, qtbot):
+    from loguru import logger
+
+    from lightfall.devices.backend_types import session
+    from tests.devices.backend_types.excl_type import ExclType
+
+    session.set_session_mode(None)
+    registry.register(ExclType())
+    mock = BackendRow("mock", "mock")
+    catalog = _start([mock], registry, FakeSession(True))
+    off = BackendRow("mock", "mock", enabled=False, id=mock.id)
+    excl = BackendRow("excl", "sim", config={"addr": "127.0.0.1"})
+    msgs: list[str] = []
+    sink = logger.add(lambda m: msgs.append(str(m)), level="INFO")
+    try:
+        assert apply_backend_rows([off, excl]) is False
+    finally:
+        logger.remove(sink)
+    assert catalog.removed == [] and catalog.added_and_connected == []
+    assert sum("restart" in m.lower() for m in msgs) == 1

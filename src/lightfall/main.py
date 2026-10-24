@@ -93,6 +93,10 @@ from lightfall.devices.backend_types.rows import (  # noqa: E402
 from lightfall.devices.backend_types.rows import (  # noqa: E402
     resolve_enabled_backends as _resolve_enabled_backends,  # noqa: F401  (re-export for tests)
 )
+from lightfall.devices.backend_types.session import (  # noqa: E402
+    current_session_mode,
+    start_session_mode,
+)
 from lightfall.devices.backend_types.startup import install_backend_rows  # noqa: E402
 from lightfall.ui import LFMainWindow  # noqa: E402
 from lightfall.ui.panels.registry import PanelRegistry  # noqa: E402
@@ -244,6 +248,10 @@ def _setup_ca_tunnel() -> None:
 
     enabled = prefs.get("ca_tunnel_enabled", False)
     if not enabled:
+        return
+    mode = current_session_mode()
+    if mode is not None:
+        logger.info("CA tunnel not started: {} sets the EPICS addresses", mode.label)
         return
 
     gateway = prefs.get("ca_tunnel_gateway", "localhost:5099")
@@ -826,6 +834,11 @@ def main() -> int:
     Returns:
         Exit code (0 for success, non-zero for errors).
     """
+    # Before anything rewrites EPICS variables: a restart relaunches with these.
+    from lightfall.utils.restart import remember_launch_env
+
+    remember_launch_env()
+
     # One-time rebrand migration of the user data directory.
     migrate_legacy_data_dir()
 
@@ -869,6 +882,10 @@ def main() -> int:
 
     # Setup authentication
     _setup_auth(config)
+
+    # An exclusive device backend (e.g. a simulated beamline) sets the
+    # session's EPICS environment before any EPICS client exists.
+    start_session_mode(PreferencesManager.get_instance().get, BackendTypeRegistry.get_instance())
 
     # Start CA tunnel if configured (must be before device setup)
     _setup_ca_tunnel()
@@ -1001,6 +1018,12 @@ def main() -> int:
             _time.sleep(5)
             _log_active_threads("watchdog-5s")
             logger.warning("Shutdown taking too long, forcing exit")
+            try:
+                from lightfall.utils.restart import relaunch_if_requested
+
+                relaunch_if_requested()
+            except Exception as exc:
+                logger.error("Restart during forced exit failed: {}", exc)
             sys.stderr.flush()
             sys.stdout.flush()
             os._exit(0)
@@ -1126,7 +1149,14 @@ def main() -> int:
     QCoreApplication.instance().aboutToQuit.connect(_cleanup_on_exit)
 
     # Run the application
-    return app.run()
+    code = app.run()
+
+    # A restart (e.g. to switch an exclusive device backend on or off) starts
+    # the new process only after this one has quit and cleaned up.
+    from lightfall.utils.restart import relaunch_if_requested
+
+    relaunch_if_requested()
+    return code
 
 
 def cli() -> None:

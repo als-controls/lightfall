@@ -15,9 +15,10 @@ from datetime import UTC
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtGui import QAction, QCloseEvent, QResizeEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QFrame,
     QHBoxLayout,
     QMainWindow,
     QStatusBar,
@@ -62,6 +63,9 @@ class LFMainWindow(QMainWindow):
 
     panel_activated = Signal(str)  # panel_id
     about_to_close = Signal()
+    #: The close is really happening: no panel vetoed it, and the status bar
+    #: plugins are still alive. Connect quit-time prompts here.
+    close_confirmed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the main window.
@@ -79,6 +83,7 @@ class LFMainWindow(QMainWindow):
         self._window_shown: bool = False
         self._plugins_loaded: bool = False
         self._statusbar_manager: StatusBarManager | None = None
+        self._session_stripe: QFrame | None = None
 
         # Get manager instances
         self._session_manager = SessionManager.get_instance()
@@ -102,7 +107,19 @@ class LFMainWindow(QMainWindow):
 
     def _setup_window(self) -> None:
         """Configure window properties."""
-        self.setWindowTitle("Lightfall")
+        from lightfall.devices.backend_types.session import current_session_mode
+
+        mode = current_session_mode()
+        self.setWindowTitle(f"Lightfall — {mode.label}" if mode else "Lightfall")
+        if mode is not None:
+            # A thin line in the theme's warning color along the top edge says
+            # "this session is in a special mode" without getting in the way.
+            self._session_stripe = QFrame(self)
+            self._session_stripe.setObjectName("sessionModeStripe")
+            self._session_stripe.setFixedHeight(2)
+            self._session_stripe.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            self._style_session_stripe()
+            ThemeManager.get_instance().colors_changed.connect(self._style_session_stripe)
         self.setMinimumSize(1024, 768)
 
         # Enable dock nesting and tabbing
@@ -587,9 +604,25 @@ class LFMainWindow(QMainWindow):
 
     # Theme handling
 
+    def _style_session_stripe(self) -> None:
+        if self._session_stripe is not None:
+            color = ThemeManager.get_instance().colors.warning
+            self._session_stripe.setStyleSheet(f"background: {color}; border: none;")
+
+    def _place_session_stripe(self) -> None:
+        if self._session_stripe is not None:
+            top = self.menuBar().geometry().bottom() + 1 if self.menuBar() else 0
+            self._session_stripe.setGeometry(0, top, self.width(), 2)
+            self._session_stripe.raise_()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._place_session_stripe()
+
     def _apply_theme(self) -> None:
         """Apply current theme to the window."""
         self._theme_manager.apply_to_application()
+        self._style_session_stripe()
 
         # Push the same theme into pyqtgraph: globals (background, foreground,
         # axis/tick/grid colors) via setConfigOption, and live themed items
@@ -1061,8 +1094,13 @@ class LFMainWindow(QMainWindow):
             panel = self.get_panel(panel_id)
             if panel and not panel.can_close(force=True):
                 # Panel has unsaved work or other reason to prevent shutdown
+                from lightfall.utils.restart import cancel_restart
+
+                cancel_restart()
                 event.ignore()
                 return
+
+        self.close_confirmed.emit()
 
         # Cleanup status bar manager
         if self._statusbar_manager:

@@ -36,11 +36,18 @@ from PySide6.QtWidgets import (
 from lightfall.devices.backend_types.base import BackendEditor
 from lightfall.devices.backend_types.registry import BackendTypeRegistry
 from lightfall.devices.backend_types.rows import (
+    EXCLUSIVE_RESTORE_KEY,
     BackendRow,
     load_rows,
     migrate_legacy,
     save_rows,
     unique_name,
+)
+from lightfall.devices.backend_types.session import (
+    crosses_mode_boundary,
+    current_session_mode,
+    exclusive_row,
+    is_exclusive,
 )
 from lightfall.plugins.settings_plugin import SettingsPlugin
 from lightfall.ui.preferences.manager import PreferencesManager
@@ -74,6 +81,9 @@ class DeviceSettingsPlugin(SettingsPlugin):
 
         # CA Tunnel
         self._ca_tunnel_enabled: QCheckBox | None = None
+        self._exclusive_hint: QLabel | None = None
+        # Rows an exclusive row switched off, switched back on when it goes off.
+        self._restore_ids: list[str] = []
         self._ca_tunnel_gateway: QLineEdit | None = None
 
         # Backend rows
@@ -262,6 +272,11 @@ class DeviceSettingsPlugin(SettingsPlugin):
         table.itemChanged.connect(self._on_item_changed)
         self._table = table
         box.addWidget(table)
+        self._exclusive_hint = QLabel()
+        self._exclusive_hint.setWordWrap(True)
+        self._exclusive_hint.setStyleSheet("color: gray;")
+        self._exclusive_hint.hide()
+        box.addWidget(self._exclusive_hint)
 
         buttons = QHBoxLayout()
         add = QToolButton()
@@ -322,15 +337,20 @@ class DeviceSettingsPlugin(SettingsPlugin):
         if self._table is None:
             return
         selected = self._selected_index()
+        exclusive = exclusive_row(self._rows, BackendTypeRegistry.get_instance())
         self._table.blockSignals(True)
         self._table.setRowCount(len(self._rows))
         for index, row in enumerate(self._rows):
             enabled = QTableWidgetItem()
-            enabled.setFlags(
-                Qt.ItemFlag.ItemIsUserCheckable
-                | Qt.ItemFlag.ItemIsEnabled
-                | Qt.ItemFlag.ItemIsSelectable
-            )
+            if exclusive is None or row is exclusive:
+                enabled.setFlags(
+                    Qt.ItemFlag.ItemIsUserCheckable
+                    | Qt.ItemFlag.ItemIsEnabled
+                    | Qt.ItemFlag.ItemIsSelectable
+                )
+            else:
+                # While an exclusive row is on, nothing else can be.
+                enabled.setFlags(Qt.ItemFlag.ItemIsSelectable)
             enabled.setCheckState(Qt.CheckState.Checked if row.enabled else Qt.CheckState.Unchecked)
             self._table.setItem(index, _COL_ENABLED, enabled)
             self._table.setItem(index, _COL_NAME, QTableWidgetItem(row.name))
@@ -339,6 +359,22 @@ class DeviceSettingsPlugin(SettingsPlugin):
         self._table.blockSignals(False)
         if 0 <= selected < len(self._rows):
             self._table.selectRow(selected)
+        self._update_exclusive_hint(exclusive)
+
+    def _update_exclusive_hint(self, exclusive: BackendRow | None) -> None:
+        if self._exclusive_hint is None:
+            return
+        if exclusive is None:
+            self._exclusive_hint.hide()
+            return
+        backend_type = BackendTypeRegistry.get_instance().get(exclusive.type)
+        label = backend_type.session_label(exclusive.config) if backend_type else exclusive.name
+        text = f"Other device sources are off while {label} is on."
+        plugins = _device_backend_plugin_names()
+        if plugins:
+            text += f" Also off: {', '.join(plugins)}."
+        self._exclusive_hint.setText(text)
+        self._exclusive_hint.show()
 
     def _editor_for(self, row: BackendRow) -> QWidget:
         editor = self._editors.get(row.id)
@@ -414,8 +450,51 @@ class DeviceSettingsPlugin(SettingsPlugin):
             self._detail_group.setTitle(f"{row.name} ({self._type_label(row)})")
 
     def _on_item_changed(self, item: QTableWidgetItem) -> None:
-        if item.column() == _COL_ENABLED and 0 <= item.row() < len(self._rows):
-            self._rows[item.row()].enabled = item.checkState() == Qt.CheckState.Checked
+        if item.column() != _COL_ENABLED or not 0 <= item.row() < len(self._rows):
+            return
+        row = self._rows[item.row()]
+        checked = item.checkState() == Qt.CheckState.Checked
+        backend_type = BackendTypeRegistry.get_instance().get(row.type)
+        if backend_type is None or not backend_type.exclusive or checked == row.enabled:
+            row.enabled = checked
+            return
+        if checked:
+            others = [r for r in self._rows if r is not row and r.enabled]
+            if others and not self._confirm_exclusive(backend_type.display_name, len(others)):
+                self._refresh_table()  # puts the box back to unticked
+                return
+            self._restore_ids = [r.id for r in others]
+            for other in others:
+                other.enabled = False
+            row.enabled = True
+        else:
+            row.enabled = False
+            restore = set(self._restore_ids)
+            for other in self._rows:
+                if other.id in restore:
+                    other.enabled = True
+            self._restore_ids = []
+        self._refresh_table()
+
+    def _confirm_exclusive(self, display_name: str, others: int) -> bool:
+        sources = "device source" if others == 1 else "device sources"
+        answer = QMessageBox.question(
+            self._widget,
+            "Device backends",
+            f"{display_name} mode disables the other {others} {sources}. Continue?",
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _ask_restart(self, label: str, entering: bool) -> bool:
+        verb = "enter" if entering else "leave"
+        box = QMessageBox(self._widget)
+        box.setWindowTitle("Device backends")
+        box.setText(f"Lightfall needs to restart to {verb} {label}.")
+        restart = box.addButton("Restart now", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(restart)
+        box.exec()
+        return box.clickedButton() is restart
 
     def _add_row(self, type_id: str) -> None:
         backend_type = BackendTypeRegistry.get_instance().get(type_id)
@@ -424,6 +503,8 @@ class DeviceSettingsPlugin(SettingsPlugin):
         row = BackendRow(
             type=type_id,
             name=unique_name(type_id, (r.name for r in self._rows)),
+            # An exclusive row is switched on with its own checkbox, which asks first.
+            enabled=not backend_type.exclusive,
             config=backend_type.default_config(),
         )
         self._rows.append(row)
@@ -439,7 +520,7 @@ class DeviceSettingsPlugin(SettingsPlugin):
         row = BackendRow(
             type=source.type,
             name=unique_name(source.type, (r.name for r in self._rows)),
-            enabled=source.enabled,
+            enabled=source.enabled and not is_exclusive(source, BackendTypeRegistry.get_instance()),
             config=deepcopy(source.config),
         )
         self._rows.insert(index + 1, row)
@@ -451,6 +532,13 @@ class DeviceSettingsPlugin(SettingsPlugin):
         if index < 0:
             return
         row = self._rows.pop(index)
+        if row.enabled and is_exclusive(row, BackendTypeRegistry.get_instance()):
+            # Same as unticking it: the rows it switched off come back.
+            restore = set(self._restore_ids)
+            for other in self._rows:
+                if other.id in restore:
+                    other.enabled = True
+            self._restore_ids = []
         editor = self._editors.pop(row.id, None)
         if editor is not None and self._stack is not None:
             self._stack.removeWidget(editor)
@@ -495,6 +583,7 @@ class DeviceSettingsPlugin(SettingsPlugin):
             editor.deleteLater()
         self._editors.clear()
         self._rows = rows
+        self._restore_ids = list(prefs.get(EXCLUSIVE_RESTORE_KEY, []) or [])
         self._refresh_table()
         self._select(0)
 
@@ -521,6 +610,7 @@ class DeviceSettingsPlugin(SettingsPlugin):
         for row in self._rows:
             self._sync_row(row)
         save_rows(prefs, self._rows)
+        prefs.set(EXCLUSIVE_RESTORE_KEY, list(self._restore_ids))
         self._apply_rows_live(prefs)
 
     def _apply_rows_live(self, prefs: PreferencesManager) -> None:
@@ -537,6 +627,22 @@ class DeviceSettingsPlugin(SettingsPlugin):
                 "A plan is running, so the backend changes were saved but not applied. "
                 "Save again once it finishes (or restart).",
             )
+            return
+        registry = BackendTypeRegistry.get_instance()
+        if crosses_mode_boundary(self._rows, registry):
+            # The EPICS environment is fixed per process: only a restart switches modes.
+            entering = exclusive_row(self._rows, registry)
+            if entering is not None:
+                backend_type = registry.get(entering.type)
+                assert backend_type is not None
+                label = backend_type.session_label(entering.config)
+            else:
+                mode = current_session_mode()
+                label = mode.label if mode else "this mode"
+            if self._ask_restart(label, entering is not None):
+                from lightfall.utils.restart import request_restart
+
+                request_restart()
             return
         apply_backend_rows([deepcopy(row) for row in self._rows], build_context(prefs.get))
 
@@ -557,6 +663,18 @@ class DeviceSettingsPlugin(SettingsPlugin):
             if row.enabled and backend_type is not None:
                 errors.extend(f"{row.name}: {e}" for e in backend_type.validate(row.config))
         return errors
+
+
+def _device_backend_plugin_names() -> list[str]:
+    """Names of the loaded device-backend plugins (kept off in an exclusive session)."""
+    try:
+        from lightfall.core import LFApplication
+        from lightfall.plugins.registry import PluginRegistry
+
+        registry = LFApplication.get_instance().services.get(PluginRegistry)
+        return [info.name for info in registry.get_by_type("device_backend")]
+    except Exception:
+        return []
 
 
 def _plan_active() -> bool:

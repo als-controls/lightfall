@@ -103,3 +103,12 @@ def test_build_failure_is_logged_not_raised(registry, qtbot):
     bad = BackendRow("csm", "csm-bad", config={**CSM_CFG, "beamline_id": None})
     catalog, deferred = _install([bad, BackendRow("mock", "mock")], registry, FakeSession(True))
     assert [b.name for b in catalog.added] == ["mock"]
+
+
+def test_exclusive_row_suppresses_others(registry, qtbot):
+    from tests.devices.backend_types.excl_type import ExclType
+
+    registry.register(ExclType())
+    rows = [BackendRow("mock", "mock"), BackendRow("excl", "sim", config={"addr": "127.0.0.1"})]
+    catalog, _ = _install(rows, registry, FakeSession(True))
+    assert [b.name for b in catalog.added] == ["sim"]

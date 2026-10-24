@@ -12,6 +12,8 @@ from loguru import logger
 from lightfall.devices.backend_types.base import BuildContext
 
 DEVICE_BACKENDS_KEY = "device_backends"
+#: Row ids an exclusive row switched off, switched back on when it is turned off.
+EXCLUSIVE_RESTORE_KEY = "device_backends_exclusive_restore"
 
 Getter = Callable[[str, Any], Any]
 _UNSET = object()
