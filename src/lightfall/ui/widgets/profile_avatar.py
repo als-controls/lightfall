@@ -99,6 +99,10 @@ class ProfileAvatarWidget(QWidget):
             work,
             callback_slot=lambda qimg: self._on_image_ready(image_id, qimg),
             except_slot=lambda exc: self._on_image_error(image_id, exc),
+            # _on_image_error owns reporting (one WARNING + placeholder). A
+            # failed fetch (e.g. 401 once the logbook session key expired)
+            # is expected, not an ERROR for Sentry.
+            log_exceptions=False,
         ).start()
 
     def _on_image_ready(self, image_id: str, qimage) -> None:

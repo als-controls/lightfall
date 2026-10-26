@@ -128,6 +128,46 @@ def test_subscribe_none_reverts_to_placeholder(qapp):
         assert w._loaded_image_id is None
 
 
+def test_fetch_failure_is_not_logged_as_error(qapp):
+    """A failed download (e.g. 401 with an expired logbook session key) is
+    handled by the widget's own error path (placeholder + one WARNING); the
+    worker thread must not also log it at ERROR (GlitchTip LIGHTFALL-7/8)."""
+    import time
+
+    from loguru import logger
+
+    from lightfall.settings.user_settings_client import UserSettingsError
+    from lightfall.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.widgets import profile_avatar as pa_mod
+    from lightfall.ui.widgets.profile_avatar import ProfileAvatarWidget
+
+    def failing_fetch(client, image_id):
+        raise UserSettingsError(
+            f"Image download for {image_id!r} failed: Client error '401 Unauthorized'"
+        )
+
+    records: list[tuple[str, str]] = []
+    sink_id = logger.add(
+        lambda m: records.append((m.record["level"].name, m.record["message"])),
+        level="WARNING",
+    )
+    try:
+        with patch.object(pa_mod, "_fetch_qimage", side_effect=failing_fetch):
+            w = ProfileAvatarWidget()
+            prefs = PreferencesManager.get_instance()
+            prefs._on_backend_changed("profile_image_id", "img-1")
+
+            deadline = time.monotonic() + 5.0
+            while w._fetching_image_id is not None and time.monotonic() < deadline:
+                QCoreApplication.processEvents()
+    finally:
+        logger.remove(sink_id)
+
+    assert any("Failed to load profile image" in msg for _, msg in records)
+    assert [lvl for lvl, _ in records if lvl in ("ERROR", "CRITICAL")] == []
+    assert w._loaded_image_id is None
+
+
 def test_mouse_press_emits_clicked(qapp):
     from PySide6.QtCore import QPoint, QPointF
     from PySide6.QtGui import QMouseEvent

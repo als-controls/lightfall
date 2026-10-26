@@ -155,6 +155,10 @@ class UserProfileSettingsPlugin(SettingsPlugin):
             image_id,
             callback_slot=lambda qimg: self._on_image_ready(image_id, qimg),
             except_slot=lambda exc: self._on_image_error(exc),
+            # _on_image_error owns reporting (one WARNING + placeholder). A
+            # failed fetch (e.g. 401 once the logbook session key expired)
+            # is expected, not an ERROR for Sentry.
+            log_exceptions=False,
         )
         self._load_future.start()
 

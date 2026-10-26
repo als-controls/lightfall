@@ -177,6 +177,53 @@ def test_load_settings_with_image_fetches_bytes(
     assert not p._avatar_label.pixmap().isNull()
 
 
+def test_load_settings_download_failure_is_not_logged_as_error(
+    qtbot, stub_session, _reset_prefs
+):
+    """A failed download (e.g. 401 once the logbook session key has expired)
+    is handled by the plugin's own error path: placeholder + one WARNING.
+
+    The worker thread must not also log it at ERROR with a traceback, which
+    Sentry's loguru integration reports as two issues (GlitchTip
+    LIGHTFALL-7 / LIGHTFALL-8).
+    """
+    from loguru import logger
+
+    from lightfall.settings.user_settings_client import UserSettingsError
+    from lightfall.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.user_profile_settings import (
+        UserProfileSettingsPlugin,
+    )
+
+    fake_client = _reset_prefs
+    fake_client.download_image.side_effect = UserSettingsError(
+        "Image download for 'img-1' failed: Client error '401 Unauthorized'"
+    )
+    prefs = PreferencesManager.get_instance()
+    prefs._user_portable._cache["profile_image_id"] = "img-1"
+
+    records: list[tuple[str, str]] = []
+    sink_id = logger.add(
+        lambda m: records.append((m.record["level"].name, m.record["message"])),
+        level="WARNING",
+    )
+    try:
+        p = UserProfileSettingsPlugin()
+        w = p.create_widget()
+        qtbot.addWidget(w)
+        p.load_settings()
+        qtbot.waitUntil(
+            lambda: any("Failed to load profile image" in msg for _, msg in records),
+            timeout=5000,
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert [lvl for lvl, _ in records if lvl in ("ERROR", "CRITICAL")] == []
+    assert p._loaded_image_id is None
+    assert not p._avatar_label.pixmap().isNull()  # placeholder
+
+
 ALLOWED_MIMES = {"image/png", "image/jpeg", "image/gif"}
 MAX_BYTES = 20 * 1024 * 1024
 
