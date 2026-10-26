@@ -267,10 +267,17 @@ class ClaudeCodeBackend:
                         getattr(msg, "stop_reason", None),
                         getattr(msg, "subtype", None),
                     )
+                    usage = msg.usage or {}
                     yield TurnResultEvent({
                         "total_cost_usd": msg.total_cost_usd if hasattr(msg, 'total_cost_usd') else 0,
-                        "input_tokens": msg.usage.get("input_tokens", 0) if msg.usage else 0,
-                        "output_tokens": msg.usage.get("output_tokens", 0) if msg.usage else 0,
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+                        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+                        "duration_ms": getattr(msg, "duration_ms", 0) or 0,
+                        "duration_api_ms": getattr(msg, "duration_api_ms", 0) or 0,
+                        "num_turns": getattr(msg, "num_turns", 0) or 0,
+                        "is_error": bool(getattr(msg, "is_error", False)),
                         "session_id": getattr(msg, "session_id", "") or "",
                         "text": "\n\n".join(final_text),
                     })

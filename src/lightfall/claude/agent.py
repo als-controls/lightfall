@@ -643,6 +643,7 @@ class QtClaudeAgent(QObject):
         self._worker.result_received.connect(self.result_received)
         self._worker.context_usage.connect(self.context_usage)
         self._worker.session_id_changed.connect(self.session_id_changed)
+        self._attach_telemetry()
 
         # Partial streaming forwards
         self._worker.partial_block_started.connect(self.partial_block_started)
@@ -911,6 +912,22 @@ class QtClaudeAgent(QObject):
         except Exception:  # noqa: BLE001
             MAIN_AGENT_NAME = "lightfall"
         return MAIN_AGENT_NAME
+
+    def _attach_telemetry(self) -> None:
+        """Record this session's turns, tool calls and permission answers
+        (lightfall.agents.telemetry). Never lets telemetry break a session."""
+        try:
+            from lightfall.agents.telemetry import attach_worker
+
+            name = self._approval_agent_name()
+            attach_worker(
+                self._worker, agent=name, backend=self._backend_kind_for_session(),
+                model_fn=lambda: self._model,
+            )
+            if self._permission_manager is not None:
+                self._permission_manager.telemetry_agent = name
+        except Exception:  # noqa: BLE001
+            logger.exception("agent telemetry: attach failed")
 
     def _backend_kind_for_session(self) -> str:
         """The backend kind this agent was BUILT for (not the live pref)."""
