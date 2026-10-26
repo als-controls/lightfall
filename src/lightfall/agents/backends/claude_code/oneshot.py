@@ -4,7 +4,14 @@ from __future__ import annotations
 import asyncio
 
 
-def claude_oneshot(prompt: str, *, system_prompt: str, cwd: str, model: str | None = None) -> str:
+def claude_oneshot(
+    prompt: str,
+    *,
+    system_prompt: str,
+    cwd: str,
+    model: str | None = None,
+    effort: str | None = None,
+) -> str:
     # Names are resolved at call time (not imported at module top) so tests can
     # patch claude_agent_sdk.* and lightfall.monitor.advisor.collect_reply, and
     # so this module does not create an import cycle with monitor.advisor.
@@ -31,6 +38,7 @@ def claude_oneshot(prompt: str, *, system_prompt: str, cwd: str, model: str | No
         # Empty setting_sources ([]) gives true SDK isolation.
         setting_sources=[],
         **({"model": model} if model else {}),
+        **({"effort": effort} if effort else {}),
     )
     loop = asyncio.new_event_loop()
     try:
