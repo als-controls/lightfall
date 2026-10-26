@@ -26,14 +26,14 @@ LIGHTFALL_STARTUP_PROFILE=cprofile lightfall
 This enables a `cProfile.Profile` instance at `mark_origin()` and dumps the stats when `finish()` runs. You can inspect the `.prof` file with `snakeviz`, `pstats`, or `gprof2dot`:
 
 ```bash
-python -m pstats ~/.lightfall/diagnostics/startup-<YYYYmmdd-HHMMSS>.prof
+python -m pstats logs/diagnostics/startup-<YYYYmmdd-HHMMSS>.prof
 ```
 
 ## Output Location and Files
 
 Five seconds after the Qt event loop begins (`event_loop_enter`), `startup_timeline.finish()` writes the captured timeline into the diagnostics directory:
 
-- **Default directory:** `~/.lightfall/diagnostics/` (or the path configured via `LIGHTFALL_CRASH_LOG_DIR`)
+- **Directory:** `logs/diagnostics/` under the directory Lightfall was launched from (the same directory as `fault.log`; see [Diagnostics](diagnostics.md))
 - **`startup-<YYYYmmdd-HHMMSS>.html`** — Self-contained HTML waterfall chart with inline CSS and SVG showing each phase bar in start order, nested indentation, thread name, duration in milliseconds, and instant marks as vertical lines.
 - **`startup-<YYYYmmdd-HHMMSS>.json`** — Raw timeline data (`total_s` and the list of `records` with `name`, `start_s`, `end_s`, `depth`, `thread`, and optional `error` / `instant` flags).
 - **`startup-<YYYYmmdd-HHMMSS>.prof`** — Written only when `LIGHTFALL_STARTUP_PROFILE=cprofile`.
