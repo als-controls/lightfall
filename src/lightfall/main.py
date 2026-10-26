@@ -21,6 +21,12 @@ from lightfall.utils import crash_diagnostics, startup_timeline  # noqa: E402
 
 _diag_dir = crash_diagnostics.install()
 
+# PySide6 is loaded by now; stop shiboken re-reading every imported module's
+# source (see lightfall.utils.qt_import_hook; ~1 s warm, ~25 s cold).
+from lightfall.utils.qt_import_hook import skip_pyside_feature_scan  # noqa: E402
+
+skip_pyside_feature_scan()
+
 from typing import TYPE_CHECKING  # noqa: E402
 
 
@@ -1000,6 +1006,15 @@ def main() -> int:
     def _on_login_screen_done() -> None:
         fire_plugin_wave()
         start_devices()
+
+    # Warm heavy imports on a background thread while the login dialog is up:
+    # the proactive panels' warmup_import modules (Assistant, IPython, ...)
+    # and the Tiled writer patch. That time is otherwise paid on the GUI thread
+    # after login, when the user is waiting on a frozen window.
+    if window._docking_manager is not None:
+        window._docking_manager.prewarm_imports(
+            extra=("lightfall.services.tiled_writer_patch",)
+        )
 
     _startup_login(window, config, _on_login_screen_done)
 

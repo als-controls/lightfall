@@ -114,6 +114,11 @@ def init_sentry(
         "traces_sample_rate": traces_sample_rate,
         "profiles_sample_rate": profiles_sample_rate,
         "integrations": integrations,
+        # Don't probe-and-import every library sentry_sdk has an integration
+        # for (django, flask, sqlalchemy, httpx, ...): that alone cost ~1.6 s
+        # of startup (profiled 2026-10-26, issue #39). The default integrations
+        # (logging, threading, excepthook, stdlib, ...) stay on.
+        "auto_enabling_integrations": False,
         # Attach all threads for full context
         "attach_stacktrace": True,
         # Include local variables in stack traces (helpful for debugging)

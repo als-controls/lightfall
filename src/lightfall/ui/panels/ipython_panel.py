@@ -193,6 +193,8 @@ class IPythonPanel(BasePanel):
         singleton=True,
         closable=True,
         keywords=["ipython", "console", "python", "scripting", "repl", "terminal"],
+        # qtconsole's import chain is ~0.7 s; warm it off the GUI thread.
+        warmup_import="qtconsole.inprocess",
         # Docking preferences - tool panel, bottom area
         default_area="bottom",
         sidebar_group="top",

@@ -44,9 +44,12 @@ def _import_modules(module_names: list[str]) -> None:
     """Import modules by name (background import warming)."""
     import importlib
 
+    from lightfall.utils import startup_timeline
+
     for name in module_names:
         try:
-            importlib.import_module(name)
+            with startup_timeline.phase(f"warmup:{name}"):
+                importlib.import_module(name)
             logger.debug("Warmed import: {}", name)
         except Exception:
             logger.exception("Import warmup failed for {}", name)
@@ -102,6 +105,7 @@ class DockingManager(QObject):
         self._proactive_init_started = False
         self._proactive_queue: list[str] = []
         self._warmup_thread = None  # QThreadFuture warming heavy imports
+        self._warmup_started_early = False  # prewarm_imports() ran before login
 
         # Panels the user removed from the sidebar (persisted)
         self._removed_panels: set[str] = set()
@@ -786,6 +790,36 @@ class DockingManager(QObject):
         if self._proactive_queue:
             QTimer.singleShot(0, self._proactive_init_next)
 
+    def prewarm_imports(self, extra: list[str] | tuple[str, ...] = ()) -> None:
+        """Start the background import warmup now, before the login dialog.
+
+        Imports every proactive panel's ``warmup_import`` (plus ``extra``)
+        while the user is still looking at the login dialog, so the
+        post-login panel builds find their heavy modules already cached and
+        the GUI thread doesn't stall on them. The usual join discipline
+        holds: ``_instantiate_deferred_panel`` awaits this thread before any
+        GUI-thread panel import. ``start_proactive_init`` won't start a second
+        warmup once this has run.
+        """
+        if self._warmup_started_early or self._warmup_thread is not None:
+            return
+        modules = [
+            meta.warmup_import
+            for pid, meta in self._deferred_metadata.items()
+            if meta.warmup_import and meta.proactive_init and pid not in self._removed_panels
+        ]
+        modules = list(dict.fromkeys([*modules, *extra]))
+        if not modules:
+            return
+        from lightfall.utils.threads import QThreadFuture
+
+        self._warmup_started_early = True
+        self._warmup_thread = QThreadFuture(
+            _import_modules, modules, name="panel-import-warmup"
+        )
+        self._warmup_thread.start()
+        logger.debug("Started early import warmup for {}", modules)
+
     def _start_import_warmup(self) -> None:
         """Warm queued panels' heavy imports in a background thread.
 
@@ -796,6 +830,8 @@ class DockingManager(QObject):
         the GUI thread reaches the same import first, it just does the
         work itself.
         """
+        if self._warmup_started_early:
+            return  # already warmed (or warming) during the login dialog
         modules = [
             self._deferred_metadata[pid].warmup_import
             for pid in self._proactive_queue
