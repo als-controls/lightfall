@@ -1186,7 +1186,11 @@ def main() -> int:
         from PySide6.QtCore import QTimer as _StartupQTimer
 
         diag_dir = _diag_dir or (_Path.cwd() / "logs" / "diagnostics")
-        _StartupQTimer.singleShot(5000, lambda: startup_timeline.finish(diag_dir))
+        # Long enough to cover the post-login plugin wave and the proactive
+        # panel builds, which run on the GUI thread after the window is up.
+        settle_s = float(os.environ.get("LIGHTFALL_STARTUP_PROFILE_SECONDS", "30") or 30)
+        _StartupQTimer.singleShot(int(settle_s * 1000), lambda: startup_timeline.finish(diag_dir))
+        startup_timeline.start_stall_monitor()
         startup_timeline.mark("event_loop_enter")
 
     # Run the application

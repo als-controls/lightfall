@@ -445,7 +445,11 @@ class DockingManager(QObject):
 
         # Times the full per-panel cost (construction + dock widget +
         # theme reapply); cumulative_key aggregates the startup sweep.
-        with log_time("Panel init:", panel_id, cumulative_key="panel_init"):
+        from lightfall.utils import startup_timeline
+
+        with startup_timeline.phase(f"panel:{panel_id}"), log_time(
+            "Panel init:", panel_id, cumulative_key="panel_init"
+        ):
             registry = PanelRegistry.get_instance()
             panel = registry.create(panel_id)
 
