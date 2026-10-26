@@ -60,6 +60,7 @@ class PermissionManager(QObject):
         tool_id("qt", "get_widget_tree"),
         tool_id("qt", "find_widget"),
         tool_id("qt", "get_recent_logs"),
+        tool_id("qt", "get_diagnostics"),
         # Read-only Lightfall tools (per-plugin namespaces after SDK-native migration).
         # LFCoreToolPlugin is manifest-driven via ToolRegistry (lightfall_core_tools server).
         tool_id("lightfall_core_tools", "lightfall_list_panels"),

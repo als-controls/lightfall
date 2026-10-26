@@ -207,6 +207,37 @@ class BugReportDialog(LFDialog):
             self._preview_group.setVisible(False)
             self._preview_text.clear()
 
+    def prefill(
+        self,
+        description: str,
+        *,
+        priority: str | None = None,
+        error_id: str | None = None,
+    ) -> bool:
+        """Pre-fill the form (used by the agent's draft_bug_report tool).
+
+        Args:
+            description: Report body to place in the description box.
+            priority: A BugPriority name (case-insensitive); unknown names
+                leave the default.
+            error_id: Id of a recent error to select, if it is still listed.
+
+        Returns:
+            True if ``error_id`` matched a listed error and was selected.
+        """
+        self._description_text.setPlainText(description)
+        if priority:
+            chosen = BugPriority.__members__.get(priority.upper())
+            if chosen is not None:
+                self._priority_buttons[chosen].setChecked(True)
+        if error_id:
+            for index in range(self._error_combo.count()):
+                record = self._error_combo.itemData(index)
+                if record is not None and record.id == error_id:
+                    self._error_combo.setCurrentIndex(index)
+                    return True
+        return False
+
     def _format_error_preview(self, error: ErrorRecord) -> str:
         """Format an error record for preview display.
 
