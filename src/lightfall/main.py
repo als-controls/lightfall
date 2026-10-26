@@ -932,14 +932,16 @@ def main() -> int:
         window.set_config_manager(config)
         app.set_main_window(window)
 
-    # Instrument window.show() (called inside app.run() before entering Qt event loop)
-    _orig_window_show = window.show
+    # Time window.show(), which app.run() calls just before the event loop.
+    # Only when profiling: a normal session keeps the real bound method.
+    if startup_timeline.enabled():
+        _orig_window_show = window.show
 
-    def _profiled_window_show(*args, **kwargs):
-        with startup_timeline.phase("window.show"):
-            return _orig_window_show(*args, **kwargs)
+        def _profiled_window_show(*args, **kwargs):
+            with startup_timeline.phase("window.show"):
+                return _orig_window_show(*args, **kwargs)
 
-    window.show = _profiled_window_show  # type: ignore[method-assign]
+        window.show = _profiled_window_show  # type: ignore[method-assign]
 
     # Connect engine to menubar control
     engine = get_engine()
@@ -1178,11 +1180,14 @@ def main() -> int:
 
     # Schedule startup timeline finish 5 s after entering the event loop so
     # post-login background plugin waves and device startup are captured.
-    from PySide6.QtCore import QTimer as _StartupQTimer
+    if startup_timeline.enabled():
+        from pathlib import Path as _Path
 
-    diag_dir = _diag_dir or crash_diagnostics.default_diag_dir()
-    _StartupQTimer.singleShot(5000, lambda: startup_timeline.finish(diag_dir))
-    startup_timeline.mark("event_loop_enter")
+        from PySide6.QtCore import QTimer as _StartupQTimer
+
+        diag_dir = _diag_dir or (_Path.cwd() / "logs" / "diagnostics")
+        _StartupQTimer.singleShot(5000, lambda: startup_timeline.finish(diag_dir))
+        startup_timeline.mark("event_loop_enter")
 
     # Run the application
     code = app.run()
