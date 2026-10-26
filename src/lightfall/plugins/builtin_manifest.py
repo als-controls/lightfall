@@ -257,6 +257,11 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="tool",
+            name="checkpoint_tools",
+            import_path="lightfall.plugins.agents.checkpoint_tools:CheckpointToolsAgent",
+        ),
+        PluginEntry(
+            type_name="tool",
             name="engine_tools",
             import_path="lightfall.plugins.agents.engine_tools:EngineToolsAgent",
         ),
@@ -338,6 +343,12 @@ builtin_manifest = PluginManifest(
             type_name="panel",
             name="monitor",
             import_path="lightfall.ui.panels.plugins.monitor_panel_plugin:MonitorPanelPlugin",
+            preload=True,  # register metadata; panel instantiated lazily (proactive_init=False)
+        ),
+        PluginEntry(
+            type_name="panel",
+            name="checkpoints",
+            import_path="lightfall.ui.panels.plugins.checkpoints_plugin:CheckpointsPanelPlugin",
             preload=True,  # register metadata; panel instantiated lazily (proactive_init=False)
         ),
         PluginEntry(

@@ -110,7 +110,7 @@ class PlanBasedCameraControlWidget(CameraControlWidget):
                     self.resume_tv_mode()
 
             # Submit plan to engine
-            engine.submit(plan, on_complete=on_complete)
+            engine.submit(plan, on_complete=on_complete, checkpoint=False)
             logger.debug(f"Submitted acquisition plan for {self._device.name}")
 
         except Exception as e:
@@ -182,7 +182,7 @@ class PlanBasedCameraControlWidget(CameraControlWidget):
         plan = simple_acquire(detector=self._device, num_images=1, collect_dark=True)
         try:
             from lightfall.acquire.engine import get_engine
-            get_engine().submit(plan)
+            get_engine().submit(plan, checkpoint=False)
         except Exception as e:
             logger.error(f"Failed to capture dark: {e}")
 

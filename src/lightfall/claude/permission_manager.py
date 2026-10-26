@@ -73,6 +73,10 @@ class PermissionManager(QObject):
         tool_id("device_tools", "lightfall_read_device"),
         tool_id("device_tools", "lightfall_get_device_state"),
         tool_id("device_tools", "lightfall_get_catalog_info"),
+        # checkpoint_tools agent (restore moves hardware, so it still asks)
+        tool_id("checkpoint_tools", "lightfall_list_checkpoints"),
+        tool_id("checkpoint_tools", "lightfall_create_checkpoint"),
+        tool_id("checkpoint_tools", "lightfall_compare_checkpoint"),
         # plan_tools agent
         tool_id("plan_tools", "lightfall_list_plans"),
         tool_id("plan_tools", "lightfall_get_user_plan"),
