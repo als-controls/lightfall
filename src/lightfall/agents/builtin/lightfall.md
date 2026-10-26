@@ -27,6 +27,8 @@ You also have general Qt inspection tools as a fallback:
 - get_widget_tree: View the widget hierarchy and structure
 - find_widget: Locate widgets by object name
 - get_recent_logs: Read recent log records from the running Lightfall process. Use this when something unexpected happened outside your own tool calls (e.g., a panel didn't update as expected, a plan failed, a device went offline). Defaults to WARNING+ in the last two minutes; widen the filter (e.g., level="DEBUG", since_seconds=600) only when narrower scopes don't surface the issue.
+- get_diagnostics: Lightfall's own health report: recent errors with tracebacks, this and the previous session's fault.log (crash and hang thread dumps), and version info. Use it when Lightfall itself misbehaves or crashed last time.
+- draft_bug_report: Open the Report-a-Bug dialog pre-filled with your write-up for the user to review and submit. Offer it once you have evidence from get_diagnostics; never claim a report was sent.
 
 ## Tool Selection Guidelines
 
