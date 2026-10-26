@@ -118,6 +118,68 @@ def mark(name: str) -> None:
         _records.append(rec)
 
 
+def _record_span(name: str, start_s: float, end_s: float, thread: str) -> None:
+    with _lock:
+        _records.append({
+            "name": name, "start_s": start_s, "end_s": end_s, "depth": 0, "thread": thread,
+        })
+
+
+class _StallMonitor:
+    """Records GUI-thread stalls: a repeating short QTimer that fires late
+    by more than ``threshold_s`` means the event loop was blocked that long
+    (a panel building, a slow slot), which the user sees as a frozen UI."""
+
+    def __init__(self, interval_s: float = 0.02, threshold_s: float = 0.1) -> None:
+        from PySide6.QtCore import QTimer
+
+        self._interval_s = interval_s
+        self._threshold_s = threshold_s
+        self._last = time.perf_counter()
+        self._timer = QTimer()
+        self._timer.setInterval(int(interval_s * 1000))
+        self._timer.timeout.connect(self._tick)
+        self._timer.start()
+
+    def _tick(self) -> None:
+        now = time.perf_counter()
+        late = now - self._last - self._interval_s
+        if late > self._threshold_s:
+            _record_span("gui_stall", self._last - _origin + self._interval_s, now - _origin,
+                         threading.current_thread().name)
+        self._last = now
+
+    def stop(self) -> None:
+        self._timer.stop()
+
+
+_stall_monitor: _StallMonitor | None = None
+
+
+def start_stall_monitor() -> None:
+    """Start recording GUI-thread stalls (> 100 ms) as ``gui_stall`` spans.
+    Call on the GUI thread once the event loop is about to run."""
+    global _stall_monitor
+    if not enabled() or _stall_monitor is not None:
+        return
+    _stall_monitor = _StallMonitor()
+
+
+def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Headline numbers: when the event loop started, and how long and how
+    often the GUI thread stalled after that (what the user feels)."""
+    loop = next((r["start_s"] for r in records if r["name"] == "event_loop_enter"), None)
+    stalls = [r for r in records if r["name"] == "gui_stall"]
+    after = [r for r in stalls if loop is not None and r["start_s"] >= loop]
+    durations = sorted((r["end_s"] - r["start_s"] for r in after), reverse=True)
+    return {
+        "event_loop_enter_s": loop,
+        "gui_stalls_after_loop": len(after),
+        "gui_stall_total_s": round(sum(durations), 3),
+        "gui_stall_max_s": round(durations[0], 3) if durations else 0.0,
+    }
+
+
 def _render_html(records: list[dict[str, Any]], total_s: float) -> str:
     """Render a self-contained HTML Gantt timeline with inline CSS and SVG."""
     span_s = max(total_s, 1e-6)
@@ -239,9 +301,12 @@ def _render_html(records: list[dict[str, Any]], total_s: float) -> str:
 
 def finish(out_dir: Path) -> Path | None:
     """Write the startup timeline JSON and HTML files when enabled; idempotent."""
-    global _finished_path, _profiler
+    global _finished_path, _profiler, _stall_monitor
     if not enabled():
         return None
+    if _stall_monitor is not None:
+        _stall_monitor.stop()
+        _stall_monitor = None
 
     with _lock:
         if _finished_path is not None:
@@ -267,6 +332,7 @@ def finish(out_dir: Path) -> Path | None:
 
         payload = {
             "total_s": total_s,
+            "summary": summarize(snapshot),
             "records": snapshot,
         }
         json_path.write_text(

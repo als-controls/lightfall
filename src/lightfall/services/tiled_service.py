@@ -13,12 +13,32 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from lightfall.services.tiled_writer_patch import TiledWriter
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
-    pass
+    from lightfall.services.tiled_writer_patch import TiledWriter  # noqa: F401
+
+
+def _tiled_writer_class():
+    """The TiledWriter class, imported on first use.
+
+    ``tiled_writer_patch`` pulls in ``bluesky_tiled_plugins`` (~2 s), which
+    used to be paid at app init, before the login dialog. It is now imported
+    when the first writer subscribes; ``main`` warms it in the background
+    during the login dialog so that first use finds it cached."""
+    cls = globals().get("TiledWriter")
+    if cls is None:
+        from lightfall.services.tiled_writer_patch import TiledWriter as cls
+
+        globals()["TiledWriter"] = cls
+    return cls
+
+
+def __getattr__(name: str):
+    if name == "TiledWriter":
+        return _tiled_writer_class()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 DEFAULT_TILED_URL = "http://bcgtiled.dhcp.lbl.gov:8000"
@@ -781,7 +801,7 @@ class TiledService(QObject):
 
             engine = get_engine()
 
-            raw_writer = TiledWriter(self._client, batch_size=1, max_array_size=0)
+            raw_writer = _tiled_writer_class()(self._client, batch_size=1, max_array_size=0)
 
             # Wrap in ThreadedTiledWriter to prevent blocking
             self._writer = ThreadedTiledWriter(

@@ -29,6 +29,7 @@ from lightfall.plugins.info import PluginInfo
 from lightfall.plugins.manifest import PluginManifest
 from lightfall.plugins.registry import PluginRegistry
 from lightfall.plugins.types import PluginType
+from lightfall.utils import startup_timeline
 from lightfall.utils.threads import (
     QThreadFutureIterator,
     initialize_main_thread_invoker,
@@ -387,7 +388,8 @@ class PluginLoader(QObject):
         while self._load_queue:
             plugin_info = self._load_queue.popleft()
 
-            success = self._load_plugin_class(plugin_info)
+            with startup_timeline.phase(f"load:{plugin_info.unique_id}"):
+                success = self._load_plugin_class(plugin_info)
             if success:
                 self._init_queue.append(plugin_info)
                 plugin_info.status = PluginStatus.QUEUED_INIT
@@ -400,7 +402,8 @@ class PluginLoader(QObject):
         while self._init_queue:
             plugin_info = self._init_queue.popleft()
 
-            success = self._instantiate_plugin(plugin_info)
+            with startup_timeline.phase(f"init:{plugin_info.unique_id}"):
+                success = self._instantiate_plugin(plugin_info)
             if success:
                 self._successful += 1
             else:
@@ -415,13 +418,15 @@ class PluginLoader(QObject):
             plugin_info: The processed plugin.
         """
         if plugin_info.is_ready:
-            self.plugin_loaded.emit(plugin_info)
-            self._register_with_type_registry(plugin_info)
+            with startup_timeline.phase(f"register:{plugin_info.unique_id}"):
+                self.plugin_loaded.emit(plugin_info)
+                self._register_with_type_registry(plugin_info)
         elif plugin_info.is_failed:
             self.plugin_failed.emit(plugin_info)
 
     def _on_loading_finished(self) -> None:
         """Handle loading completion (called in main thread)."""
+        startup_timeline.mark("plugin_loading_complete")
         self._is_loading = False
         self._worker = None
         logger.info(
