@@ -14,7 +14,6 @@ from ophyd.sim import det
 from lightfall.acquire import checkpoints as cpmod
 from lightfall.acquire.checkpoints import (
     CheckpointStore,
-    checkpoint_before,
     compare,
     restore_plan,
     snapshot_positions,
@@ -89,14 +88,51 @@ def test_restore_plan_rejects_unknown_names_eagerly(devices):
         restore_plan(devices, {"nope": 1.0})
 
 
-def test_checkpoint_before_captures_when_plan_starts(store):
+def test_capture_if_changed_skips_unchanged_positions(store, devices):
+    first = store.capture_if_changed("count 1")
+    assert first is not None
+    assert store.capture_if_changed("count 2") is None
+    devices["th"].move(10.5)
+    assert store.capture_if_changed("scan").label == "scan"
+    assert [c.label for c in store.list()] == ["scan", "count 1"]
+
+
+def _run_engine_plan(store, qtbot, **submit_kwargs):
+    """Drive BlueskyEngine._execute_plan with a stand-in RunEngine."""
     import bluesky.plan_stubs as bps
 
-    gen = checkpoint_before(bps.null(), label="my plan", reason="why")
-    assert store.list() == []  # nothing until the RunEngine starts it
-    RunEngineSimulator().simulate_plan(gen)
+    from lightfall.acquire.engine.base import PrioritizedProcedure
+    from lightfall.acquire.engine.bluesky import BlueskyEngine
+
+    engine = BlueskyEngine(toast_notifications=False)
+    seen = {}
+
+    class _FakeRE:
+        state = "idle"
+
+        def __call__(self, plan, **md):
+            seen.update(md)
+            list(plan)
+
+    engine._RE = _FakeRE()
+    item = PrioritizedProcedure(1, bps.null(), dict(submit_kwargs), name="my plan")
+    engine._execute_plan(item)
+    return seen
+
+
+def test_engine_checkpoints_every_plan_as_user_by_default(store, qtbot):
+    md = _run_engine_plan(store, qtbot, reason="why")
     (cp,) = store.list()
-    assert cp.label == "my plan" and cp.source == "agent" and cp.reason == "why"
+    assert cp.label == "my plan" and cp.source == "user" and cp.reason == "why"
+    assert md == {"reason": "why"}  # control kwargs never reach the start document
+
+
+def test_engine_agent_source_and_opt_out(store, devices, qtbot):
+    md = _run_engine_plan(store, qtbot, checkpoint_source="agent")
+    assert store.list()[0].source == "agent" and md == {}
+    devices["th"].move(11.0)
+    md = _run_engine_plan(store, qtbot, checkpoint=False)
+    assert len(store.list()) == 1 and md == {}
 
 
 class _Engine:

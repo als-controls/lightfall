@@ -21,7 +21,7 @@ import math
 import threading
 import time
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -226,6 +226,38 @@ class CheckpointStore(QObject):
     ) -> Checkpoint:
         """Snapshot all positioners now, append to the log, and emit ``added``."""
         positions, skipped = snapshot_positions(devices if devices is not None else _catalog_devices())
+        return self._append(label, source, reason, plan_name, positions, skipped)
+
+    def capture_if_changed(
+        self,
+        label: str,
+        *,
+        source: str = "user",
+        reason: str = "",
+        plan_name: str = "",
+        devices: dict[str, Any] | None = None,
+    ) -> Checkpoint | None:
+        """Like :meth:`capture`, but skip it (return None) when every
+        positioner is where the newest checkpoint already has it. This is
+        what the RunEngine calls before each plan, so repeated counts or
+        acquisitions at one position don't flood the log."""
+        positions, skipped = snapshot_positions(devices if devices is not None else _catalog_devices())
+        last = self._items[-1] if self._items else None
+        if last is not None and set(last.positions) == set(positions) and not any(
+            differs(positions[n], last.positions[n]) for n in positions
+        ):
+            return None
+        return self._append(label, source, reason, plan_name, positions, skipped)
+
+    def _append(
+        self,
+        label: str,
+        source: str,
+        reason: str,
+        plan_name: str,
+        positions: dict[str, float],
+        skipped: list[str],
+    ) -> Checkpoint:
         cp = Checkpoint(
             id=uuid.uuid4().hex[:12],
             ts=time.time(),
@@ -248,16 +280,6 @@ class CheckpointStore(QObject):
         logger.info("Checkpoint {} '{}' ({} positioners)", cp.id, label, len(positions))
         self.added.emit(cp)
         return cp
-
-
-def checkpoint_before(plan: Iterable, *, label: str, reason: str = "", source: str = "agent"):
-    """Wrap ``plan`` so a checkpoint is taken when the RunEngine starts it
-    (not when it is queued), then run the plan unchanged."""
-    try:
-        CheckpointStore.get_instance().capture(label, source=source, reason=reason, plan_name=label)
-    except Exception:  # noqa: BLE001 - a failed checkpoint must not block the plan
-        logger.exception("checkpoint before '{}' failed", label)
-    return (yield from plan)
 
 
 def compare(cp: Checkpoint, devices: dict[str, Any] | None = None) -> list[dict[str, Any]]:

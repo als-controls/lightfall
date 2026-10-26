@@ -314,6 +314,20 @@ class BlueskyEngine(BaseEngine):
 
         logger.info("[bluesky] RunEngine processor shutting down")
 
+    @staticmethod
+    def _checkpoint(plan_name: str, source: str, reason: str) -> None:
+        """Record positioner positions as the plan starts (see
+        lightfall.acquire.checkpoints). Skipped when nothing moved since the
+        last checkpoint; a failure never blocks the plan."""
+        try:
+            from lightfall.acquire.checkpoints import CheckpointStore
+
+            CheckpointStore.get_instance().capture_if_changed(
+                plan_name or "plan", source=source, reason=reason, plan_name=plan_name,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("[bluesky] checkpoint before '{}' failed", plan_name)
+
     def _execute_plan(self, item: PrioritizedProcedure) -> None:
         """Execute a single plan from the queue.
 
@@ -336,6 +350,11 @@ class BlueskyEngine(BaseEngine):
         # and a function object there cannot be JSON-serialized by Tiled — the
         # run would silently fail to persist.
         on_complete = kwargs.pop("on_complete", None)
+        # Position checkpoint control: on by default for every plan; callers
+        # that only acquire (camera live view) pass checkpoint=False, and the
+        # agent's plan tools pass checkpoint_source="agent".
+        take_checkpoint = bool(kwargs.pop("checkpoint", True))
+        checkpoint_source = str(kwargs.pop("checkpoint_source", "user"))
 
         # Defense-in-depth: any remaining callable kwarg would likewise poison
         # the start document and drop the run from Tiled. Strip and warn rather
@@ -347,6 +366,9 @@ class BlueskyEngine(BaseEngine):
                 key, kwargs[key],
             )
             kwargs.pop(key)
+
+        if take_checkpoint:
+            self._checkpoint(item.name, checkpoint_source, str(kwargs.get("reason") or ""))
 
         self.sigStart.emit()
         self._set_state(EngineState.RUNNING)

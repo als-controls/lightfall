@@ -136,7 +136,7 @@ def test_run_plan_code_forwards_reason_as_run_metadata(monkeypatch, reason, expe
         args["reason"] = reason
     body = _unwrap(asyncio.run(_tool("lightfall_run_plan_code").handler(args)))
     assert body["success"], body
-    md = {k: v for k, v in engine.calls[0].items() if k not in ("name", "skip_pre_submit")}
+    md = {k: v for k, v in engine.calls[0].items() if k not in ("name", "skip_pre_submit", "checkpoint_source")}
     assert md == expected
 
 
@@ -145,3 +145,11 @@ def test_run_tools_require_a_reason_in_their_schema():
         schema = _tool(name).input_schema
         assert "reason" in schema["properties"]
         assert "reason" in schema["required"]
+
+
+def test_agent_plans_are_checkpointed_as_agent(monkeypatch):
+    engine = _FakeEngine()
+    monkeypatch.setattr("lightfall.acquire.engine.get_engine", lambda: engine)
+    asyncio.run(_tool("lightfall_run_plan_code").handler(
+        {"code": "yield from bps.null()", "reason": "r"}))
+    assert engine.calls[0]["checkpoint_source"] == "agent"

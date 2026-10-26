@@ -32,8 +32,8 @@ def test_manifest_agent_import_paths_resolve():
     """Each agent's import_path must be importable and yield an ToolPlugin subclass."""
     import importlib
 
-    from lightfall.plugins.tool_plugin import ToolPlugin
     from lightfall.plugins.builtin_manifest import builtin_manifest
+    from lightfall.plugins.tool_plugin import ToolPlugin
 
     for entry in builtin_manifest.plugins:
         if entry.type_name != "tool":

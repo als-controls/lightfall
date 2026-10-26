@@ -684,7 +684,7 @@ Example:
                 plan_generator = plan_info.func(**resolved_params)
                 proc_id = engine.submit(
                     plan_generator, name=plan_name, skip_pre_submit=True,
-                    **_reason_md(args),
+                    checkpoint_source="agent", **_reason_md(args),
                 )
                 return {
                     "content": [{
@@ -802,7 +802,7 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
                 plan_generator = plan_func()
                 proc_id = engine.submit(
                     plan_generator, name=description, skip_pre_submit=True,
-                    **_reason_md(args),
+                    checkpoint_source="agent", **_reason_md(args),
                 )
                 return {
                     "content": [{
