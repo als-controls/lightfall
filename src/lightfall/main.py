@@ -17,9 +17,9 @@ if sys.platform == "win32":
 # in place when Qt's logging system is first read. PySide6 is transitively
 # imported by lightfall.utils, but importing the package does not construct a
 # QCoreApplication — env vars are still in time.
-from lightfall.utils import crash_diagnostics  # noqa: E402
+from lightfall.utils import crash_diagnostics, startup_timeline  # noqa: E402
 
-crash_diagnostics.install()
+_diag_dir = crash_diagnostics.install()
 
 from typing import TYPE_CHECKING  # noqa: E402
 
@@ -345,39 +345,42 @@ def _setup_devices() -> None:
     type, are merged into a single unified catalog; rows that need a login
     (CSM) load once the user is authenticated.
     """
-    catalog = DeviceCatalog.get_instance()
-    prefs = PreferencesManager.get_instance()
+    with startup_timeline.phase("setup_devices"):
+        catalog = DeviceCatalog.get_instance()
+        prefs = PreferencesManager.get_instance()
 
-    rows = load_or_migrate(prefs)
-    deferred = install_backend_rows(
-        rows,
-        registry=BackendTypeRegistry.get_instance(),
-        catalog=catalog,
-        ctx=build_context(prefs.get),
-        session=SessionManager.get_instance(),
-    )
+        rows = load_or_migrate(prefs)
+        deferred = install_backend_rows(
+            rows,
+            registry=BackendTypeRegistry.get_instance(),
+            catalog=catalog,
+            ctx=build_context(prefs.get),
+            session=SessionManager.get_instance(),
+        )
 
-    if catalog.backends:
-        if catalog.connect_backends():
-            backends_str = ", ".join(catalog.backends.keys())
-            logger.info(
-                "Device catalog loading from [{}] (devices connect in the background)", backends_str
-            )
-        else:
-            logger.error("Failed to connect device catalog")
-    elif not deferred:
-        logger.warning("No device backends enabled (Settings -> Devices)")
+        if catalog.backends:
+            if catalog.connect_backends():
+                backends_str = ", ".join(catalog.backends.keys())
+                logger.info(
+                    "Device catalog loading from [{}] (devices connect in the background)",
+                    backends_str,
+                )
+            else:
+                logger.error("Failed to connect device catalog")
+        elif not deferred:
+            logger.warning("No device backends enabled (Settings -> Devices)")
 
 
 def _start_devices() -> None:
     """Build and connect the device catalog, then start any CA tunnel retries."""
-    _setup_devices()
+    with startup_timeline.phase("start_devices"):
+        _setup_devices()
 
-    app_module = __import__(__name__)
-    retry_fn = getattr(app_module, "_ca_tunnel_schedule_retries", None)
-    if retry_fn:
-        retry_fn()
-        del app_module._ca_tunnel_schedule_retries
+        app_module = __import__(__name__)
+        retry_fn = getattr(app_module, "_ca_tunnel_schedule_retries", None)
+        if retry_fn:
+            retry_fn()
+            del app_module._ca_tunnel_schedule_retries
 
 
 def _make_device_starter() -> Callable[[], None]:
@@ -613,8 +616,9 @@ def _arm_post_login_plugin_load(
         if state["fired"]:
             return
         state["fired"] = True
-        logger.info("Starting post-login plugin wave")
-        loader.start_loading()
+        with startup_timeline.phase("post_login_plugin_wave"):
+            logger.info("Starting post-login plugin wave")
+            loader.start_loading()
 
     def _on_state_changed(new_state: AuthState, _old_state: AuthState) -> None:
         if new_state == AuthState.AUTHENTICATED:
@@ -674,40 +678,41 @@ def _show_startup_login(window: LFMainWindow) -> None:
     Args:
         window: The main window instance (unused, kept for API compatibility).
     """
-    from lightfall.resources import get_app_icon
-    from lightfall.ui.dialogs import LoginDialog
-    from lightfall.ui.dialogs.login_dialog import LoginResult
+    with startup_timeline.phase("show_startup_login"):
+        from lightfall.resources import get_app_icon
+        from lightfall.ui.dialogs import LoginDialog
+        from lightfall.ui.dialogs.login_dialog import LoginResult
 
-    # Create dialog without parent - gets its own taskbar entry
-    dialog = LoginDialog(
-        parent=None,
-        title="Welcome to Lightfall",
-        allow_guest=True,
-        show_on_expiry=False,
-    )
+        # Create dialog without parent - gets its own taskbar entry
+        dialog = LoginDialog(
+            parent=None,
+            title="Welcome to Lightfall",
+            allow_guest=True,
+            show_on_expiry=False,
+        )
 
-    # Explicitly set icon for taskbar (required when parent=None)
-    app_icon = get_app_icon()
-    if not app_icon.isNull():
-        dialog.setWindowIcon(app_icon)
-        sizes = app_icon.availableSizes()
-        logger.info("Login dialog icon set ({} sizes: {})", len(sizes), sizes)
-    else:
-        logger.warning("App icon is null for login dialog")
+        # Explicitly set icon for taskbar (required when parent=None)
+        app_icon = get_app_icon()
+        if not app_icon.isNull():
+            dialog.setWindowIcon(app_icon)
+            sizes = app_icon.availableSizes()
+            logger.info("Login dialog icon set ({} sizes: {})", len(sizes), sizes)
+        else:
+            logger.warning("App icon is null for login dialog")
 
-    # Verify icon was set on dialog
-    dialog_icon = dialog.windowIcon()
-    logger.info("Dialog windowIcon isNull: {}", dialog_icon.isNull())
+        # Verify icon was set on dialog
+        dialog_icon = dialog.windowIcon()
+        logger.info("Dialog windowIcon isNull: {}", dialog_icon.isNull())
 
-    dialog.exec()
-    login_result = dialog.login_result
+        dialog.exec()
+        login_result = dialog.login_result
 
-    if login_result == LoginResult.AUTHENTICATED:
-        logger.info("User authenticated at startup")
-    elif login_result == LoginResult.GUEST:
-        logger.info("User chose guest mode at startup")
-    else:
-        logger.info("User cancelled login dialog")
+        if login_result == LoginResult.AUTHENTICATED:
+            logger.info("User authenticated at startup")
+        elif login_result == LoginResult.GUEST:
+            logger.info("User chose guest mode at startup")
+        else:
+            logger.info("User cancelled login dialog")
 
 
 def _startup_login(
@@ -716,21 +721,22 @@ def _startup_login(
     """Startup sign-in. First run (``setup.completed`` unset): skip the login dialog and
     open the setup wizard over the shown window; its Sign-in step logs in. Later runs:
     the usual login dialog."""
-    from lightfall.setup.progress import is_setup_completed
+    with startup_timeline.phase("startup_login"):
+        from lightfall.setup.progress import is_setup_completed
 
-    if is_setup_completed(config):
-        _show_startup_login(window)
-        # Guest / cancelled login never reaches AUTHENTICATED, but the app still runs
-        # anonymously: start the wave now that the login screen is dismissed (no-op if
-        # the AUTHENTICATED transition already started it).
-        fire_plugin_wave()
-        return
+        if is_setup_completed(config):
+            _show_startup_login(window)
+            # Guest / cancelled login never reaches AUTHENTICATED, but the app still runs
+            # anonymously: start the wave now that the login screen is dismissed (no-op if
+            # the AUTHENTICATED transition already started it).
+            fire_plugin_wave()
+            return
 
-    from lightfall.setup import wizard
+        from lightfall.setup import wizard
 
-    # app.run() shows the window; the wizard opens on the first event-loop turn. The
-    # wave starts on AUTHENTICATED (Sign-in step) or when the wizard closes.
-    wizard.schedule_first_run_wizard(window, on_closed=fire_plugin_wave)
+        # app.run() shows the window; the wizard opens on the first event-loop turn. The
+        # wave starts on AUTHENTICATED (Sign-in step) or when the wizard closes.
+        wizard.schedule_first_run_wizard(window, on_closed=fire_plugin_wave)
 
 
 def _setup_session_expiry_handler(window: LFMainWindow) -> None:
@@ -834,6 +840,8 @@ def main() -> int:
     Returns:
         Exit code (0 for success, non-zero for errors).
     """
+    startup_timeline.mark_origin()
+
     # Before anything rewrites EPICS variables: a restart relaunches with these.
     from lightfall.utils.restart import remember_launch_env
 
@@ -861,7 +869,8 @@ def main() -> int:
     config: ConfigManager = app.services.get(ConfigManager)
 
     # Setup services (must be before Sentry so PreferencesManager has ConfigManager)
-    _setup_services(app, config)
+    with startup_timeline.phase("setup_services"):
+        _setup_services(app, config)
 
     # Initialize Sentry error reporting (opt-in: requires SENTRY_DSN env var
     # or 'telemetry_dsn' preference; after services so proxy/preference
@@ -881,46 +890,64 @@ def main() -> int:
     LogBuffer.get_instance().install()
 
     # Setup authentication
-    _setup_auth(config)
+    with startup_timeline.phase("setup_auth"):
+        _setup_auth(config)
 
     # An exclusive device backend (e.g. a simulated beamline) sets the
     # session's EPICS environment before any EPICS client exists.
     start_session_mode(PreferencesManager.get_instance().get, BackendTypeRegistry.get_instance())
 
     # Start CA tunnel if configured (must be before device setup)
-    _setup_ca_tunnel()
+    with startup_timeline.phase("setup_ca_tunnel"):
+        _setup_ca_tunnel()
 
     # The device catalog is NOT built here: it starts once the login screen is
     # dismissed and the main window shows (see _make_device_starter), so no
     # backend loads, and CSM's Instantiables are not fetched, before login.
 
     # Setup Bluesky RunEngine and plans
-    _setup_bluesky(app)
+    with startup_timeline.phase("setup_bluesky"):
+        _setup_bluesky(app)
 
     # Setup Tiled data catalog service
-    _setup_tiled(app, config)
+    with startup_timeline.phase("setup_tiled"):
+        _setup_tiled(app, config)
 
     # Bootstrap the agent-spec registry (core + user scopes) before any
     # QtClaudeAgent/MonitorAdvisor can be constructed.
-    _setup_agent_specs()
+    with startup_timeline.phase("setup_agent_specs"):
+        _setup_agent_specs()
 
     # Setup plugin system and load preload plugins (before main window)
-    _setup_plugins(app)
+    with startup_timeline.phase("setup_plugins"):
+        _setup_plugins(app)
 
     # Load user plugins from ~/lightfall/plugins/
-    _setup_user_plugins(app)
+    with startup_timeline.phase("setup_user_plugins"):
+        _setup_user_plugins(app)
 
     # Create and set main window (after preload plugins applied theme)
-    window = LFMainWindow()
-    window.set_config_manager(config)
-    app.set_main_window(window)
+    with startup_timeline.phase("main_window_init"):
+        window = LFMainWindow()
+        window.set_config_manager(config)
+        app.set_main_window(window)
+
+    # Instrument window.show() (called inside app.run() before entering Qt event loop)
+    _orig_window_show = window.show
+
+    def _profiled_window_show(*args, **kwargs):
+        with startup_timeline.phase("window.show"):
+            return _orig_window_show(*args, **kwargs)
+
+    window.show = _profiled_window_show  # type: ignore[method-assign]
 
     # Connect engine to menubar control
     engine = get_engine()
     window.set_engine(engine)
 
     # Start the proactive monitor service (subscribes to engine, surfaces observations)
-    _setup_monitor(app, window)
+    with startup_timeline.phase("setup_monitor"):
+        _setup_monitor(app, window)
 
     # NOTE: the default panel layout is built from the PanelRegistry, which is
     # populated by the post-login plugin wave. It is therefore driven from the
@@ -935,7 +962,8 @@ def main() -> int:
     _check_editor_protocol(window)
 
     # Setup session expiry handler
-    _setup_session_expiry_handler(window)
+    with startup_timeline.phase("setup_session_expiry_handler"):
+        _setup_session_expiry_handler(window)
 
     # Wire the post-login plugin wave. start_loading() is deferred (see
     # _setup_plugins) so only login-window plugins load before login. The main
@@ -1147,6 +1175,14 @@ def main() -> int:
         sys.stdout.flush()
 
     QCoreApplication.instance().aboutToQuit.connect(_cleanup_on_exit)
+
+    # Schedule startup timeline finish 5 s after entering the event loop so
+    # post-login background plugin waves and device startup are captured.
+    from PySide6.QtCore import QTimer as _StartupQTimer
+
+    diag_dir = _diag_dir or crash_diagnostics.default_diag_dir()
+    _StartupQTimer.singleShot(5000, lambda: startup_timeline.finish(diag_dir))
+    startup_timeline.mark("event_loop_enter")
 
     # Run the application
     code = app.run()

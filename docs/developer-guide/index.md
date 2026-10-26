@@ -34,7 +34,8 @@ Lightfall participates in a NATS message bus so that external services — autom
 
 ## Working on Lightfall itself
 
-[PyQtGraph Development Notes](pyqtgraph-notes.md) collects non-obvious coordinate-system and rendering gotchas for contributors working on visualization code.
+- [PyQtGraph Development Notes](pyqtgraph-notes.md) collects non-obvious coordinate-system and rendering gotchas for contributors working on visualization code.
+- [Startup Profiling](startup-profiling.md) documents `LIGHTFALL_STARTUP_PROFILE`, the HTML/JSON/cProfile artifacts written to `~/.lightfall/diagnostics/`, and how to instrument additional startup phases.
 
 ```{toctree}
 :maxdepth: 2
@@ -47,4 +48,5 @@ nats-use-model
 remote-epics-access
 deployment
 pyqtgraph-notes
+startup-profiling
 ```
