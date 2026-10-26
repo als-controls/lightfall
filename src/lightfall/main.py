@@ -983,7 +983,11 @@ def main() -> int:
     session_manager = SessionManager.get_instance()
     loader = app.services.get(PluginLoader, None)
     if loader is not None:
-        loader.loading_complete.connect(window._on_plugin_loading_complete)
+        def _on_wave_done(successful: int, failed: int) -> None:
+            with startup_timeline.phase("build_layout_after_plugin_wave"):
+                window._on_plugin_loading_complete(successful, failed)
+
+        loader.loading_complete.connect(_on_wave_done)
         fire_plugin_wave = _arm_post_login_plugin_load(loader, session_manager)
     else:
         logger.warning(

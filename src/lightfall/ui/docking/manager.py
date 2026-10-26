@@ -803,10 +803,15 @@ class DockingManager(QObject):
         """
         if self._warmup_started_early or self._warmup_thread is not None:
             return
+        # Deferred panels are registered with this manager only after login,
+        # so read the warmup list from the PanelRegistry (filled pre-login by
+        # the preloaded panel plugins).
+        from lightfall.ui.panels.registry import PanelRegistry
+
         modules = [
             meta.warmup_import
-            for pid, meta in self._deferred_metadata.items()
-            if meta.warmup_import and meta.proactive_init and pid not in self._removed_panels
+            for meta in PanelRegistry.get_instance().list_all()
+            if meta.warmup_import and meta.proactive_init and meta.id not in self._removed_panels
         ]
         modules = list(dict.fromkeys([*modules, *extra]))
         if not modules:
