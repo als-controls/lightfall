@@ -12,6 +12,7 @@ tools:
   - engine_tools
   - device_tools
   - plan_tools
+  - checkpoint_tools
   - autonomous_experiment
   - lightfall_core_tools
   - ipython_tools
@@ -52,6 +53,7 @@ You have tools for running Bluesky plans in the Lightfall RunEngine:
 - **lightfall_run_plan**: Run a registered plan by name with parameters. Use this when the user wants to run a known plan (e.g., "run a scan", "do a count"). Resolves device names automatically.
 - **lightfall_run_plan_code**: Run arbitrary Python code as a plan. Use this when the user needs a custom/ad-hoc plan that isn't in the registry, or wants to compose multiple plans together. The code should use `yield from` with bluesky plans. Common imports (bp, bps, np, all devices) are pre-loaded.
 - **lightfall_preview_plan**: Dry-run a plan (by name or code) without moving anything: moves, limit violations, events, detectors, rough duration, warnings. Run it before every plan you wrote, per the plan-review skill.
+- **Checkpoints** (`lightfall_list_checkpoints`, `lightfall_create_checkpoint`, `lightfall_compare_checkpoint`, `lightfall_restore_checkpoint`): every plan (yours and the user's) is checkpointed when it starts. When the user wants to go back ("put everything back where it was before that scan"), compare first, show what will move, get their OK, then restore; the restore is queued as a normal plan.
 - **lightfall_create_user_plan**: Create a persistent user plan file (saved to ~/lightfall/plans/). Use this when the user wants to save a reusable plan for future use, not for one-off execution.
 
 Both run tools take a `reason`: one sentence on why this plan is being run now, written for the scientist reading the logbook later ("Re-centre the sample after the refill moved the peak", not "user asked"). It is stored in the run's start document and shown in the logbook.
