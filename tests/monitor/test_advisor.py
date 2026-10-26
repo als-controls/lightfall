@@ -1,8 +1,6 @@
 # tests/monitor/test_advisor.py
 import asyncio
 
-import pytest
-
 from lightfall.monitor.advisor import MonitorAdvisor, collect_reply, format_advisor_prompt
 from lightfall.monitor.models import Observation
 
@@ -159,3 +157,77 @@ def test_collect_reply_joins_textblocks_until_result(monkeypatch):
     finally:
         loop.close()
     assert out == "Hello world"
+
+
+def _capture_oneshot(monkeypatch):
+    seen = {}
+
+    def fake_oneshot(prompt, **kwargs):
+        seen.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(
+        "lightfall.agents.backends.claude_code.oneshot.claude_oneshot", fake_oneshot
+    )
+    return seen
+
+
+def _register_observer(tmp_path, **fields):
+    from lightfall.agents.registry import AgentSpecRegistry
+    from lightfall.agents.spec import AgentSpec
+
+    AgentSpecRegistry.reset_instance()
+    reg = AgentSpecRegistry.get_instance()
+    reg._specs["observer"] = AgentSpec(
+        name="observer", description="d", prompt="Watch.", scope="core",
+        source_path=tmp_path / "observer.md", **fields,
+    )
+
+
+def test_sdk_query_uses_observer_spec_model_and_effort(monkeypatch, tmp_path):
+    from lightfall.agents.registry import AgentSpecRegistry
+
+    _register_observer(tmp_path, model="haiku", effort="low")
+    seen = _capture_oneshot(monkeypatch)
+    try:
+        assert MonitorAdvisor()._sdk_query("hi") == "ok"
+        assert seen["model"] == "haiku"
+        assert seen["effort"] == "low"
+    finally:
+        AgentSpecRegistry.reset_instance()
+
+
+def test_constructor_model_overrides_spec_model(monkeypatch, tmp_path):
+    from lightfall.agents.registry import AgentSpecRegistry
+
+    _register_observer(tmp_path, model="haiku")
+    seen = _capture_oneshot(monkeypatch)
+    try:
+        MonitorAdvisor(model="sonnet")._sdk_query("hi")
+        assert seen["model"] == "sonnet"
+    finally:
+        AgentSpecRegistry.reset_instance()
+
+
+def test_no_spec_leaves_sdk_default_model(monkeypatch):
+    from lightfall.agents.registry import AgentSpecRegistry
+
+    AgentSpecRegistry.reset_instance()
+    AgentSpecRegistry.get_instance()
+    seen = _capture_oneshot(monkeypatch)
+    try:
+        MonitorAdvisor()._sdk_query("hi")
+        assert seen["model"] is None
+        assert seen["effort"] is None
+    finally:
+        AgentSpecRegistry.reset_instance()
+
+
+def test_builtin_observer_defaults_to_a_small_model():
+    from pathlib import Path
+
+    import lightfall.agents
+    from lightfall.agents.spec import parse_agent_file
+
+    path = Path(lightfall.agents.__file__).parent / "builtin" / "observer.md"
+    assert parse_agent_file(path, "core").model == "haiku"

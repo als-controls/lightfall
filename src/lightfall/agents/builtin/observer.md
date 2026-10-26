@@ -1,6 +1,7 @@
 ---
 name: observer
 description: Measurement-quality observer/advisor
+model: haiku
 tools: []
 memory: false
 lightfall:

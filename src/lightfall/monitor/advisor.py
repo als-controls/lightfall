@@ -80,22 +80,41 @@ class MonitorAdvisor:
             logger.exception("monitor advisor query failed")
             return ""
 
-    def _resolve_system_prompt(self) -> str:
+    def _observer_spec(self):
+        """The registered "observer" agent spec, or None (headless/unit-test
+        paths, or anything going wrong while looking it up)."""
+        try:
+            from lightfall.agents.registry import AgentSpecRegistry
+
+            return AgentSpecRegistry.get_instance().get("observer")
+        except Exception as e:  # noqa: BLE001 - advisory; never fail the query
+            logger.debug("monitor advisor: could not load observer spec: {}", e)
+            return None
+
+    def _resolve_system_prompt(self, spec=None) -> str:
         """Resolve the "observer" agent spec's prompt, falling back to the
         static ADVISOR_SYSTEM_PROMPT when the registry has no such spec
         (headless/unit-test paths) or anything goes wrong resolving it."""
+        if spec is None:
+            spec = self._observer_spec()
+        if spec is None:
+            return ADVISOR_SYSTEM_PROMPT
         try:
-            from lightfall.agents.registry import AgentSpecRegistry
             from lightfall.agents.skills_store import template_variables
             from lightfall.agents.spec import resolve_template
 
-            spec = AgentSpecRegistry.get_instance().get("observer")
-            if spec is None:
-                return ADVISOR_SYSTEM_PROMPT
             return resolve_template(spec.prompt, template_variables())
         except Exception as e:  # noqa: BLE001 - advisory; never fail the query
             logger.debug("monitor advisor: could not resolve observer spec: {}", e)
             return ADVISOR_SYSTEM_PROMPT
+
+    def _resolve_model(self, spec=None) -> str | None:
+        """An explicit constructor ``model`` wins; otherwise the observer
+        spec's ``model`` (a small model by default, so the always-on advisor
+        stays cheap); otherwise None, which leaves the SDK default."""
+        if self._model:
+            return self._model
+        return getattr(spec, "model", None) or None
 
     def _sdk_query(self, prompt: str) -> str:
         """Real SDK-backed one-shot query. Delegates to the Claude backend's
@@ -106,9 +125,11 @@ class MonitorAdvisor:
         # advisor transcripts under ~/lightfall/advisor stay where they are.
         cwd = (Path.home() / "lightfall" / "advisor")
         cwd.mkdir(parents=True, exist_ok=True)
+        spec = self._observer_spec()
         return claude_oneshot(
             prompt,
-            system_prompt=self._resolve_system_prompt(),
+            system_prompt=self._resolve_system_prompt(spec),
             cwd=str(cwd.resolve()),
-            model=self._model,
+            model=self._resolve_model(spec),
+            effort=getattr(spec, "effort", None),
         )
