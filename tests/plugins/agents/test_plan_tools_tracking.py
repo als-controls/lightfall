@@ -105,3 +105,43 @@ def plan(detectors, motor):
     # First commit: agent: doomed plan; Second commit: agent: delete plan doomed
     assert subjects[0] == "agent: delete plan doomed"
     assert subjects[1] == "agent: doomed plan"
+
+
+def _tool(name):
+    return next(t for t in PlanToolsAgent().create_tools() if getattr(t, "name", None) == name)
+
+
+class _FakeEngine:
+    state_name = "idle"
+
+    def __init__(self):
+        self.calls = []
+
+    def submit(self, plan, **kwargs):
+        self.calls.append(kwargs)
+        plan.close()
+        return "proc-1"
+
+
+@pytest.mark.parametrize("reason,expected", [
+    ("Re-centre after refill", {"reason": "Re-centre after refill"}),
+    ("   ", {}),
+    (None, {}),
+])
+def test_run_plan_code_forwards_reason_as_run_metadata(monkeypatch, reason, expected):
+    engine = _FakeEngine()
+    monkeypatch.setattr("lightfall.acquire.engine.get_engine", lambda: engine)
+    args = {"code": "yield from bps.null()", "description": "noop"}
+    if reason is not None:
+        args["reason"] = reason
+    body = _unwrap(asyncio.run(_tool("lightfall_run_plan_code").handler(args)))
+    assert body["success"], body
+    md = {k: v for k, v in engine.calls[0].items() if k not in ("name", "skip_pre_submit")}
+    assert md == expected
+
+
+def test_run_tools_require_a_reason_in_their_schema():
+    for name in ("lightfall_run_plan", "lightfall_run_plan_code"):
+        schema = _tool(name).input_schema
+        assert "reason" in schema["properties"]
+        assert "reason" in schema["required"]

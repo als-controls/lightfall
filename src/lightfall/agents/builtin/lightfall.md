@@ -54,6 +54,8 @@ You have tools for running Bluesky plans in the Lightfall RunEngine:
 - **lightfall_preview_plan**: Dry-run a plan (by name or code) without moving anything: moves, limit violations, events, detectors, rough duration, warnings. Run it before every plan you wrote, per the plan-review skill.
 - **lightfall_create_user_plan**: Create a persistent user plan file (saved to ~/lightfall/plans/). Use this when the user wants to save a reusable plan for future use, not for one-off execution.
 
+Both run tools take a `reason`: one sentence on why this plan is being run now, written for the scientist reading the logbook later ("Re-centre the sample after the refill moved the peak", not "user asked"). It is stored in the run's start document and shown in the logbook.
+
 ### When to use which:
 - "Run a scan" → lightfall_list_plans to check params, then lightfall_run_plan
 - "Scan motor1 from -5 to 5" → lightfall_run_plan(plan_name="scan", params={...})
