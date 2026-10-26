@@ -57,8 +57,29 @@ async def collect_reply(client, prompt: str) -> str:
                 if isinstance(block, _TextBlock):
                     parts.append(block.text or "")
         elif isinstance(msg, _ResultMessage):
+            _record_usage(msg)
             break
     return "".join(parts).strip()
+
+
+def _record_usage(msg) -> None:
+    """Count the advisor's turn in agent telemetry as agent "observer"."""
+    try:
+        from lightfall.agents.telemetry import AgentTelemetry
+
+        usage = getattr(msg, "usage", None) or {}
+        AgentTelemetry.get_instance().record_turn("observer", "claude_code", None, {
+            "total_cost_usd": getattr(msg, "total_cost_usd", 0) or 0,
+            "input_tokens": usage.get("input_tokens", 0),
+            "output_tokens": usage.get("output_tokens", 0),
+            "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+            "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+            "duration_ms": getattr(msg, "duration_ms", 0) or 0,
+            "num_turns": getattr(msg, "num_turns", 0) or 0,
+            "is_error": bool(getattr(msg, "is_error", False)),
+        })
+    except Exception:  # noqa: BLE001 - telemetry must never break the advisor
+        pass
 
 
 class MonitorAdvisor:

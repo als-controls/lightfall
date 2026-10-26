@@ -125,6 +125,10 @@ class PermissionManager(QObject):
         self._pending_question_loops: dict[str, asyncio.AbstractEventLoop] = {}
         self._question_responses: dict[str, dict[str, str] | None] = {}
 
+        # Agent name prompts are counted under in agent telemetry (set by
+        # ClaudeAgent); None records nothing.
+        self.telemetry_agent: str | None = None
+
         # Load saved preferences (but validate against whitelist policy)
         self._load_preferences()
 
@@ -270,6 +274,7 @@ class PermissionManager(QObject):
             await asyncio.wait_for(event.wait(), timeout=300)  # 5 min timeout
             answered = True
         except TimeoutError:
+            self._record_permission(tool_name, False, "timed_out")
             return (False, "Permission request timed out")
         finally:
             self._pending_requests.pop(request_id, None)
@@ -278,7 +283,20 @@ class PermissionManager(QObject):
                 self._responses.pop(request_id, None)
                 self.permission_expired.emit(request_id)
 
-        return self._responses.pop(request_id, (False, "No response received"))
+        result = self._responses.pop(request_id, (False, "No response received"))
+        self._record_permission(tool_name, result[0])
+        return result
+
+    def _record_permission(self, tool_name: str, allowed: bool, outcome: str = "") -> None:
+        if not self.telemetry_agent:
+            return
+        try:
+            from lightfall.agents.telemetry import AgentTelemetry
+
+            AgentTelemetry.get_instance().record_permission(
+                self.telemetry_agent, tool_name, allowed, outcome)
+        except Exception:  # noqa: BLE001 - telemetry must never break a prompt
+            pass
 
     def respond(
         self,
