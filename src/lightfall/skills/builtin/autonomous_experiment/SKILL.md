@@ -125,6 +125,7 @@ lightfall_run_plan(
         "motors": [<motor names, in the same order as parameter_bounds>],
         "timeout": 300.0,
     },
+    reason="<one sentence: what this experiment is looking for>",
 )
 ```
 

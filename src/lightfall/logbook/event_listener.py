@@ -15,6 +15,15 @@ from PySide6.QtCore import QObject, Signal, Slot
 from lightfall.utils.logging import logger
 
 
+def _plan_content(plan_name: str, uid: str, reason: str = "", exit_status: str = "") -> str:
+    """One-line run fragment text: ``Plan: scan (abcd1234) — success`` plus
+    the submitter's reason on its own line when there is one."""
+    line = f"Plan: {plan_name} ({uid[:8]})"
+    if exit_status:
+        line += f" — {exit_status}"
+    return f"{line}\nReason: {reason}" if reason else line
+
+
 class EventListener(QObject):
     """Singleton that bridges Lightfall events → logbook readonly fragments.
 
@@ -139,17 +148,20 @@ class EventListener(QObject):
                 uid = doc.get("uid", "")
                 plan_name = doc.get("plan_name", "unknown")
                 self._current_run_uid = uid
+                reason = str(doc.get("reason") or "").strip()
                 data = {
                     "plan_name": plan_name,
                     "params": {k: v for k, v in doc.items()
-                               if k not in ("uid", "time", "plan_name", "plan_type")},
+                               if k not in ("uid", "time", "plan_name", "plan_type", "reason")},
                     "uid": uid,
                 }
+                if reason:
+                    data["reason"] = reason
                 client.add_fragment(
                     self._current_entry_id,
                     kind="readonly",
                     subtype="bluesky_plan",
-                    content=f"Plan: {plan_name} ({uid[:8]})",
+                    content=_plan_content(plan_name, uid, reason),
                     data=data,
                 )
                 self.fragment_injected.emit(self._current_entry_id)
@@ -198,7 +210,9 @@ class EventListener(QObject):
 
                     # Update content to include status
                     plan_name = frag_data.get("plan_name", "unknown")
-                    new_content = f"Plan: {plan_name} ({run_uid[:8]}) — {exit_status}"
+                    new_content = _plan_content(
+                        plan_name, run_uid, frag_data.get("reason", ""), exit_status
+                    )
 
                     client.update_fragment(
                         frag["id"],

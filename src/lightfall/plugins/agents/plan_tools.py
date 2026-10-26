@@ -28,6 +28,16 @@ def _error_result(message: str) -> dict[str, Any]:
     }
 
 
+def _reason_md(args: dict) -> dict[str, str]:
+    """RunEngine metadata for the agent's stated reason, if it gave one.
+
+    Passed as a submit kwarg, which the engine forwards to ``RE(plan, **md)``,
+    so it lands in every start document the plan opens (Tiled keeps it, and
+    the logbook's run fragment shows it)."""
+    reason = str(args.get("reason") or "").strip()
+    return {"reason": reason} if reason else {}
+
+
 class PlanToolsAgent(ToolPlugin):
     """MCP tools for creating and managing user plans.
 
@@ -617,8 +627,12 @@ Example:
                         "type": "object",
                         "description": "Parameters to pass to the plan function. Device names (strings) are resolved automatically.",
                     },
+                    "reason": {
+                        "type": "string",
+                        "description": "Why you are running this plan now, in one sentence for the scientist reading the logbook (e.g. 'Re-centre the sample after the beam refill moved the peak'). Recorded in the run's start document and the logbook.",
+                    },
                 },
-                "required": ["plan_name"],
+                "required": ["plan_name", "reason"],
             },
         )
         async def run_plan(args: dict) -> dict[str, Any]:
@@ -668,7 +682,10 @@ Example:
             try:
                 engine = get_engine()
                 plan_generator = plan_info.func(**resolved_params)
-                proc_id = engine.submit(plan_generator, name=plan_name, skip_pre_submit=True)
+                proc_id = engine.submit(
+                    plan_generator, name=plan_name, skip_pre_submit=True,
+                    **_reason_md(args),
+                )
                 return {
                     "content": [{
                         "type": "text",
@@ -757,8 +774,12 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
                         "type": "string",
                         "description": "Brief description of what this plan does (for logging and queue display)",
                     },
+                    "reason": {
+                        "type": "string",
+                        "description": "Why you are running this plan now, in one sentence for the scientist reading the logbook (e.g. 'Re-centre the sample after the beam refill moved the peak'). Recorded in the run's start document and the logbook.",
+                    },
                 },
-                "required": ["code"],
+                "required": ["code", "reason"],
             },
         )
         async def run_plan_code(args: dict) -> dict[str, Any]:
@@ -779,7 +800,10 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
             try:
                 engine = get_engine()
                 plan_generator = plan_func()
-                proc_id = engine.submit(plan_generator, name=description, skip_pre_submit=True)
+                proc_id = engine.submit(
+                    plan_generator, name=description, skip_pre_submit=True,
+                    **_reason_md(args),
+                )
                 return {
                     "content": [{
                         "type": "text",
