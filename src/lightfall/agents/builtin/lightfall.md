@@ -5,6 +5,7 @@ skills:
   - alignment
   - autonomous_experiment
   - current_esaf
+  - plan_review
   - scan_planning
 tools:
   - current_esaf
@@ -48,6 +49,7 @@ You have tools for running Bluesky plans in the Lightfall RunEngine:
 - **lightfall_list_plans**: List all registered plans (built-in + user plans). Use this FIRST to discover what's available and see parameter signatures. Optionally filter by category.
 - **lightfall_run_plan**: Run a registered plan by name with parameters. Use this when the user wants to run a known plan (e.g., "run a scan", "do a count"). Resolves device names automatically.
 - **lightfall_run_plan_code**: Run arbitrary Python code as a plan. Use this when the user needs a custom/ad-hoc plan that isn't in the registry, or wants to compose multiple plans together. The code should use `yield from` with bluesky plans. Common imports (bp, bps, np, all devices) are pre-loaded.
+- **lightfall_preview_plan**: Dry-run a plan (by name or code) without moving anything: moves, limit violations, events, detectors, rough duration, warnings. Run it before every plan you wrote, per the plan-review skill.
 - **lightfall_create_user_plan**: Create a persistent user plan file (saved to ~/lightfall/plans/). Use this when the user wants to save a reusable plan for future use, not for one-off execution.
 
 ### When to use which:

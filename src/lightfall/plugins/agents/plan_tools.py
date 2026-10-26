@@ -15,6 +15,19 @@ from lightfall.utils.git_tracker import GitTracker
 from lightfall.utils.logging import logger
 
 
+class PlanBuildError(ValueError):
+    """A plan could not be built from the tool arguments (message is user-facing)."""
+
+
+def _error_result(message: str) -> dict[str, Any]:
+    import json
+
+    return {
+        "content": [{"type": "text", "text": json.dumps({"success": False, "error": message})}],
+        "is_error": True,
+    }
+
+
 class PlanToolsAgent(ToolPlugin):
     """MCP tools for creating and managing user plans.
 
@@ -253,6 +266,71 @@ class PlanToolsAgent(ToolPlugin):
             return False, "'plan' must be a generator function (use 'yield from')"
 
         return True, None
+
+    def _compile_plan_code(self, code: str):
+        """Compile a generator-body code string into a zero-argument plan function.
+
+        The namespace holds numpy, bp/bps/bpp and every ophyd device in the
+        catalog by name. Raises PlanBuildError with a user-facing message.
+        """
+        import textwrap
+
+        namespace: dict[str, Any] = {}
+        try:
+            import numpy as np
+            namespace["np"] = np
+            namespace["numpy"] = np
+        except ImportError:
+            pass
+
+        try:
+            import bluesky.plan_stubs as bps
+            import bluesky.plans as bp
+            import bluesky.preprocessors as bpp
+            namespace["bp"] = bp
+            namespace["bps"] = bps
+            # bpp.run_decorator is the standard way to wrap per-step
+            # plans in a proper Bluesky run; pre-importing it removes
+            # one common shape of "I forgot to open_run" errors.
+            namespace["bpp"] = bpp
+        except ImportError as e:
+            raise PlanBuildError("bluesky is not installed") from e
+
+        try:
+            catalog = self._get_catalog()
+            for dev_name, dev_obj in catalog.get_all_ophyd_devices().items():
+                namespace[dev_name] = dev_obj
+        except Exception as e:
+            logger.debug("Could not inject devices into namespace: {}", e)
+
+        wrapper = f"def _plan():\n{textwrap.indent(code, '    ')}\n"
+        try:
+            exec(compile(wrapper, "<plan_code>", "exec"), namespace)
+        except SyntaxError as e:
+            raise PlanBuildError(f"Syntax error at line {e.lineno}: {e.msg}") from e
+        except Exception as e:
+            raise PlanBuildError(f"Code execution error: {type(e).__name__}: {e}") from e
+
+        plan_func = namespace.get("_plan")
+        if plan_func is None:
+            raise PlanBuildError("Internal error: plan function not created")
+        return plan_func
+
+    def _registered_plan(self, plan_name: str, params: dict):
+        """Build a generator for a registered plan. Raises PlanBuildError."""
+        from lightfall.acquire.plans.registry import get_registry
+
+        registry = get_registry()
+        plan_info = registry.get_plan(plan_name)
+        if plan_info is None:
+            raise PlanBuildError(
+                f"Plan '{plan_name}' not found; available: {', '.join(registry.plan_names)}"
+            )
+        try:
+            resolved = self._resolve_plan_params(plan_info, params)
+        except Exception as e:
+            raise PlanBuildError(f"Parameter resolution error: {e}") from e
+        return plan_info.func(**resolved)
 
     def create_tools(self) -> list[Any]:
         """Create plan management MCP tools.
@@ -686,96 +764,16 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
         async def run_plan_code(args: dict) -> dict[str, Any]:
             """Run arbitrary code as a Bluesky plan."""
             import json
-            import textwrap
 
             from lightfall.acquire.engine import get_engine
 
             code = args["code"]
             description = args.get("description", "ad-hoc plan")
 
-            # Build the execution namespace with common imports
-            namespace: dict[str, Any] = {}
             try:
-                import numpy as np
-                namespace["np"] = np
-                namespace["numpy"] = np
-            except ImportError:
-                pass
-
-            try:
-                import bluesky.plan_stubs as bps
-                import bluesky.plans as bp
-                import bluesky.preprocessors as bpp
-                namespace["bp"] = bp
-                namespace["bps"] = bps
-                # bpp.run_decorator is the standard way to wrap per-step
-                # plans in a proper Bluesky run; pre-importing it removes
-                # one common shape of "I forgot to open_run" errors.
-                namespace["bpp"] = bpp
-            except ImportError:
-                return {
-                    "content": [{
-                        "type": "text",
-                        "text": json.dumps({
-                            "success": False,
-                            "error": "bluesky is not installed",
-                        }),
-                    }],
-                    "is_error": True,
-                }
-
-            # Inject all ophyd devices from the device catalog
-            try:
-                catalog = self._get_catalog()
-                for dev_name, dev_obj in catalog.get_all_ophyd_devices().items():
-                    namespace[dev_name] = dev_obj
-            except Exception as e:
-                logger.debug("Could not inject devices into namespace: {}", e)
-
-            # Wrap user code in a generator function
-            indented_code = textwrap.indent(code, "    ")
-            wrapper = f"def _plan():\n{indented_code}\n"
-
-            # Compile and execute to define the function
-            try:
-                compiled = compile(wrapper, "<plan_code>", "exec")
-                exec(compiled, namespace)
-            except SyntaxError as e:
-                return {
-                    "content": [{
-                        "type": "text",
-                        "text": json.dumps({
-                            "success": False,
-                            "error": f"Syntax error at line {e.lineno}: {e.msg}",
-                        }),
-                    }],
-                    "is_error": True,
-                }
-            except Exception as e:
-                return {
-                    "content": [{
-                        "type": "text",
-                        "text": json.dumps({
-                            "success": False,
-                            "error": f"Code execution error: {type(e).__name__}: {e}",
-                        }),
-                    }],
-                    "is_error": True,
-                }
-
-            # Get the plan generator
-            plan_func = namespace.get("_plan")
-            if plan_func is None:
-                return {
-                    "content": [{
-                        "type": "text",
-                        "text": json.dumps({
-                            "success": False,
-                            "error": "Internal error: plan function not created",
-                        }),
-                    }],
-                    "is_error": True,
-                }
+                plan_func = self._compile_plan_code(code)
+            except PlanBuildError as e:
+                return _error_result(str(e))
 
             # Submit to engine
             try:
@@ -805,6 +803,71 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
                     }],
                     "is_error": True,
                 }
+
+        @tool(
+            name="lightfall_preview_plan",
+            description="""Dry-run a plan and report what it WOULD do, without moving anything.
+
+Takes either plan_name (+ params), like lightfall_run_plan, or code, like
+lightfall_run_plan_code. The plan is driven through bluesky's
+RunEngineSimulator: set/trigger messages are recorded, never executed;
+read/locate are answered from the real devices (read-only), so relative
+plans preview against real positions.
+
+Returns: runs opened/closed, number of events, detectors triggered, and per
+moved device its target range, start position, limits, travel and any
+targets its own limits reject; a rough duration lower bound (sleeps +
+exposure + travel/velocity); and warnings (limit violations, large moves,
+shutter/valve/HV-like devices, motors left away from their start, runs with
+no detector or no events, open/close mismatch, plans that raise).
+
+Run this before every plan you wrote yourself, and summarise the result to
+the user before running it. NOTE: the plan's Python still executes, so a
+plan that calls device methods directly (motor.set(...)) instead of yielding
+messages would act on hardware here too. Never write such plans.""",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "plan_name": {
+                        "type": "string",
+                        "description": "Registered plan name (use with params). Omit when giving code.",
+                    },
+                    "params": {
+                        "type": "object",
+                        "description": "Parameters for plan_name; device names are resolved automatically.",
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "Generator-body code, as for lightfall_run_plan_code. Omit when giving plan_name.",
+                    },
+                },
+            },
+        )
+        async def preview_plan_tool(args: dict) -> dict[str, Any]:
+            """Simulate a plan and summarise it."""
+            import asyncio
+            import json
+
+            from lightfall.acquire.plans.preview import preview_plan
+
+            plan_name = args.get("plan_name")
+            code = args.get("code")
+            if bool(plan_name) == bool(code):
+                return _error_result("Give exactly one of plan_name or code.")
+
+            def _build_and_preview():
+                if code:
+                    plan = self._compile_plan_code(code)()
+                else:
+                    plan = self._registered_plan(plan_name, args.get("params") or {})
+                return preview_plan(plan).to_dict()
+
+            try:
+                # Device reads may block on CA; keep them off the agent's loop.
+                summary = await asyncio.to_thread(_build_and_preview)
+            except PlanBuildError as e:
+                return _error_result(str(e))
+            return {"content": [{"type": "text", "text": json.dumps(summary, indent=2, default=str)}]}
 
         @tool(
             name="lightfall_get_user_plan",
@@ -908,4 +971,7 @@ WARNING: This executes arbitrary code in the RunEngine context. Use with caution
             except Exception as e:
                 return mcp_result({"success": False, "error": f"Failed to delete plan: {e}"}, is_error=True)
 
-        return [create_user_plan, list_plans, run_plan, run_plan_code, get_user_plan, delete_user_plan]
+        return [
+            create_user_plan, list_plans, run_plan, run_plan_code, preview_plan_tool,
+            get_user_plan, delete_user_plan,
+        ]

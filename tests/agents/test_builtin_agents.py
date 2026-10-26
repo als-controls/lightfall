@@ -50,6 +50,7 @@ def test_skill_and_tool_split(specs):
     dev = specs["lightfall-dev"]
     assert set(operator.skills) == {
         "scan_planning",
+        "plan_review",
         "alignment",
         "current_esaf",
         "autonomous_experiment",
