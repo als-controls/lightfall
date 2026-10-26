@@ -286,6 +286,11 @@ builtin_manifest = PluginManifest(
                 "AcquisitionHealthMonitorPlugin"
             ),
         ),
+        PluginEntry(
+            type_name="monitor",
+            name="beam_status",
+            import_path="lightfall.monitor.feeds.beam_status:BeamStatusMonitorPlugin",
+        ),
         # Panel plugins - preload to register with PanelRegistry before main window
         PluginEntry(
             type_name="panel",
