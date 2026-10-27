@@ -424,6 +424,12 @@ def _setup_bluesky(app: LFApplication) -> None:
     engine = get_engine()
     services.register_instance(type(engine), engine)
 
+    # SCAN_RUN check + submitted_by stamp on every queued plan (warn-only
+    # unless the engine_permission_mode preference says "enforce").
+    from lightfall.auth import engine_guard
+
+    engine_guard.install(engine)
+
     # Get/create plan registry with standard bluesky plans
     plan_registry = get_plan_registry()
     services.register_instance(type(plan_registry), plan_registry)

@@ -79,6 +79,8 @@ class MockEngine(BaseEngine):
         if not name:
             name = self._get_procedure_name(procedure)
 
+        self.authorize(name, kwargs)
+
         # Run pre-submit callables
         if not skip_pre_submit:
             if self._run_pre_submit_hooks(name, kwargs) is None:

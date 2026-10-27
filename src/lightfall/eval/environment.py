@@ -130,6 +130,9 @@ class SimEnvironment:
         from lightfall.acquire.engine import get_engine
 
         self.engine = get_engine()
+        from lightfall.auth import engine_guard
+
+        engine_guard.install(self.engine)  # same guard as the app
         try:
             get_run_engine().sigDocumentYield.connect(
                 lambda name, doc: self.documents.append((name, dict(doc))))
