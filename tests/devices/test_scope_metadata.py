@@ -109,14 +109,14 @@ def test_mock_serves_beam_path_for_any_beamline_scope():
     for scope in ("beamline:sim", "beamline:default"):
         data = backend.get_scope_metadata(scope)
         assert data is not None
-        assert len(data["synoptic"]["beam_path"]) == 3
+        assert len(data["synoptic"]["beam_path"]) == 7
 
 
 def test_mock_scope_metadata_is_a_copy():
     backend = MockBackend()
     data = backend.get_scope_metadata("beamline:sim")
     data["synoptic"]["beam_path"].clear()
-    assert len(backend.get_scope_metadata("beamline:sim")["synoptic"]["beam_path"]) == 3
+    assert len(backend.get_scope_metadata("beamline:sim")["synoptic"]["beam_path"]) == 7
 
 
 def test_catalog_first_backend_answering_wins(qapp):

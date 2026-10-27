@@ -39,7 +39,7 @@ def test_area_det_in_roster_metadata():
     assert "camera" in info.tags
     assert "hdf5" in info.tags
     synoptic = info.metadata["synoptic"]
-    assert synoptic["position"][0] == 27.0
+    assert synoptic["position"][0] == pytest.approx(40.0)
 
 
 def test_count_writes_hdf5(area_det):

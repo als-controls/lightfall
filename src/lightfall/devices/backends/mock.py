@@ -37,11 +37,12 @@ class MockBackend(DeviceBackend):
     - Motors (SynAxis): x, y, z linear stages; theta rotation
     - Detectors (SynGauss, SynSignal): point detector, noisy detector
     - Signals (SynSignal): pressure sensor, storage ring current
-    - A full beamline roster (see ``mock_roster.create_roster``): front-end
-      shutters/valves, optics (mirrors, mono, slits), diagnostics (BPMs,
-      i0), and endstation devices (sample stages, a temperature
-      controller), each carrying ``metadata["synoptic"]`` for the
-      synoptic panel
+    - A COSMIC-Scattering (7.0.1.1) beamline roster (see
+      ``mock_roster.create_roster`` and ``devices.sim.cosmic_roster``): EPU,
+      shutters/valves, mirrors, PGM, slits, paddles and diodes, pinhole and
+      a coupled sample stage, all reading from one beam model
+      (``devices.sim.cosmic_model``), each carrying ``metadata["synoptic"]``
+      for the synoptic panel
 
     Example:
         >>> backend = MockBackend()

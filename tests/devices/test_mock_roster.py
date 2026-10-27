@@ -34,16 +34,16 @@ def test_roster_names_unique_and_ophyd_attached():
         assert info._ophyd_device.name == info.name
 
 
-def test_roster_covers_expected_sections():
+def test_roster_covers_cosmic_scattering():
     names = {i.name for i in _roster()}
     expected = {
-        "fe_shutter", "ps_shutter", "gv_1", "gv_2", "ig_1", "ig_2",
-        "m1_pitch", "m1_bend", "mono_energy",
-        "white_slits_hgap", "white_slits_vgap",
-        "mono_slits_hgap", "mono_slits_vgap",
-        "es_slits_hgap", "es_slits_vgap", "es_slits_hcen", "es_slits_vcen",
-        "bpm_x", "bpm_y", "i0", "filter_wheel",
-        "sample_z", "sample_theta", "temperature", "point_det",
+        "epu_gap", "epu_harmonic", "fe_shutter", "gv_1", "ig_1",
+        "M101_pitch", "DIAG101", "DIAG101_Diode", "mono_energy", "beamline_energy",
+        "DIAG102_hgap", "DIAG102_vgap", "beamline_shutter", "gv_2", "ig_2",
+        "M111_pitch", "DIAG111", "DIAG111_Diode", "XS111_hgap", "XS111_vgap",
+        "M112_pitch", "DIAG112_Diode", "PinholeX", "PinholeY",
+        "sample_lift", "sample_translate", "sample_rotate_steppertheta",
+        "DetectorDiodeCurrent", "temperature",
     }
     assert expected <= names
 
@@ -53,35 +53,40 @@ def test_categories_are_semantic():
     assert by_name["fe_shutter"].category == DeviceCategory.SHUTTER
     assert by_name["gv_1"].category == DeviceCategory.VALVE
     assert by_name["ig_1"].category == DeviceCategory.SENSOR
-    assert by_name["i0"].category == DeviceCategory.DETECTOR
+    assert by_name["DetectorDiodeCurrent"].category == DeviceCategory.DETECTOR
     assert by_name["temperature"].category == DeviceCategory.CONTROLLER
 
 
 def test_positions_ordered_along_beam():
     by_name = {i.name: i for i in _roster()}
-    order = ["fe_shutter", "m1_pitch", "mono_energy", "i0", "point_det"]
+    order = ["epu_gap", "fe_shutter", "M101_pitch", "mono_energy", "M111_pitch",
+             "XS111_hgap", "M112_pitch", "DIAG112_Diode", "PinholeX", "sample_lift",
+             "DetectorDiodeCurrent"]
     xs = [by_name[n].metadata["synoptic"]["position"][0] for n in order]
     assert xs == sorted(xs)
 
 
-def test_i0_responds_to_shutters():
-    by_name = {i.name: i for i in _roster()}
-    i0 = by_name["i0"]._ophyd_device
-    fe = by_name["fe_shutter"]._ophyd_device
-    ps = by_name["ps_shutter"]._ophyd_device
+def _read(dev):
+    dev.trigger()
+    return next(iter(dev.read().values()))["value"]
 
-    i0.trigger()
-    assert i0.get() < 1.0  # shutters closed -> essentially no beam
 
-    fe.state.put("open")
-    ps.state.put("open")
-    i0.trigger()
-    assert i0.get() > 10.0  # beam on
+def test_diodes_respond_to_the_whole_beamline():
+    by_name = {i.name: i._ophyd_device for i in _roster()}
+    det = by_name["DetectorDiodeCurrent"]
+    assert _read(det) > 5000  # beam on out of the box
+    by_name["fe_shutter"].state.put("closed")
+    assert _read(det) < 10  # front end closed: dark current only
+    assert _read(by_name["DIAG112_Diode"]) < 10
+    by_name["fe_shutter"].state.put("open")
+    by_name["DIAG111"].state.put("closed")  # paddle in
+    assert _read(by_name["DIAG111_Diode"]) > 1000
+    assert _read(det) < 10
 
 
 def test_beam_path_scope_metadata_deserializes():
     segments = BEAMLINE_SCOPE_METADATA["synoptic"]["beam_path"]
-    assert len(segments) == 3
+    assert len(segments) == 7
     for seg in segments:
         BeamPathSegment.from_dict(seg)
 
@@ -96,7 +101,7 @@ def test_legacy_synoptic_hides_legacy_devices():
 
 def test_slit_devices_use_double_rect_shapes():
     by_name = {i.name: i for i in _roster()}
-    for name in ("white_slits_hgap", "mono_slits_hgap", "es_slits_hgap", "es_slits_hcen"):
+    for name in ("DIAG102_hgap", "XS111_hgap"):
         assert by_name[name].metadata["synoptic"]["primitive_shape"] == "double_rect_h"
-    for name in ("white_slits_vgap", "mono_slits_vgap", "es_slits_vgap", "es_slits_vcen"):
+    for name in ("DIAG102_vgap", "XS111_vgap"):
         assert by_name[name].metadata["synoptic"]["primitive_shape"] == "double_rect_v"
