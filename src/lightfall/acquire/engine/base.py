@@ -110,6 +110,10 @@ class BaseEngine(QObject):
         # membership under the lock.
         self._queue_lock = threading.RLock()
         self._current_procedure: PrioritizedProcedure | None = None  # Currently running
+        # Authorization for submit(): returns a denial reason, or None to
+        # allow. Installed by lightfall.auth.engine_guard; None = no check
+        # (bare engines in tests and scripts).
+        self._authorizer: Callable[[str, dict[str, Any]], str | None] | None = None
         self._subscribers: dict[int, Callable[[str, dict], Any]] = {}
         self._next_token = 0
         self._pre_submit_callables: list[Callable[[str, dict[str, Any]], dict[str, Any] | None]] = []
@@ -205,6 +209,10 @@ class BaseEngine(QObject):
         # Auto-detect name from generator if not provided
         if not name:
             name = self._get_procedure_name(procedure)
+
+        # Authorization is not a pre-submit hook: skip_pre_submit must not
+        # bypass it, so every caller (GUI, agent tools, IPC) is checked here.
+        self.authorize(name, kwargs)
 
         # Run pre-submit callables
         if not skip_pre_submit:
@@ -498,6 +506,25 @@ class BaseEngine(QObject):
                 logger.warning(f"[{self._name}] Error in pre-submit callable: {ex}")
                 return None
         return kwargs
+
+    def set_authorizer(
+        self, authorizer: Callable[[str, dict[str, Any]], str | None] | None
+    ) -> None:
+        """Install the submit-time authorization check (see
+        :mod:`lightfall.auth.engine_guard`). ``authorizer(name, kwargs)``
+        returns a denial reason, or None to allow."""
+        self._authorizer = authorizer
+
+    def authorize(self, name: str, kwargs: dict[str, Any]) -> None:
+        """Raise PermissionError if the installed authorizer denies running
+        ``name``. Called by submit(); engines that override submit() call it
+        themselves."""
+        if self._authorizer is None:
+            return
+        reason = self._authorizer(name, kwargs)
+        if reason:
+            logger.warning(f"[{self._name}] Refused to queue '{name}': {reason}")
+            raise PermissionError(reason)
 
     def register_pre_submit(
         self, callable_: Callable[[str, dict[str, Any]], dict[str, Any] | None]
