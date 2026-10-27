@@ -19,7 +19,8 @@ def test_all_devices_have_synoptic_metadata():
 def test_roster_devices_present_and_instantiable():
     backend = MockBackend()
     infos = {i.name: i for i in backend.load_metadata()}
-    for name in ("fe_shutter", "mono_energy", "i0", "point_det", "sample_theta"):
+    for name in ("fe_shutter", "mono_energy", "DetectorDiodeCurrent", "sample_lift",
+                 "sample_rotate_steppertheta"):
         assert name in infos
         assert backend.instantiate(infos[name]) is not None
 
