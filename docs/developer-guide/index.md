@@ -36,6 +36,7 @@ Lightfall participates in a NATS message bus so that external services — autom
 
 - [PyQtGraph Development Notes](pyqtgraph-notes.md) collects non-obvious coordinate-system and rendering gotchas for contributors working on visualization code.
 - [Diagnostics and Debugging Tools](diagnostics.md) is the map of what Lightfall records when something goes wrong: crash dumps in `fault.log`, logs, the error collector and bug reports, the agent's self-diagnosis tools, and agent usage telemetry.
+- [Agent Evaluation](evaluation.md) runs the assistant against the simulated COSMIC-Scattering beamline and scores the result (`python -m lightfall.eval`).
 - [Startup Profiling](startup-profiling.md) documents `LIGHTFALL_STARTUP_PROFILE`, the HTML/JSON/cProfile artifacts written to `logs/diagnostics/`, and how to instrument additional startup phases.
 
 ```{toctree}
@@ -50,5 +51,6 @@ remote-epics-access
 deployment
 pyqtgraph-notes
 diagnostics
+evaluation
 startup-profiling
 ```
