@@ -6,6 +6,7 @@ Tests the Engine protocol, BaseEngine, BlueskyEngine, and MockEngine.
 import threading
 import time
 from queue import Empty
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -305,6 +306,14 @@ class TestStopAbortFromPaused:
         assert engine.abort(reason="paused abort") is True
         _wait_interrupt(engine)
         engine._RE.abort.assert_called_once_with(reason="paused abort")
+        # sigAbort is emitted once the RunEngine call has settled (from the
+        # worker's finished slot on the GUI thread), not at dispatch.
+        from PySide6.QtWidgets import QApplication
+
+        deadline = time.time() + 2.0
+        while not aborts and time.time() < deadline:
+            QApplication.instance().processEvents()
+            time.sleep(0.01)
         assert aborts == [True]
 
     def test_abort_not_dispatched_when_idle(self, offline_bluesky_engine):

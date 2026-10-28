@@ -121,8 +121,10 @@ class LiveDataBuffer(QObject):
         self._timestamps: deque[float] = deque(maxlen=max_points)
         self._seq_nums: deque[int] = deque(maxlen=max_points)
 
-        # Current run state
+        # Current run state. _current_run keeps the last run's info after it
+        # ends; _running tracks start/stop so is_running goes false again.
         self._current_run: RunInfo | None = None
+        self._running = False
         self._descriptors: dict[str, dict[str, Any]] = {}  # stream_name -> descriptor
         self._data_keys: dict[str, dict[str, Any]] = {}  # field -> data_key info
 
@@ -158,6 +160,7 @@ class LiveDataBuffer(QObject):
         """
         self.clear()
         self._current_run = RunInfo.from_start_doc(doc)
+        self._running = True
         self.scan_started.emit(doc)
         logger.info(f"Scan started: {self._current_run.uid[:8]}")
 
@@ -222,6 +225,7 @@ class LiveDataBuffer(QObject):
         """
         exit_status = doc.get("exit_status", "unknown")
         num_events = doc.get("num_events", {})
+        self._running = False
         self.scan_completed.emit(doc)
         logger.info(f"Scan completed: {exit_status}, events: {num_events}")
 
@@ -234,8 +238,8 @@ class LiveDataBuffer(QObject):
 
     @property
     def is_running(self) -> bool:
-        """Check if a run is in progress."""
-        return self._current_run is not None
+        """Check if a run is in progress (start seen, stop not yet)."""
+        return self._running
 
     @property
     def field_names(self) -> list[str]:
@@ -313,6 +317,7 @@ class LiveDataBuffer(QObject):
         self._descriptors.clear()
         self._data_keys.clear()
         self._current_run = None
+        self._running = False
 
     def set_max_points(self, max_points: int) -> None:
         """Set the maximum number of points to buffer.

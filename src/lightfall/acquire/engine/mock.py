@@ -120,6 +120,8 @@ class MockEngine(BaseEngine):
         self._current_uid = None
         self._set_state(EngineState.IDLE)
         self.sigFinish.emit()
+        # Per-procedure terminal signal; ConsoleREProxy blocks on it.
+        self.sigProcedureFinished.emit(uid, None)
         return uid
 
     def pause(self, defer: bool = False) -> None:

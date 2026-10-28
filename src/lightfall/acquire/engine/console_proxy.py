@@ -52,10 +52,17 @@ class ConsoleREProxy:
 
         loop = QEventLoop()
         state: dict[str, Any] = {"id": None, "done": False, "error": None}
+        # Completions seen before submit() has returned our id. An engine that
+        # runs synchronously (MockEngine) finishes inside submit(), so the
+        # signal must be matched after the fact or exec() below never returns.
+        early: dict[str, Any] = {}
 
         def _on_finished(procedure_id: str, error: Any) -> None:
+            if state["id"] is None:
+                early[procedure_id] = error
+                return
             # Ignore completions for other procedures on the shared engine.
-            if state["id"] is not None and procedure_id == state["id"]:
+            if procedure_id == state["id"]:
                 state["error"] = error
                 state["done"] = True
                 loop.quit()
@@ -68,6 +75,9 @@ class ConsoleREProxy:
             state["id"] = engine.__call__(*args, **kwargs)
             if state["id"] is None:
                 return
+            if state["id"] in early:
+                state["error"] = early[state["id"]]
+                state["done"] = True
             if not state["done"]:
                 loop.exec()  # pump GUI until this procedure's completion fires
         finally:

@@ -565,8 +565,10 @@ class BaseEngine(QObject):
         # Emit Qt signal
         self.sigOutput.emit(name, doc)
 
-        # Call direct subscribers
-        for callback in self._subscribers.values():
+        # Call direct subscribers. Snapshot first: this runs on the engine
+        # thread while subscribe()/unsubscribe() may run on the GUI thread (or
+        # inside a callback), and iterating a dict that changes size raises.
+        for callback in list(self._subscribers.values()):
             try:
                 callback(name, doc)
             except Exception as ex:
