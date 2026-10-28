@@ -1,5 +1,6 @@
 """Inline widget for tool permission approval requests."""
 
+import html
 import json
 
 from PySide6.QtCore import Qt, Signal
@@ -66,8 +67,10 @@ class PermissionRequestWidget(QFrame):
         compact_row.setSpacing(8)
 
         # Tool info: "🔧 click_widget(button_name)"
-        tool_display = self._format_tool_name(self.tool_name)
-        input_summary = self._format_input_summary(self.tool_input)
+        # The label is RichText: a tool argument like "<unnamed_QPushButton>"
+        # or "cat < in > out" would otherwise be parsed as markup and vanish.
+        tool_display = html.escape(self._format_tool_name(self.tool_name))
+        input_summary = html.escape(self._format_input_summary(self.tool_input))
 
         if input_summary:
             info_text = f"\U0001F527 <b>{tool_display}</b>({input_summary})"

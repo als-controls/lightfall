@@ -725,7 +725,9 @@ class SessionManager(QObject):
         Raises:
             PermissionError: If permission is not granted.
         """
-        if self._offline_mode:
+        # Same offline rule as check_permission(): view permissions stay
+        # available, everything else is refused.
+        if self._offline_mode and not self.check_permission(permission, context):
             raise PermissionError("Operation not permitted in offline mode")
 
         self._policy_engine.require_permission(

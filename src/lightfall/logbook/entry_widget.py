@@ -395,7 +395,14 @@ class EntryWidget(QFrame):
         self._tags_layout.insertWidget(self._tags_layout.count() - 1, tag_input)
         tag_input.setFocus()
 
+        committed = False
+
         def commit() -> None:
+            # Enter fires returnPressed and then editingFinished; run once.
+            nonlocal committed
+            if committed:
+                return
+            committed = True
             text = tag_input.text().strip()
             tag_input.deleteLater()
             if text and text not in self._entry.tags:

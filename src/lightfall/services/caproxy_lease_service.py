@@ -306,10 +306,12 @@ class CaproxyLeaseService(QObject):
         The client used for each cycle's GET is stashed on ``self`` so
         ``_interrupt_poll`` can close it to abort an in-flight request.
         """
-        headers = _auth_headers()
         try:
             while not stop_event.is_set():
                 try:
+                    # Re-read every cycle: the token changes on Keycloak
+                    # login/logout and when the preference is edited.
+                    headers = _auth_headers()
                     client = httpx.Client(timeout=_POLL_TIMEOUT_S)
                     with self._poll_client_lock:
                         self._poll_client = client

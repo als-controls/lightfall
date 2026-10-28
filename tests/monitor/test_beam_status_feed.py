@@ -36,7 +36,7 @@ def test_beam_lost_during_run_is_critical_once():
     src.data = _beam(available=False)
     obs = feed.evaluate(ctx, _win(), [])
     assert obs is not None and obs.severity == "critical"
-    assert obs.state_key == "beam_status:beam_lost"
+    assert obs.state_key == "beam_status:beam"
     assert "RF trip" in obs.message
     assert feed.evaluate(ctx, _win(), []) is None
 
@@ -50,7 +50,7 @@ def test_beam_restored_after_loss_is_info():
     feed.evaluate(ctx, _win(), [])
     src.data = _beam(current=480.0)
     obs = feed.evaluate(ctx, _win(), [])
-    assert obs is not None and obs.state_key == "beam_status:beam_restored"
+    assert obs is not None and obs.state_key == "beam_status:beam"
     assert obs.severity == "info"
 
 
@@ -93,3 +93,23 @@ def test_default_source_never_creates_the_service():
     feed = BeamStatusFeed()
     assert feed.evaluate(ExperimentContext(), _win(), []) is None
     assert ALSBeamStatusService._instance is None
+
+
+def test_second_beam_loss_in_same_run_surfaces_again():
+    """Loss and restoration share a state key, so the rate limiter sees the
+    severity flip each way instead of suppressing the second loss."""
+    from lightfall.monitor.rate_limiter import RateLimiter
+
+    src = _Source(_beam())
+    feed = BeamStatusFeed(source=src)
+    ctx = ExperimentContext()
+    limiter = RateLimiter()
+    feed.evaluate(ctx, _win(), [])
+    surfaced = []
+    for data in (_beam(available=False), _beam(), _beam(available=False)):
+        src.data = data
+        obs = feed.evaluate(ctx, _win(), [])
+        assert obs is not None
+        if limiter.should_surface(obs):
+            surfaced.append(obs.severity)
+    assert surfaced == ["critical", "info", "critical"]

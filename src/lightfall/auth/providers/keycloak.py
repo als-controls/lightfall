@@ -116,6 +116,11 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
     callback_result: dict[str, Any] | None = None
     error: str | None = None
 
+    @classmethod
+    def settled(cls) -> bool:
+        """True once the OAuth redirect (success or error) has been handled."""
+        return cls.callback_result is not None or cls.error is not None
+
     def do_GET(self) -> None:
         """Handle the OAuth callback GET request."""
         parsed = urlparse(self.path)
@@ -580,6 +585,22 @@ class KeycloakAuthProvider(AuthProvider):
 
         return result_holder["code"]
 
+    @staticmethod
+    def _serve_until_callback(server: HTTPServer, stop: Event) -> None:
+        """Serve the callback port until the OAuth redirect has been handled.
+
+        One ``handle_request()`` is not enough: browsers probe ``/favicon.ico``
+        and open preconnect sockets, and any such request would otherwise
+        consume the single accept and the real redirect would never be read.
+        ``server.timeout`` bounds each wait so ``stop`` is honoured promptly.
+        """
+        while not stop.is_set() and not _OAuthCallbackHandler.settled():
+            try:
+                server.handle_request()
+            except OSError:
+                # Socket closed by the caller on cancel/timeout.
+                break
+
     async def _auth_with_external_browser(
         self,
         auth_url: str,
@@ -612,7 +633,10 @@ class KeycloakAuthProvider(AuthProvider):
         for candidate in candidate_ports:
             try:
                 server = HTTPServer(("localhost", candidate), _OAuthCallbackHandler)
-                server.timeout = self._callback_timeout
+                # Short per-request timeout so the serving loop below can
+                # notice cancellation; the overall deadline is enforced by
+                # the wait loop further down.
+                server.timeout = 0.5
                 port = candidate
                 break
             except OSError as e:
@@ -648,10 +672,10 @@ class KeycloakAuthProvider(AuthProvider):
             }
             auth_url = f"{self._config.auth_url}?{urlencode(params)}"
 
-        def run_server() -> None:
-            server.handle_request()
-
-        server_thread = Thread(target=run_server, daemon=True)
+        stop_serving = Event()
+        server_thread = Thread(
+            target=self._serve_until_callback, args=(server, stop_serving), daemon=True
+        )
         server_thread.start()
 
         # Open browser
@@ -677,7 +701,8 @@ class KeycloakAuthProvider(AuthProvider):
                     break
                 server_thread.join(timeout=0.1)
         finally:
-            # Closing the socket unblocks the daemon handle_request() thread.
+            # Stop the serving loop, then close the socket to unblock it.
+            stop_serving.set()
             server.server_close()
 
         if cancelled:
