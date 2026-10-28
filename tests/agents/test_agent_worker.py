@@ -174,3 +174,20 @@ def test_set_effort_while_connecting_applies_after_connect(qtbot):
     finally:
         w.stop()
         w.wait(3000)
+
+
+def test_stream_ending_without_result_still_ends_the_turn(qtbot):
+    """A backend whose stream closes mid-turn (the CLI exited) yields no
+    terminal event; the worker must report it or the chat stays in its
+    "processing" state forever."""
+    w = AgentWorker(_FakeBackend([TextBlockEvent("partial")]))
+    errors, completed = [], []
+    w.error_occurred.connect(errors.append)
+    w.query_completed.connect(lambda: completed.append(1))
+    try:
+        _run(qtbot, w, wait_signal=w.error_occurred)
+        assert len(errors) == 1 and "without a result" in errors[0]
+        assert completed == []
+    finally:
+        w.stop()
+        w.wait(3000)

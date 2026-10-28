@@ -113,6 +113,13 @@ def save_draft(
         # Check if we're overwriting an existing draft.
         if path.exists():
             logger.info("drafts: overwriting existing draft '{}'", name)
+        # A revision proposed while a skill of this name was active (since
+        # removed) would otherwise shadow this draft: list_drafts() and
+        # approve_draft() look at SKILL.md.proposed first.
+        stale_proposed = draft_dir / "SKILL.md.proposed"
+        if stale_proposed.exists():
+            stale_proposed.unlink()
+            logger.info("drafts: dropped stale proposed revision for '{}'", name)
 
     path.write_text(content, encoding="utf-8")
     return path, is_revision

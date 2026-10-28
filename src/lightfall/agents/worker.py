@@ -185,6 +185,7 @@ class AgentWorker(QThread):
     async def _run_query(self, prompt: str) -> None:
         self._is_processing = True
         self._cancel_requested = False
+        self._turn_terminated = False
         try:
             async for ev in self.backend.run_turn(
                 prompt,
@@ -192,6 +193,19 @@ class AgentWorker(QThread):
                 stopping=lambda: self._should_stop,
             ):
                 self._emit(ev)
+            # The backend contract ends every turn with a result, cancelled or
+            # error event unless the worker is stopping. A backend whose stream
+            # simply closes (CLI exited mid-turn) would otherwise leave the UI
+            # in its "processing" state forever.
+            if not self._turn_terminated and not self._should_stop:
+                if self._cancel_requested:
+                    self.query_cancelled.emit()
+                else:
+                    logger.warning("AgentWorker: turn ended without a terminal event")
+                    self.error_occurred.emit(
+                        "The agent's response stream ended without a result "
+                        "(backend closed mid-turn)."
+                    )
         except Exception as e:  # backend bug: never kill the worker loop
             import traceback
             logger.exception("AgentWorker: backend run_turn raised")
@@ -244,6 +258,7 @@ class AgentWorker(QThread):
                 ev.task_id, ev.status, ev.summary, ev.output_file, ev.usage,
             )
         elif isinstance(ev, TurnResultEvent):
+            self._turn_terminated = True
             self.result_received.emit(ev.info)
             self.query_completed.emit()
         elif isinstance(ev, SessionIdEvent):
@@ -251,8 +266,10 @@ class AgentWorker(QThread):
         elif isinstance(ev, ContextUsageEvent):
             self.context_usage.emit(ev.usage)
         elif isinstance(ev, TurnCancelledEvent):
+            self._turn_terminated = True
             self.query_cancelled.emit()
         elif isinstance(ev, TurnErrorEvent):
+            self._turn_terminated = True
             self.error_occurred.emit(ev.message)
         else:
             logger.warning("AgentWorker: unknown event {!r}", ev)
