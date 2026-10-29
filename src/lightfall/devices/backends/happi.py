@@ -134,6 +134,19 @@ def _guess_category_from_mro(cls: type) -> DeviceCategory | None:
     return None
 
 
+def _item_field(item: Any, key: str, default: Any = "") -> Any:
+    """Read a happi item field, including ones happi files under ``extraneous``.
+
+    Fields the item's container doesn't declare (e.g. ``functional_group`` and
+    ``location_group`` on a plain ``OphydItem``) aren't attributes; happi keeps
+    them in ``item.extraneous``.
+    """
+    value = getattr(item, key, None)
+    if value is None:
+        value = (getattr(item, "extraneous", None) or {}).get(key)
+    return default if value is None else value
+
+
 def _guess_category(item: Any) -> DeviceCategory:
     """Determine device category from happi item metadata.
 
@@ -152,7 +165,7 @@ def _guess_category(item: Any) -> DeviceCategory:
             return cat
 
     # Fallback: check functional_group keywords
-    func_group = (getattr(item, "functional_group", "") or "").lower()
+    func_group = (_item_field(item, "functional_group") or "").lower()
     for key, cat in _FUNC_GROUP_CATEGORY_MAP.items():
         if key in func_group:
             return cat
@@ -374,8 +387,8 @@ class HappiBackend(DeviceBackend):
         item_name = getattr(item, "name", str(item))
         device_class = getattr(item, "device_class", "") or ""
         beamline = getattr(item, "beamline", self._beamline) or self._beamline or ""
-        location = getattr(item, "location_group", "") or ""
-        func_group = getattr(item, "functional_group", "") or ""
+        location = _item_field(item, "location_group") or ""
+        func_group = _item_field(item, "functional_group") or ""
 
         # Filter by beamline if configured
         if self._beamline and beamline and beamline != self._beamline:
@@ -754,8 +767,8 @@ class HappiBackend(DeviceBackend):
         item_name = getattr(item, "name", str(item))
         device_class = getattr(item, "device_class", "") or ""
         beamline = getattr(item, "beamline", self._beamline) or self._beamline or ""
-        location = getattr(item, "location_group", "") or ""
-        func_group = getattr(item, "functional_group", "") or ""
+        location = _item_field(item, "location_group") or ""
+        func_group = _item_field(item, "functional_group") or ""
 
         # Filter by beamline if configured
         if self._beamline and beamline and beamline != self._beamline:
