@@ -273,6 +273,13 @@ class DeviceTreeTab(QWidget):
                 fav_action.triggered.connect(lambda: self.favorite_toggled.emit(device_name, True))
             menu.addSeparator()
 
+            if self._catalog.can_retry_device(device_info.id):
+                reconnect_action = menu.addAction("Reconnect")
+                reconnect_action.triggered.connect(
+                    lambda: self._catalog.retry_device_connection(device_info.id)
+                )
+                menu.addSeparator()
+
             if device_editable:
                 edit_action = menu.addAction("Edit...")
                 edit_action.triggered.connect(lambda: self._edit_device(device_info))

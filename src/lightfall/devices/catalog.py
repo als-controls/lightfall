@@ -440,14 +440,10 @@ class DeviceCatalog(QObject):
             if device is None:
                 return
 
-            # If the backend already set a state (e.g. CONNECTING for
-            # CA tunnel retry), respect it instead of overwriting.
-            if device._state and device._state.status == DeviceStatus.CONNECTING:
-                # Backend wants to keep retrying — don't override
-                self.device_state_changed.emit(str(result.device_id), device._state)
-                return
-
-            # Update state to reflect failure
+            # Always record the failure. A guard here used to keep a CONNECTING
+            # state "for the CA tunnel retry", but _on_device_connecting marks
+            # every attempt after the first CONNECTING, so a failed retry left
+            # the device stuck there.
             if result.state == ConnectionState.TIMEOUT:
                 status = DeviceStatus.OFFLINE
             else:
@@ -620,8 +616,44 @@ class DeviceCatalog(QObject):
             logger.error("Failed to request device connection: {}", e)
             return False
 
+    def _retry_backend(self, device: DeviceInfo) -> DeviceBackend | None:
+        """The device's owning backend, if it can re-instantiate the device."""
+        backend = self._backends.get(self._device_backend_map.get(device.id, ""))
+        if backend is None:
+            return None
+        if type(backend).instantiate is DeviceBackend.instantiate:
+            return None  # still on the legacy path; base instantiate() raises
+        return backend
+
+    def can_retry_device(self, device_id: UUID | str) -> bool:
+        """Whether :meth:`retry_device_connection` would retry this device.
+
+        True for an active device in OFFLINE or ERROR whose backend can build
+        it again (any backend on the unified load path: CSM, happi, BCS, mock)
+        or that carries a stashed happi result.
+        """
+        if isinstance(device_id, str):
+            device_id = UUID(device_id)
+
+        device = self._device_cache.get(device_id)
+        if device is None or not device.active:
+            return False
+        if device._state is None or device._state.status not in (
+            DeviceStatus.ERROR,
+            DeviceStatus.OFFLINE,
+        ):
+            return False
+        return (
+            self._retry_backend(device) is not None
+            or device.metadata.get("_happi_result") is not None
+        )
+
     def retry_device_connection(self, device_id: UUID | str) -> bool:
         """Retry a failed device connection.
+
+        Goes through the owning backend's ``instantiate`` (the same path as the
+        initial load), so it works for every backend on the unified pipeline;
+        falls back to the stashed happi result for anything else.
 
         Args:
             device_id: Device ID to retry.
@@ -629,29 +661,22 @@ class DeviceCatalog(QObject):
         Returns:
             True if retry was requested, False if not applicable.
         """
+        if not self.can_retry_device(device_id):
+            return False
         if isinstance(device_id, str):
             device_id = UUID(device_id)
-
-        device = self._device_cache.get(device_id)
-        if device is None:
-            return False
-
-        # Only retry if in failed state
-        if device._state and device._state.status not in (
-            DeviceStatus.ERROR,
-            DeviceStatus.OFFLINE,
-        ):
-            return False
-
-        happi_result = device.metadata.get("_happi_result")
-        if happi_result is None:
-            return False
+        device = self._device_cache[device_id]
 
         try:
             from lightfall.devices.connection_manager import DeviceConnectionManager
 
             manager = DeviceConnectionManager.get_instance()
-            manager.retry_connection(device, happi_result)
+            backend = self._retry_backend(device)
+            if backend is not None:
+                timeout = getattr(backend, "connection_timeout", None)
+                manager.connect_devices(backend, [device], timeout=timeout)
+            else:
+                manager.retry_connection(device, device.metadata["_happi_result"])
             return True
 
         except Exception as e:
