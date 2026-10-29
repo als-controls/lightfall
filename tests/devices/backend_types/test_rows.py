@@ -10,6 +10,10 @@ from lightfall.devices.backend_types.rows import (
     load_or_migrate,
     load_rows,
     migrate_legacy,
+    restore_ids_from_value,
+    restore_value,
+    rows_from_value,
+    rows_to_value,
     save_rows,
     unique_name,
 )
@@ -18,12 +22,14 @@ from lightfall.devices.backend_types.rows import (
 class FakePrefs:
     def __init__(self, data: dict | None = None) -> None:
         self.data = dict(data or {})
+        self.scopes: dict = {}
 
     def get(self, key, default=None):
         return self.data.get(key, default)
 
-    def set(self, key, value):
+    def set(self, key, value, scope=None):
         self.data[key] = value
+        self.scopes[key] = scope
 
 
 def _by_type(rows):
@@ -34,15 +40,15 @@ def test_row_round_trip_keeps_id():
     prefs = FakePrefs()
     row = BackendRow(type="happi", name="happi-a", enabled=False, config={"path": "/x.json"})
     save_rows(prefs, [row])
-    assert prefs.data[DEVICE_BACKENDS_KEY] == [
-        {
+    assert prefs.data[DEVICE_BACKENDS_KEY] == {
+        row.id: {
             "id": row.id,
             "type": "happi",
             "name": "happi-a",
             "enabled": False,
             "config": {"path": "/x.json"},
         }
-    ]
+    }
     (loaded,) = load_rows(prefs.get)
     assert loaded == row
 
@@ -67,8 +73,34 @@ def test_unknown_type_is_preserved():
     )
     rows = load_rows(prefs.get)
     save_rows(prefs, rows)
-    assert prefs.data[DEVICE_BACKENDS_KEY][0]["type"] == "plugin-x"
-    assert prefs.data[DEVICE_BACKENDS_KEY][0]["config"] == {"k": 1}
+    assert prefs.data[DEVICE_BACKENDS_KEY]["a"]["type"] == "plugin-x"
+    assert prefs.data[DEVICE_BACKENDS_KEY]["a"]["config"] == {"k": 1}
+
+
+def test_union_shape_loads_in_order():
+    prefs = FakePrefs({DEVICE_BACKENDS_KEY: {
+        "b": {"id": "b", "type": "mock", "name": "first"},
+        "a": {"id": "a", "type": "happi", "name": "second"},
+    }})
+    assert [r.name for r in load_rows(prefs.get)] == ["first", "second"]
+
+
+def test_union_item_id_comes_from_its_key():
+    (row,) = rows_from_value({"k": {"type": "mock", "name": "m"}})
+    assert row.id == "k"
+
+
+def test_rows_to_value_is_keyed_by_id():
+    rows = [BackendRow(type="mock", name="m", id="x")]
+    assert rows_to_value(rows) == {"x": rows[0].to_dict()}
+    assert rows_from_value(rows_to_value(rows)) == rows
+
+
+def test_restore_ids_accept_both_shapes():
+    assert restore_ids_from_value(["a", "b"]) == ["a", "b"]
+    assert restore_ids_from_value({"a": True, "b": True}) == ["a", "b"]
+    assert restore_ids_from_value(None) == []
+    assert restore_value(["a", "b"]) == {"a": True, "b": True}
 
 
 def test_migrate_fresh_config_is_enabled_mock_only():
@@ -132,11 +164,14 @@ def test_load_or_migrate_saves_once():
     prefs = FakePrefs({"device_backend": "mock"})
     rows = load_or_migrate(prefs)
     assert DEVICE_BACKENDS_KEY in prefs.data
+    assert prefs.scopes[DEVICE_BACKENDS_KEY] == "local"  # console config, never user scope
     assert load_or_migrate(prefs) == rows
 
 
 def test_empty_list_is_not_remigrated():
     prefs = FakePrefs({DEVICE_BACKENDS_KEY: [], "device_mock_enabled": True})
+    assert load_or_migrate(prefs) == []
+    prefs = FakePrefs({DEVICE_BACKENDS_KEY: {}, "device_mock_enabled": True})
     assert load_or_migrate(prefs) == []
 
 

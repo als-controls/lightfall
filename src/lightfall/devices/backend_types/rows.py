@@ -127,13 +127,15 @@ def migrate_legacy(get: Getter) -> list[BackendRow]:
     return rows
 
 
-def load_rows(get: Getter) -> list[BackendRow] | None:
-    """Read saved rows; ``None`` when the preference has never been written."""
-    raw = get(DEVICE_BACKENDS_KEY, None)
-    if raw is None:
-        return None
+def rows_from_value(raw: Any) -> list[BackendRow]:
+    """Rows from a stored value: ``{row id: row}`` (union shape) or a legacy list."""
+    if isinstance(raw, dict):
+        entries = [{**item, "id": rid} if isinstance(item, dict) else item
+                   for rid, item in raw.items()]
+    else:
+        entries = list(raw or [])
     rows: list[BackendRow] = []
-    for entry in raw:
+    for entry in entries:
         try:
             rows.append(BackendRow.from_dict(entry))
         except (KeyError, TypeError, ValueError) as exc:
@@ -141,16 +143,46 @@ def load_rows(get: Getter) -> list[BackendRow] | None:
     return rows
 
 
-def save_rows(prefs: Any, rows: Iterable[BackendRow]) -> None:
-    prefs.set(DEVICE_BACKENDS_KEY, [row.to_dict() for row in rows])
+def rows_to_value(rows: Iterable[BackendRow]) -> dict[str, dict[str, Any]]:
+    """The union shape lightfall-settings expects: rows keyed by id, in order."""
+    return {row.id: row.to_dict() for row in rows}
+
+
+def restore_ids_from_value(raw: Any) -> list[str]:
+    if isinstance(raw, dict):
+        return [str(rid) for rid, on in raw.items() if on]
+    return [str(rid) for rid in raw or []]
+
+
+def restore_value(ids: Iterable[str]) -> dict[str, bool]:
+    return dict.fromkeys(ids, True)
+
+
+def load_rows(get: Getter) -> list[BackendRow] | None:
+    """Read saved rows; ``None`` when the preference has never been written."""
+    raw = get(DEVICE_BACKENDS_KEY, None)
+    if raw is None:
+        return None
+    return rows_from_value(raw)
+
+
+def save_rows(prefs: Any, rows: Iterable[BackendRow], scope: str | None = None) -> None:
+    if scope is None:
+        prefs.set(DEVICE_BACKENDS_KEY, rows_to_value(rows))
+    else:
+        prefs.set(DEVICE_BACKENDS_KEY, rows_to_value(rows), scope=scope)
 
 
 def load_or_migrate(prefs: Any) -> list[BackendRow]:
-    """Saved rows, or (first run after upgrade) migrated legacy rows, saved."""
+    """Saved rows, or (first run after upgrade) migrated legacy rows, saved.
+
+    Legacy ``device_*`` keys describe this console, so the rows go to its local layer,
+    never to whoever happens to be logged in.
+    """
     rows = load_rows(prefs.get)
     if rows is None:
         rows = migrate_legacy(prefs.get)
-        save_rows(prefs, rows)
+        save_rows(prefs, rows, scope="local")
         logger.info("Migrated legacy device backend preferences into {} row(s)", len(rows))
     return rows
 

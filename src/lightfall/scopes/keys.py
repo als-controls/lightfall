@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from lightfall_settings import ALL_KINDS, SettingSpec, SpecRegistry, core_registry
+from lightfall_settings import ALL_KINDS, SettingSpec, SpecRegistry, deployment_registry
 
 LOCAL_ONLY_KEYS: frozenset[str] = frozenset({
     # How this machine reaches servers (needed before login; differs per network).
@@ -58,10 +58,24 @@ CLIENT_SPECS: tuple[SettingSpec, ...] = (
 
 
 def client_registry() -> SpecRegistry:
-    reg = core_registry()
-    # Core specs win: lightfall-settings >= 0.1.3 declares tiled_url (public, all scopes).
+    reg = deployment_registry()
+    # Shared specs win: lightfall-settings declares tiled_url (core, public) and the
+    # beamline identity keys and device rows (DEPLOYMENT_SPECS), which the server enforces.
     reg.register_all(spec for spec in CLIENT_SPECS if not reg.is_declared(spec.key))
     return reg
+
+
+# Keys with a writable console layer: the console's own YAML sits between branch and user
+# scope (settings-layering design, Part 2). Everything else uses the YAML only as the
+# fallback below every scope.
+LOCAL_LAYER_KEYS: frozenset[str] = frozenset({
+    "device_backends", "device_backends_exclusive_restore",
+})
+
+
+def beamline_capable(spec: SettingSpec) -> bool:
+    """True if a beamline or branch may set this key (so it describes a deployment)."""
+    return spec.allows("beamline") or spec.allows("branch")
 
 
 # Preference groups stored nested in YAML but addressed as dotted keys
