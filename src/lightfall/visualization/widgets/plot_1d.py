@@ -46,6 +46,14 @@ class Plot1DVisualization(BaseVisualization):
     viz_display_name = "1D Plot"
     viz_icon = "chart-line"
 
+    # Field-name prefixes that are ticked together by default, and whose
+    # presence makes 1D Plot the auto-selected visualization.
+    overlay_default_prefixes: tuple[str, ...] = ("B_analog_inputs",)
+
+    @classmethod
+    def _is_overlay_default(cls, name: str) -> bool:
+        return name.startswith(cls.overlay_default_prefixes)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
@@ -132,6 +140,15 @@ class Plot1DVisualization(BaseVisualization):
             data_keys = stream_data_keys(run["primary"])
         except Exception:
             return 0
+        # Runs carrying an overlay-group field (e.g. B_analog_inputs_*) open
+        # in 1D Plot even when an image detector is present (beats
+        # ScanViewer's 90).
+        if any(
+            Plot1DVisualization._is_overlay_default(name)
+            and list(dk.get("shape") or []) == []
+            for name, dk in data_keys.items()
+        ):
+            return 95
         for dk in data_keys.values():
             shape = dk.get("shape", [])
             if shape == [] or shape == ():
@@ -171,7 +188,12 @@ class Plot1DVisualization(BaseVisualization):
 
         fields = self.get_fields()
         self._populate_field_list(fields)
-        if fields:
+        overlay = [f for f in fields if self._is_overlay_default(f)]
+        if overlay:
+            # Tick the whole overlay group by default.
+            self._field_name = overlay[0]
+            self.set_checked_fields(overlay)
+        elif fields:
             self.set_field(fields[0])
 
     def get_fields(self) -> list[str]:

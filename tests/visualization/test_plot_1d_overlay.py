@@ -118,3 +118,51 @@ def test_base_default_export_skips_array_columns(monkeypatch) -> None:
     widget._run = {"primary": object()}
     widget._stream_name = "primary"
     assert list(bv.BaseVisualization.export_columns(widget)) == ["det"]
+
+
+# ---------------------------------------------------------------------------
+# Overlay-group default (B_analog_inputs_*)
+# ---------------------------------------------------------------------------
+
+B_FIELDS = [
+    "B_analog_inputs_b1", "B_analog_inputs_b2",
+    "B_analog_inputs_b3", "B_analog_inputs_b_tot",
+]
+
+
+def _hall_probe_run():
+    """Shaped like the 3D Hall probe scans: motor + B inputs + Andor image."""
+    from .document_generators import (
+        fake_run, make_array_data_key, make_descriptor_doc,
+        make_scalar_data_key, make_start_doc,
+    )
+
+    start = make_start_doc(
+        motors=["M_Bz"], num_points=3,
+        hints={"dimensions": [[["M_Bz"], "primary"]]},
+    )
+    keys = {"M_Bz": make_scalar_data_key("M_Bz"),
+            "andor_roi_stat1_net": make_scalar_data_key("andor_roi_stat1_net"),
+            "andor_image": make_array_data_key("andor_image", shape=[1, 512, 512])}
+    keys.update({f: make_scalar_data_key(f) for f in B_FIELDS})
+    return fake_run(start, make_descriptor_doc(start_uid=start["uid"], data_keys=keys))
+
+
+def test_b_inputs_auto_select_plot_1d_over_scan_viewer() -> None:
+    from lightfall.visualization.widgets.scan_viewer import ScanViewerVisualization
+
+    run = _hall_probe_run()
+    assert Plot1DVisualization.can_handle(run) == 95
+    assert Plot1DVisualization.can_handle(run) > ScanViewerVisualization.can_handle(run)
+
+
+def test_b_inputs_all_ticked_by_default(qtbot, monkeypatch) -> None:
+    widget = Plot1DVisualization()
+    qtbot.addWidget(widget)
+    events = {f: np.array([1.0, 2.0, 3.0]) for f in [*B_FIELDS, "M_Bz", "andor_roi_stat1_net"]}
+    monkeypatch.setattr(widget, "_read_events_table", lambda: events)
+    widget.set_run(_hall_probe_run())
+    widget.set_stream("primary")
+    assert widget.checked_fields() == B_FIELDS
+    assert sorted(_curve_names(widget)) == sorted(B_FIELDS)
+    assert widget._field_name == B_FIELDS[0]
