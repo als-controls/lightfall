@@ -321,7 +321,12 @@ class PreferencesManager(QObject):
             derived = self.derived_value(key)
             if derived is not None:
                 return derived
-        return default if value is self._MISSING else value
+        if value is self._MISSING or value is None:
+            # Unset typed preferences persist as ``null`` (pydantic field
+            # defaults), so a stored None means "no value", not "the value
+            # None" — the caller's default must win.
+            return default
+        return value
 
     def _site(self) -> Any:
         try:
