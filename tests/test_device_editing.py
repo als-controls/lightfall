@@ -529,3 +529,64 @@ class TestInactiveDeviceNotInstantiated:
         assert loaded._state is not None
         assert loaded._state.status.value == "disabled"
         assert loaded._state.connected is False
+
+
+class TestReconnectMenuItem:
+    """The device context menu offers Reconnect only when the catalog can retry."""
+
+    @pytest.fixture
+    def qapp(self):
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([])
+        yield app
+
+    def _menu_labels(self, can_retry: bool) -> tuple[list[str], MagicMock]:
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QMenu
+
+        from lightfall.devices.model import DeviceCategory, DeviceInfo
+        from lightfall.ui.models.device_tree import DeviceTreeModel
+        from lightfall.ui.widgets.device_tree_tab import DeviceTreeTab
+
+        device = DeviceInfo(name="stage_x", category=DeviceCategory.MOTOR)
+        catalog = MagicMock()
+        catalog.get_all_devices.return_value = [device]
+        catalog.backends = {}
+        catalog.can_retry_device.return_value = can_retry
+        with patch.object(DeviceTreeModel, "_poll_value_refresh"):
+            tab = DeviceTreeTab(catalog=catalog)
+            tab._model._value_timer.stop()
+
+        item = tab._find_device_item(tab._model.root_item, str(device.id))
+        assert item is not None
+        proxy_index = tab._proxy_model.mapFromSource(tab._model.index_for_item(item))
+
+        shown: list[QMenu] = []
+
+        class RecordingMenu(QMenu):
+            def exec(self, *args):  # never block on a real popup
+                shown.append(self)
+
+        with (
+            patch.object(tab._tree_view, "indexAt", return_value=proxy_index),
+            patch("lightfall.ui.widgets.device_tree_tab.QMenu", RecordingMenu),
+        ):
+            tab._on_context_menu(QPoint(0, 0))
+
+        labels = [a.text() for a in shown[0].actions()] if shown else []
+        if "Reconnect" in labels:
+            next(a for a in shown[0].actions() if a.text() == "Reconnect").trigger()
+        tab.close()
+        return labels, catalog
+
+    def test_reconnect_shown_and_triggers_retry(self, qapp):
+        labels, catalog = self._menu_labels(can_retry=True)
+        assert "Reconnect" in labels
+        catalog.retry_device_connection.assert_called_once()
+
+    def test_reconnect_hidden_when_not_retryable(self, qapp):
+        labels, catalog = self._menu_labels(can_retry=False)
+        assert "Reconnect" not in labels
+        catalog.retry_device_connection.assert_not_called()
