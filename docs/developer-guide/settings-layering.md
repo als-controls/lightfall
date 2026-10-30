@@ -1,6 +1,6 @@
 # Settings layering: deployment config vs. user cache
 
-**Status:** design proposal, not implemented
+**Status:** implemented in #52 (2026-10-29): union `device_backends`, console layer, cache moved to `scope-cache/`, migration only on unbound machines
 **Date:** 2026-10-29
 **Trigger:** device backend rows configured at 12.0.2.1 silently replaced this
 console's rows at 7.0.1.1 (see "The incident" below).
