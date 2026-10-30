@@ -144,3 +144,36 @@ def test_default_scope_user_when_server(pm):  # noqa: F811
     assert manager.default_scope() == "local"
     _login(manager)
     assert manager.default_scope() == "user:u1"
+
+
+def test_local_file_mode_layer_values_are_per_layer(local_pm):
+    m = local_pm
+    # This console holds nothing yet: the file value must not show as its own.
+    assert m.layer_value("tiled_url", "local") is None
+    assert m.layer_value("tiled_url", "facility") == "https://facility"
+    assert m.layer_value("tiled_url", "branch:7.0.1.1") is None
+    assert m.layer_value("device_bcs_port", "branch:7.0.1.1") == 5577
+    m.set("tiled_url", "https://mine", scope="local")
+    assert m.layer_value("tiled_url", "local") == "https://mine"
+    assert m.layer_value("tiled_url", "facility") == "https://facility"
+    m.remove("tiled_url", scope="local")
+    assert m.layer_value("tiled_url", "local") is None
+    assert m.get("tiled_url") == "https://facility"
+    m.set("theme", "dark", scope="local")  # a key no scope file mentions
+    assert m.layer_value("theme", "local") == "dark"
+    assert m.layer_value("theme", "facility") is None
+
+
+def test_off_mode_layer_value_is_the_console_yaml(qapp, tmp_path, monkeypatch):
+    monkeypatch.delenv("LIGHTFALL_SCOPES_DISABLED", raising=False)
+    PreferencesManager.reset()
+    try:
+        m = PreferencesManager.get_instance()
+        m.set_config_manager(FakeCM("branch:7.0.1.1"))
+        assert m.load_local_scopes(tmp_path) is False
+        assert m.layer_value("theme", "local") is None
+        m.set("theme", "dark", scope="local")
+        assert m.layer_value("theme", "local") == "dark"
+        assert m.layer_value("theme", "facility") is None
+    finally:
+        PreferencesManager.reset()

@@ -473,14 +473,21 @@ class PreferencesManager(QObject):
         return dict.fromkeys(value, "local") if isinstance(value, dict) else {}
 
     def layer_value(self, key: str, scope: str) -> Any:
-        """The value stored at one layer, or None."""
+        """The value stored at one layer, or None.
+
+        With scope files loaded, "local" is this console's own YAML value (never a
+        file value) and every other scope is that file's value.
+        """
+        from lightfall.scopes.store import MISSING
+
         scoped = self._active_scoped()
         if scoped is not None:
-            from lightfall.scopes.store import MISSING
-
             value = scoped.layer_value(key, scope)
-            return None if value is MISSING else value
-        return self.get(key, None) if scope == "local" else None
+        elif self._local_scopes is not None and (scope != "local" or self._local_scopes.owns(key)):
+            value = self._local_scopes.layer_value(key, scope)
+        else:  # no scopes, or a key no scope file mentions: the console's value
+            return self.get(key, None) if scope == "local" else None
+        return None if value is MISSING else value
 
     def _user_preferences(self) -> dict[str, Any]:
         cm = self._config_manager
