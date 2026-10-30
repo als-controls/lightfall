@@ -66,3 +66,30 @@ def test_specs_registered_on_construction():
     Page()
     assert client_registry().is_declared("test_task3.key")
     _reset_client_registry()
+
+
+def test_loader_registers_specs_for_pages_that_skip_super_init(qapp):
+    from lightfall.plugins.info import PluginInfo
+    from lightfall.plugins.loader import PluginLoader
+
+    _reset_client_registry()
+
+    class NoSuperPage(SettingsPlugin):
+        def __init__(self):  # deliberately does not call super().__init__()
+            self.x = 1
+
+        @property
+        def name(self):
+            return "nosuper"
+
+        def specs(self):
+            return [SettingSpec(key="test_task3.nosuper")]
+
+    loader = PluginLoader()
+    loader.register_plugin_type("settings", SettingsPlugin)
+    info = PluginInfo(type_name="settings", name="nosuper", import_path="x:y",
+                      plugin_class=NoSuperPage)
+    assert not client_registry().is_declared("test_task3.nosuper")
+    assert loader._instantiate_plugin(info)
+    assert client_registry().is_declared("test_task3.nosuper")
+    _reset_client_registry()

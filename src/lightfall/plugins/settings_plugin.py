@@ -100,7 +100,11 @@ class SettingsPlugin(PluginType):
         return ()
 
     def specs(self) -> Sequence[SettingSpec]:
-        """Setting specs this page declares (keys not already declared elsewhere)."""
+        """Setting specs this page declares (keys not already declared elsewhere).
+
+        Called at registration time, so it must not depend on instance state set
+        after ``super().__init__()``.
+        """
         return ()
 
     def validate_values(self, values: FormValues) -> list[str]:
@@ -204,7 +208,7 @@ class SettingsPlugin(PluginType):
         Called when the user clicks OK or Apply, after validate() passes.
         Should write values from the widget controls to PreferencesManager.
         """
-        ...
+        raise NotImplementedError
 
     def validate(self) -> list[str]:
         """Validate current widget values.
