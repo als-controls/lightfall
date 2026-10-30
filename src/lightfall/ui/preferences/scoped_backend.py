@@ -23,6 +23,7 @@ from lightfall.scopes.journal import WriteJournal
 from lightfall.scopes.keys import (
     LOCAL_LAYER_KEYS,
     client_registry,
+    console_only,
     flatten_preferences,
     is_local_only,
 )
@@ -286,6 +287,8 @@ class ScopedBackend(PreferenceBackend):
 
     def targets(self, key: str) -> list[str]:
         """Where this caller may write ``key``, most specific first."""
+        if console_only(key):
+            return [LOCAL]
         spec = self._registry.get(key)
         store = self._store
         out: list[str] = []

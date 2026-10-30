@@ -7,7 +7,7 @@ uploaded (spec section 1: the scoped store never holds secrets).
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from lightfall_settings import ALL_KINDS, SettingSpec, SpecRegistry, deployment_registry
@@ -38,6 +38,11 @@ def is_local_only(key: str) -> bool:
     )
 
 
+def console_only(key: str) -> bool:
+    """True if ``key`` lives only in this console's layer (never in a server scope)."""
+    return is_local_only(key)
+
+
 _BEAMLINE_AND_BELOW = frozenset({"beamline", "branch", "user"})
 
 # Keys a facility, beamline or branch may set for everyone there (users can still
@@ -57,12 +62,42 @@ CLIENT_SPECS: tuple[SettingSpec, ...] = (
 )
 
 
+_CLIENT_REGISTERED: dict[str, SettingSpec] = {}
+_CLIENT_REGISTRY: SpecRegistry | None = None
+
+
 def client_registry() -> SpecRegistry:
-    reg = deployment_registry()
-    # Shared specs win: lightfall-settings declares tiled_url (core, public) and the
-    # beamline identity keys and device rows (DEPLOYMENT_SPECS), which the server enforces.
-    reg.register_all(spec for spec in CLIENT_SPECS if not reg.is_declared(spec.key))
-    return reg
+    """The one shared client registry (cached), so holders see later registrations."""
+    global _CLIENT_REGISTRY
+    if _CLIENT_REGISTRY is None:
+        reg = deployment_registry()
+        # Shared specs win: lightfall-settings declares tiled_url (core, public) and the
+        # beamline identity keys and device rows (DEPLOYMENT_SPECS), which the server
+        # enforces.
+        reg.register_all(spec for spec in CLIENT_SPECS if not reg.is_declared(spec.key))
+        _CLIENT_REGISTRY = reg
+    return _CLIENT_REGISTRY
+
+
+def register_client_specs(specs: Iterable[SettingSpec]) -> None:
+    """Declare client-side specs (e.g. from a settings plugin) in the shared registry.
+
+    Idempotent per key: a later registration replaces an earlier one. Keys the shared
+    registry or CLIENT_SPECS already declare keep their spec.
+    """
+    reg = client_registry()
+    for spec in specs:
+        if reg.is_declared(spec.key) and spec.key not in _CLIENT_REGISTERED:
+            continue
+        _CLIENT_REGISTERED[spec.key] = spec
+        reg.register(spec, replace=True)
+
+
+def _reset_client_registry() -> None:
+    """Forget cached registry and registered specs (test isolation)."""
+    global _CLIENT_REGISTRY
+    _CLIENT_REGISTRY = None
+    _CLIENT_REGISTERED.clear()
 
 
 # Keys with a writable console layer: the console's own YAML sits between branch and user
