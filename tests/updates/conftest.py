@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -33,19 +34,31 @@ def make_clone(remote: Path, dest: Path) -> Path:
     return dest
 
 
-@pytest.fixture
-def git_remote(tmp_path: Path) -> Path:
-    """A bare repo with one commit on ``master`` (its HEAD names master)."""
-    seed = tmp_path / "seed"
+@pytest.fixture(scope="session")
+def _template(tmp_path_factory) -> Path:
+    """Build the seed remote and a clone once; tests get copies (git is slow on Windows)."""
+    base = tmp_path_factory.mktemp("git-template")
+    seed = base / "seed"
     seed.mkdir()
     git(seed, "init", "-b", "master")
     commit(seed, "README.md", "seed\n", "initial")
+    git(base, "clone", "--bare", str(seed), str(base / "remote.git"))
+    make_clone(base / "remote.git", base / "work")
+    return base
+
+
+@pytest.fixture
+def git_remote(_template: Path, tmp_path: Path) -> Path:
+    """A bare repo with one commit on ``master`` (its HEAD names master)."""
     remote = tmp_path / "remote.git"
-    git(tmp_path, "clone", "--bare", str(seed), str(remote))
+    shutil.copytree(_template / "remote.git", remote)
     return remote
 
 
 @pytest.fixture
-def clone(git_remote: Path, tmp_path: Path) -> Path:
+def clone(git_remote: Path, _template: Path, tmp_path: Path) -> Path:
     """A working clone of ``git_remote`` (``origin/HEAD`` points at master)."""
-    return make_clone(git_remote, tmp_path / "work")
+    work = tmp_path / "work"
+    shutil.copytree(_template / "work", work)
+    git(work, "remote", "set-url", "origin", str(git_remote))
+    return work
