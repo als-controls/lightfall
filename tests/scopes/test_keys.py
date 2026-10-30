@@ -94,3 +94,11 @@ def test_beamline_capable():
     assert beamline_capable(reg.get("device_favorites"))
     assert not beamline_capable(reg.get("theme"))
     assert not beamline_capable(reg.get("auth.realm"))  # facility only
+
+
+def test_tiled_service_keys_are_site_wide_not_per_user():
+    reg = client_registry()
+    for key, tp in (("tiled_enabled", bool), ("tiled_auth_mode", str)):
+        spec = reg.get(key)
+        assert spec.scopes == {"facility", "beamline", "branch"}
+        assert spec.type is tp

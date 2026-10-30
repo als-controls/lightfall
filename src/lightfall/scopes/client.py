@@ -23,10 +23,13 @@ class ScopesError(Exception):
     """A scoped-settings request failed. ``status`` is None for transport failures;
     ``code`` is the server's machine-readable reason (e.g. ``key_pending``)."""
 
-    def __init__(self, message: str, status: int | None = None, code: str | None = None) -> None:
+    def __init__(self, message: str, status: int | None = None, code: str | None = None,
+                 key_status: str | None = None) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
+        # For key_pending: the key's proposal status ("pending", "rejected", "unproposed").
+        self.key_status = key_status
 
 
 # Statuses that say "try again later", not "this write is wrong": transport failures
@@ -39,14 +42,18 @@ def is_transient(exc: BaseException) -> bool:
     return status is None or status in _TRANSIENT or (isinstance(status, int) and status >= 500)
 
 
-def _code(r: httpx.Response) -> str | None:
+def _extra(r: httpx.Response, field: str) -> str | None:
     try:
         body = r.json()
     except ValueError:
         return None
     extra = body.get("extra") if isinstance(body, dict) else None
-    code = extra.get("code") if isinstance(extra, dict) else None
-    return str(code) if code else None
+    value = extra.get(field) if isinstance(extra, dict) else None
+    return str(value) if value else None
+
+
+def _code(r: httpx.Response) -> str | None:
+    return _extra(r, "code")
 
 
 @dataclass(frozen=True)
@@ -164,7 +171,8 @@ class ScopesClient:
     @staticmethod
     def _raise_for(r: httpx.Response, what: str) -> None:
         if r.status_code >= 400:
-            raise ScopesError(f"{what}: {_detail(r)}", status=r.status_code, code=_code(r))
+            raise ScopesError(f"{what}: {_detail(r)}", status=r.status_code, code=_code(r),
+                              key_status=_extra(r, "status"))
 
     def _send(self, method: str, path: str, *, json_body: Any = None,
               headers: dict[str, str] | None = None) -> httpx.Response:

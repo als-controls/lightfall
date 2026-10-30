@@ -102,7 +102,7 @@ def test_put_key_pending_carries_code_and_sends_proposal(httpx_mock):
     with pytest.raises(ScopesError) as ei:
         _client().put_setting("branch:7.0.1.1", "tiled_url", "x",
                               proposed_spec={"key": "tiled_url", "type": "any"})
-    assert (ei.value.status, ei.value.code) == (409, "key_pending")
+    assert (ei.value.status, ei.value.code, ei.value.key_status) == (409, "key_pending", "pending")
     assert '"tiled_url"' in httpx_mock.get_request().headers["X-Proposed-Spec"]
 
 

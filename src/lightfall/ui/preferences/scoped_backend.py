@@ -82,6 +82,16 @@ def _thread_runner(fn: Callable[[], Any], ok: Callable[[Any], None],
                   log_exceptions=False).start()
 
 
+def _pending_reason(key_status: str | None) -> str:
+    """Why the server refused a write of a key it hasn't approved."""
+    if key_status == "pending":
+        return "awaiting approval by a facility admin"
+    if key_status == "rejected":
+        return "a facility admin rejected this setting"
+    return ("not an approved setting, and this Lightfall doesn't know its rules, so no "
+            "proposal was filed; ask a facility admin to approve it")
+
+
 def _toast(title: str, text: str) -> None:
     try:
         from lightfall.ui.toast import ToastManager
@@ -454,8 +464,8 @@ class ScopedBackend(PreferenceBackend):
 
         def failed(exc: Exception) -> None:
             if getattr(exc, "code", None) == "key_pending":
-                self._notify("Setting not saved", f"{key} at {scope}: awaiting approval "
-                                                  "by a facility admin")
+                self._notify("Setting not saved", f"{key} at {scope}: " + _pending_reason(
+                    getattr(exc, "key_status", None)))
             else:
                 self._notify("Setting not saved", f"{key} at {scope}: {exc}")
 

@@ -177,3 +177,12 @@ def test_apply_with_the_beamline_value_or_blank_writes_nothing(make):
     assert not [c for c in server.calls if c[0] in ("put", "delete")]
     assert server.rows[(BRANCH, "ipc_topic_prefix")] == ("als.7011", 1)
     assert notes == []
+
+
+def test_pending_reason_says_whether_anything_awaits_approval():
+    from lightfall.ui.preferences.scoped_backend import _pending_reason
+
+    assert "awaiting approval" in _pending_reason("pending")
+    assert "rejected" in _pending_reason("rejected")
+    assert "no proposal was filed" in _pending_reason("unproposed")
+    assert "no proposal was filed" in _pending_reason(None)
