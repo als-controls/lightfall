@@ -44,7 +44,7 @@ def _label(scope: str, facility_label: str = "") -> str:
     if kind == "user":
         return f"User — {name}"
     if kind == "facility":
-        return f"{_KIND_LABELS['facility']} 2014 {facility_label or 'facility'}"
+        return f"{_KIND_LABELS['facility']} \u2014 {facility_label or 'facility'}"
     return f"{_KIND_LABELS[kind]} {name}"
 
 

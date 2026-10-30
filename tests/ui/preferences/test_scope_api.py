@@ -65,7 +65,7 @@ def test_local_file_mode_choices_and_rules(local_pm):
     assert [c.scope for c in choices] == ["local", "branch:7.0.1.1", "beamline:7.0.1", "facility"]
     assert choices[0].read_only_reason == ""
     assert {c.read_only_reason for c in choices[1:]} == {"Read-only: scope files on this console"}
-    assert choices[3].label == "Facility 2014 facility"
+    assert choices[3].label == "Facility \u2014 facility"
     assert m.default_scope() == "local"
     assert m.allowed_at("theme", "local")
     assert m.writable_at("theme", "local")
@@ -89,7 +89,7 @@ def test_choices_server_order_and_labels(pm):  # noqa: F811
     assert [c.label for c in choices[:4]] == [
         "User — u1", "This console", "Branch 7.0.1.1", "Beamline 7.0.1"]
     assert choices[2].read_only_reason == ""
-    assert choices[4].label == "Facility 2014 ALS"
+    assert choices[4].label == "Facility \u2014 ALS"
     assert "facility admins" in choices[4].read_only_reason
 
 
