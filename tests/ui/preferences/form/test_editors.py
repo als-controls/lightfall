@@ -245,24 +245,55 @@ def _normal_text(widget):
     return widget.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
 
 
-def test_not_set_segment_is_muted_even_when_read_only(qtbot):
-    """Holds under the real theme, whose Disabled group equals normal text."""
-    from qtpy.QtGui import QPalette
+def _segments(qtbot, editor):
+    editor.resize(320, 32)
+    editor.show()
+    qtbot.waitExposed(editor)
+    return {b.text(): b for b in editor.findChildren(QAbstractButton)}
 
-    from lightfall.ui.preferences.form.editors import _muted_color
+
+def _fill(button):
+    """Colour just inside the segment's border, composited over the window."""
+    window = button.window()
+    pos = button.mapTo(window, button.rect().topLeft())
+    img = window.grab().toImage()
+    return img.pixelColor(pos.x() + 3, pos.y() + button.height() // 2)
+
+
+def _distance(c1, c2):
+    return sum(abs(x - y) for x, y in zip(c1.getRgb()[:3], c2.getRgb()[:3], strict=True))
+
+
+def test_checked_toggle_segment_is_unmistakable(qtbot):
+    """Holds under the real theme (run after a themed test) and the default palette."""
+    from lightfall.ui.preferences.form.editors import _muted_color, _SegmentStyle, _theme_color
 
     editor = make(qtbot, "toggle")
-    btn = next(b for b in editor.findChildren(QAbstractButton) if b.text() == "Not set")
-    off = next(b for b in editor.findChildren(QAbstractButton) if b.text() == "Off")
-    muted = _muted_color(btn)
+    segs = _segments(qtbot, editor)
+    accent = _theme_color("primary") or editor.palette().color(editor.palette().ColorRole.Highlight)
+    for value, label in ((None, "Not set"), (False, "Off"), (True, "On")):
+        editor.set_value(value)
+        for text, btn in segs.items():
+            if text == label:
+                assert _distance(_fill(btn), accent) < 30, text
+            else:
+                assert _distance(_fill(btn), accent) > 90, text
+    # "Not set" text is muted; the theme's muted colour differs from normal text
+    muted = _muted_color(editor)
     assert muted != _normal_text(editor)
-    role = QPalette.ColorRole.ButtonText
-    assert btn.palette().color(QPalette.ColorGroup.Active, role) == muted
-    assert off.palette().color(QPalette.ColorGroup.Active, role) != muted
+    assert _SegmentStyle._rgba(muted) in editor.styleSheet()
+
+
+def test_read_only_toggle_still_shows_its_state(qtbot):
+    editor = make(qtbot, "toggle")
+    segs = _segments(qtbot, editor)
+    editor.set_value(False)
     editor.set_read_only(True)
-    for b in (btn, off):  # read-only segments are drawn muted, not like live ones
-        assert not b.isEnabled()
-        assert b.palette().color(QPalette.ColorGroup.Disabled, role) == muted
+    assert not any(b.isEnabled() for b in segs.values())
+    checked, unchecked = _fill(segs["Off"]), _fill(segs["On"])
+    assert _distance(checked, unchecked) > 30  # a read-only Off still reads as Off
+    editor.set_read_only(False)
+    assert _distance(_fill(segs["Off"]), checked) > 30  # and looks different from editable
 
 
 def test_read_only_choice_is_muted(qtbot):

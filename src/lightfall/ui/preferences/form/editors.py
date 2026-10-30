@@ -33,7 +33,6 @@ _TEXT_ROLES = (QPalette.ColorRole.ButtonText, QPalette.ColorRole.WindowText, QPa
 
 _ACTIVE_GROUPS = (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive)
 _DISABLED_GROUP = (QPalette.ColorGroup.Disabled,)
-_ALL_GROUPS = _ACTIVE_GROUPS + _DISABLED_GROUP
 
 
 def _theme_color(name: str) -> QColor | None:
@@ -145,6 +144,65 @@ class _ReadOnlyLook(QObject):
             self._edit.setStyleSheet(sheet)
 
 
+class _SegmentStyle(QObject):
+    """Scoped stylesheet that makes the checked toggle segment unmistakable.
+
+    The checked segment is filled with the theme accent (``primary``, or the
+    palette Highlight) and drawn in HighlightedText; unchecked segments stay
+    flat with a thin border. Read-only (disabled) segments are muted, but the
+    checked one keeps a faded accent fill so its state still reads. Colours
+    come from the theme and are re-applied whenever the palette changes
+    (which is how a theme switch reaches widgets).
+    """
+
+    SEGMENT = "toggleSegment"
+    NOT_SET = "toggleSegmentNotSet"
+    READ_ONLY_ALPHA = 0.35
+
+    def __init__(self, host: QWidget) -> None:
+        super().__init__(host)
+        self._host = host
+        self._last = ""
+        host.installEventFilter(self)
+        self.refresh()
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if obj is self._host and event.type() == QEvent.Type.PaletteChange:
+            self.refresh()
+        return False
+
+    @staticmethod
+    def _rgba(color: QColor, alpha: float = 1.0) -> str:
+        return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alphaF() * alpha:.3f})"
+
+    def stylesheet(self) -> str:
+        pal = self._host.palette()
+        accent = _theme_color("primary") or pal.color(QPalette.ColorRole.Highlight)
+        on_accent = pal.color(QPalette.ColorRole.HighlightedText)
+        text = _theme_color("text") or pal.color(QPalette.ColorRole.ButtonText)
+        border = _theme_color("border") or pal.color(QPalette.ColorRole.Mid)
+        muted = _muted_color(self._host)
+        a, on_a, t, b, m = (self._rgba(c) for c in (accent, on_accent, text, border, muted))
+        faded = self._rgba(accent, self.READ_ONLY_ALPHA)
+
+        def sel(state: str = "") -> str:
+            return f"QToolButton#{self.SEGMENT}{state}, QToolButton#{self.NOT_SET}{state}"
+
+        return "\n".join((
+            f"{sel()} {{ background: transparent; border: 1px solid {b}; padding: 2px 8px; color: {t}; }}",
+            f"QToolButton#{self.NOT_SET} {{ color: {m}; }}",
+            f"{sel(':checked')} {{ background: {a}; border-color: {a}; color: {on_a}; }}",
+            f"{sel(':disabled')} {{ color: {m}; }}",
+            f"{sel(':checked:disabled')} {{ background: {faded}; border-color: {a}; color: {t}; }}",
+        ))
+
+    def refresh(self) -> None:
+        sheet = self.stylesheet()
+        if sheet != self._last:
+            self._last = sheet
+            self._host.setStyleSheet(sheet)
+
+
 class _OutOfRangeError(ValueError):
     """Parsed number lies outside the editor's bounds."""
 
@@ -187,13 +245,12 @@ class ToggleEditor(FieldEditor):
             btn = QToolButton(self)
             btn.setText(text)
             btn.setCheckable(True)
-            # Read-only segments are disabled; mute them explicitly because the
-            # theme's Disabled group matches normal text.
-            _RoleColor(btn, _TEXT_ROLES, _muted_color, _ALL_GROUPS if val is None else _DISABLED_GROUP)
+            btn.setObjectName(_SegmentStyle.NOT_SET if val is None else _SegmentStyle.SEGMENT)
             self._group.addButton(btn)
             layout.addWidget(btn)
             self._buttons[val] = btn
         self._buttons[None].setChecked(True)
+        self._segment_style = _SegmentStyle(self)
         self._group.buttonToggled.connect(self._on_toggled)
 
     def _on_toggled(self, _btn: QAbstractButton, checked: bool) -> None:
