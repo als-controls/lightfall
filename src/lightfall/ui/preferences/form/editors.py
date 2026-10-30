@@ -6,10 +6,12 @@ Every editor maps ``None`` to "not set" and keeps real falsy values
 
 from __future__ import annotations
 
+import math
+from collections.abc import Callable
 from typing import Any
 
-from qtpy.QtCore import Qt, Signal
-from qtpy.QtGui import QPalette
+from qtpy.QtCore import QEvent, QObject, Qt, Signal
+from qtpy.QtGui import QColor, QPalette
 from qtpy.QtWidgets import (
     QAbstractButton,
     QButtonGroup,
@@ -26,13 +28,65 @@ from lightfall.ui.preferences.form.schema import EditorSpec, SettingField
 NOT_SET = "Not set"
 
 
-def _muted(widget: QWidget) -> QPalette:
-    """Copy of the widget's palette with text roles set to the muted colour."""
-    pal = QPalette(widget.palette())
-    muted = pal.color(QPalette.ColorRole.PlaceholderText)
-    for role in (QPalette.ColorRole.ButtonText, QPalette.ColorRole.WindowText, QPalette.ColorRole.Text):
-        pal.setColor(role, muted)
-    return pal
+_TEXT_ROLES = (QPalette.ColorRole.ButtonText, QPalette.ColorRole.WindowText, QPalette.ColorRole.Text)
+
+
+def _muted_color(widget: QWidget) -> QColor:
+    return widget.palette().color(QPalette.ColorRole.PlaceholderText)
+
+
+def _error_color(widget: QWidget) -> QColor:
+    """Theme error colour; falls back to a palette alert role."""
+    try:
+        from lightfall.ui.theme import ThemeManager
+
+        color = QColor(ThemeManager.get_instance().colors.error)
+        if color.isValid():
+            return color
+    except Exception:  # noqa: S110 - theme unavailable (early init, tests)
+        pass
+    return widget.palette().color(QPalette.ColorRole.Highlight)
+
+
+class _RoleColor(QObject):
+    """Keeps a colour override on a widget in step with theme changes.
+
+    Only the given roles of the Active and Inactive groups are overridden on a
+    fresh palette, so everything else (and the Disabled group) keeps inheriting
+    from the theme. ``color_fn`` returns the colour to show, or None to clear.
+    """
+
+    def __init__(
+        self, widget: QWidget, roles: tuple[QPalette.ColorRole, ...], color_fn: Callable[[QWidget], QColor | None]
+    ) -> None:
+        super().__init__(widget)
+        self._widget = widget
+        self._roles = roles
+        self._color_fn = color_fn
+        self._last: QColor | None = None
+        widget.installEventFilter(self)
+        self.refresh()
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if obj is self._widget and event.type() == QEvent.Type.PaletteChange:
+            self.refresh()
+        return False
+
+    def refresh(self) -> None:
+        color = self._color_fn(self._widget)
+        if color == self._last:
+            return
+        self._last = color
+        pal = QPalette()
+        if color is not None:
+            for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
+                for role in self._roles:
+                    pal.setColor(group, role, color)
+        self._widget.setPalette(pal)
+
+
+class _OutOfRangeError(ValueError):
+    """Parsed number lies outside the editor's bounds."""
 
 
 class FieldEditor(QWidget):
@@ -74,7 +128,7 @@ class ToggleEditor(FieldEditor):
             btn.setText(text)
             btn.setCheckable(True)
             if val is None:
-                btn.setPalette(_muted(btn))
+                _RoleColor(btn, _TEXT_ROLES, _muted_color)
             self._group.addButton(btn)
             layout.addWidget(btn)
             self._buttons[val] = btn
@@ -117,13 +171,19 @@ class ChoiceEditor(FieldEditor):
         self._values: list[Any] = [None]
         self._loading = False
         self._combo.addItem(NOT_SET)
-        self._combo.setItemData(
-            0, self.palette().color(QPalette.ColorRole.PlaceholderText), Qt.ItemDataRole.ForegroundRole
-        )
+        self._mute_not_set_entry()
         for val, label in options:
             self._values.append(val)
             self._combo.addItem(label)
         self._combo.currentIndexChanged.connect(self._on_index)
+
+    def _mute_not_set_entry(self) -> None:
+        self._combo.setItemData(0, _muted_color(self._combo), Qt.ItemDataRole.ForegroundRole)
+
+    def changeEvent(self, event: QEvent) -> None:  # noqa: N802
+        if event.type() == QEvent.Type.PaletteChange and hasattr(self, "_combo"):
+            self._mute_not_set_entry()
+        super().changeEvent(event)
 
     def _on_index(self, _index: int) -> None:
         if not self._loading:
@@ -166,46 +226,52 @@ class NumberEditor(FieldEditor):
         layout.addWidget(self._edit)
         self._value: int | float | None = None
         self._valid = True
-        self._normal_palette = QPalette(self._edit.palette())
+        self._hint = QLabel(self)
+        self._hint.hide()
+        layout.addWidget(self._hint)
+        _RoleColor(self._hint, _TEXT_ROLES, _muted_color)
+        self._error_style = _RoleColor(
+            self._edit, (QPalette.ColorRole.Text,), lambda w: None if self._valid else _error_color(w)
+        )
         self._edit.textEdited.connect(self._on_edited)
 
     def _parse(self, text: str) -> int | float:
         """Parse ``text``; raise ValueError if unparsable or out of range."""
         num = int(text) if self._integer else float(text)
+        if not math.isfinite(num):
+            raise ValueError("not finite")
         if (self._min is not None and num < self._min) or (self._max is not None and num > self._max):
-            raise ValueError("out of range")
+            raise _OutOfRangeError(str(num))
         return num
 
     def _on_edited(self, text: str) -> None:
         text = text.strip()
-        ok = True
+        reason = ""
         if not text:
             self._value = None
         else:
             try:
                 self._value = self._parse(text)
+            except _OutOfRangeError:
+                reason = self._range_hint()
             except ValueError:
-                ok = False  # keep the last valid value
-        self._set_valid(ok)
+                reason = "Not an integer" if self._integer else "Not a number"
+        self._set_valid(not reason, reason)
         self.changed.emit()
 
-    def _set_valid(self, ok: bool) -> None:
+    def _set_valid(self, ok: bool, reason: str = "") -> None:
         self._valid = ok
-        pal = QPalette(self._normal_palette)
-        if not ok:
-            pal.setColor(QPalette.ColorRole.Text, pal.color(QPalette.ColorRole.BrightText))
-        self._edit.setPalette(pal)
-        self._edit.setToolTip("" if ok else self._range_hint())
+        self._hint.setText(reason)
+        self._hint.setVisible(not ok)
+        self._edit.setToolTip(reason)
+        self._error_style.refresh()
 
     def _range_hint(self) -> str:
-        kind = "an integer" if self._integer else "a number"
         if self._min is not None and self._max is not None:
-            return f"Enter {kind} from {self._min:g} to {self._max:g}"
+            return f"Out of range ({self._min:g}\u2013{self._max:g})"
         if self._min is not None:
-            return f"Enter {kind} of at least {self._min:g}"
-        if self._max is not None:
-            return f"Enter {kind} of at most {self._max:g}"
-        return f"Enter {kind}"
+            return f"Out of range (at least {self._min:g})"
+        return f"Out of range (at most {self._max:g})"
 
     def value(self) -> int | float | None:
         return self._value
@@ -238,7 +304,7 @@ class TextEditor(FieldEditor):
         self._edit = QLineEdit(self)
         layout.addWidget(self._edit)
         self.empty_hint = QLabel("(empty)", self)
-        self.empty_hint.setPalette(_muted(self.empty_hint))
+        _RoleColor(self.empty_hint, _TEXT_ROLES, _muted_color)
         layout.addWidget(self.empty_hint)
         self._value: str | None = None
         self._refresh()

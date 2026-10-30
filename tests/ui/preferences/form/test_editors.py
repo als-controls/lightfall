@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QAbstractButton, QComboBox, QLineEdit
+from qtpy.QtWidgets import QAbstractButton, QComboBox, QLabel, QLineEdit
 
 from lightfall.ui.preferences.form.editors import create_editor
 from lightfall.ui.preferences.form.schema import (
@@ -99,6 +99,36 @@ def test_numeric_rejects_out_of_range(qtbot, kind):
     qtbot.keyClicks(line, "7")
     assert editor.is_valid()
     assert editor.value() == 7
+
+
+@pytest.mark.parametrize("kind", ["integer", "number"])
+def test_invalid_state_is_visible_then_hidden(qtbot, kind):
+    editor = make(qtbot, kind)
+    editor.show()
+    line = editor.findChild(QLineEdit)
+    hint = editor.findChild(QLabel)
+    assert not hint.isVisible()
+    line.setFocus()
+    qtbot.keyClicks(line, "999")
+    assert not editor.is_valid()
+    assert hint.isVisible() and "Out of range" in hint.text() and "60" in hint.text()
+    assert line.toolTip() == hint.text()
+    line.selectAll()
+    qtbot.keyClicks(line, "x")
+    assert hint.text().startswith("Not a")
+    line.selectAll()
+    qtbot.keyClicks(line, "7")
+    assert editor.is_valid() and not hint.isVisible()
+
+
+@pytest.mark.parametrize("text", ["nan", "inf", "-inf"])
+def test_numeric_rejects_non_finite(qtbot, text):
+    editor = make(qtbot, "number")
+    line = editor.findChild(QLineEdit)
+    line.setFocus()
+    qtbot.keyClicks(line, text)
+    assert not editor.is_valid()
+    assert editor.value() is None
 
 
 def test_integer_rejects_fraction_and_garbage_keeps_last_valid(qtbot):
@@ -207,3 +237,15 @@ def test_unknown_kind_raises():
     spec = EditorSpec("slider")
     with pytest.raises(ValueError):
         create_editor(spec, SettingField("k", spec))
+
+
+def test_muted_follows_palette_change_and_keeps_disabled_group(qtbot):
+    from qtpy.QtGui import QColor, QPalette
+
+    editor = make(qtbot, "toggle")
+    btn = next(b for b in editor.findChildren(QAbstractButton) if b.text() == "Not set")
+    pal = QPalette(editor.palette())
+    pal.setColor(QPalette.ColorRole.PlaceholderText, QColor("#123456"))
+    editor.setPalette(pal)
+    assert btn.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.ButtonText) == QColor("#123456")
+    assert btn.palette().color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText) != QColor("#123456")
