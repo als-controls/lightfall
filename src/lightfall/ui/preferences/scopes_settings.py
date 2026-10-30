@@ -1,8 +1,9 @@
-"""Read-only Preferences page for scoped settings (phase 4a).
+"""Preferences page for scoped settings.
 
 Shows the scope chain this machine resolves against, the user's role on each scope,
-and every known setting key with its effective value and origin. Editing arrives in
-phase 5; this page is also the end-to-end check of the deployed logbook server.
+and every known setting key with its effective value and origin. It is also where a
+console is bound to its beamline or branch (``site.bind``): the one place a console's
+beamline is set; the Tiled beamline, IPC topic prefix and device rows follow from it.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -29,7 +31,26 @@ from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
 
 if TYPE_CHECKING:
+    from lightfall.scopes.client import TreeEntry
     from lightfall.scopes.view import ScopesView
+
+UNBOUND = "facility"
+
+
+def bind_label(bind: str) -> str:
+    return "Not bound (workstation)" if bind == UNBOUND else bind
+
+
+def can_bind(tree: tuple[TreeEntry, ...], current: str, target: str) -> bool:
+    """May the caller bind this console to ``target``? Maintainer+ there is required;
+    unbinding needs maintainer+ on the current binding."""
+    from lightfall_settings import role_at_least
+
+    if target == current:
+        return False
+    needed_on = current if target == UNBOUND else target
+    roles = {e.scope: e.role for e in tree}
+    return needed_on in roles and role_at_least(roles[needed_on], "maintainer")
 
 
 def _now() -> float:
@@ -67,13 +88,16 @@ def _logged_in_username() -> str | None:
 
 
 class ScopesSettingsPlugin(SettingsPlugin):
-    """Read-only view of facility / beamline / branch / user settings."""
+    """Facility / beamline / branch / user settings, and this console's binding."""
 
     def __init__(self) -> None:
         self.loader: Callable[[str], ScopesView] = _default_loader
         self._widget: QWidget | None = None
         self._status: QLabel | None = None
         self._bind_combo: QComboBox | None = None
+        self._bind_button: QPushButton | None = None
+        self._bind_hint: QLabel | None = None
+        self._tree: tuple[TreeEntry, ...] = ()
         self._chain_table: QTableWidget | None = None
         self._keys_table: QTableWidget | None = None
         self._keys_note: QLabel | None = None
@@ -129,19 +153,33 @@ class ScopesSettingsPlugin(SettingsPlugin):
         self._machine_bind = bind
 
         row = QHBoxLayout()
-        row.addWidget(QLabel("This machine:", widget))
-        row.addWidget(QLabel(bind if bind != "facility" else "not bound (workstation)", widget))
+        row.addWidget(QLabel("This console:", widget))
+        current = QLabel(f"<b>{bind_label(bind)}</b>", widget)
+        current.setObjectName("scopesMachineBind")
+        row.addWidget(current)
         row.addStretch(1)
-        row.addWidget(QLabel("Preview chain for:", widget))
+        row.addWidget(QLabel("Beamline:", widget))
         self._bind_combo = QComboBox(widget)
         self._bind_combo.setObjectName("scopesBind")
+        self._bind_combo.setToolTip("Choose a beamline or branch to preview its settings; "
+                                    "Bind makes it this console's.")
         self._bind_combo.addItem(bind)
         self._bind_combo.currentTextChanged.connect(self._on_bind_chosen)
         row.addWidget(self._bind_combo)
+        self._bind_button = QPushButton("Bind this console…", widget)
+        self._bind_button.setObjectName("scopesBindButton")
+        self._bind_button.setEnabled(False)
+        self._bind_button.clicked.connect(self._on_bind_clicked)
+        row.addWidget(self._bind_button)
         refresh = QPushButton("Refresh", widget)
         refresh.clicked.connect(lambda: self._refresh(self._current_bind()))
         row.addWidget(refresh)
         layout.addLayout(row)
+        self._bind_hint = QLabel(widget)
+        self._bind_hint.setObjectName("scopesBindHint")
+        self._bind_hint.setWordWrap(True)
+        self._bind_hint.setStyleSheet("color: gray;")
+        layout.addWidget(self._bind_hint)
 
         layout.addWidget(QLabel("<b>Scopes</b>", widget))
         self._chain_table = self._table(widget, "scopesChain", ["Scope", "Your role"])
@@ -174,6 +212,7 @@ class ScopesSettingsPlugin(SettingsPlugin):
     def _on_widget_destroyed(self, *_: Any) -> None:
         self._generation += 1
         self._widget = self._status = self._bind_combo = None
+        self._bind_button = self._bind_hint = None
         self._chain_table = self._keys_table = self._keys_note = None
 
     def _alive(self) -> bool:
@@ -187,6 +226,44 @@ class ScopesSettingsPlugin(SettingsPlugin):
     def _on_bind_chosen(self, bind: str) -> None:
         if bind:
             self._refresh(bind)
+        self._update_bind_button()
+
+    def _update_bind_button(self) -> None:
+        button, hint = self._bind_button, self._bind_hint
+        if button is None or hint is None:
+            return
+        target = self._current_bind()
+        allowed = can_bind(self._tree, self._machine_bind, target)
+        button.setEnabled(allowed)
+        if target == self._machine_bind or not self._tree:
+            hint.setText("" if self._tree else
+                         "Log in (with the logbook server reachable) to bind this console.")
+        elif allowed:
+            hint.setText(f"Binding makes {bind_label(target)} this console's beamline for "
+                         "everyone who uses it: its device backends, Tiled catalog and IPC "
+                         "topics. Lightfall restarts.")
+        else:
+            needed = self._machine_bind if target == UNBOUND else target
+            hint.setText(f"Binding needs the maintainer role on {needed}.")
+
+    def _on_bind_clicked(self) -> None:
+        target = self._current_bind()
+        if not can_bind(self._tree, self._machine_bind, target):
+            return
+        answer = QMessageBox.question(
+            self._widget, "Bind this console",
+            f"Make {bind_label(target)} this console's beamline?\n\n"
+            "Everyone who uses this console gets its device backends, Tiled catalog and "
+            "IPC topics. Lightfall restarts to apply it.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        from lightfall.scopes.site import set_site_bind
+
+        set_site_bind(target)
+        from lightfall.utils.restart import request_restart
+
+        request_restart()
 
     def _refresh(self, bind: str) -> None:
         if self._status is not None:
@@ -223,7 +300,10 @@ class ScopesSettingsPlugin(SettingsPlugin):
                 if view.cached_at is not None else "Offline — no cached copy")
         else:
             self._status.setText(f"Live from {view.server}" if view.server else "Live")
+        if view.tree:
+            self._tree = view.tree
         self._fill_combo(view)
+        self._update_bind_button()
         self._fill_chain(view)
         self._fill_keys(view)
         self._keys_note.setVisible(view.keys_restricted)
@@ -232,7 +312,18 @@ class ScopesSettingsPlugin(SettingsPlugin):
         combo = self._bind_combo
         if combo is None:
             return
-        wanted = [self._machine_bind] + [s for s in view.entitled if s != self._machine_bind]
+        if self._tree:
+            # Every beamline with its branches after it, so a console can be bound anywhere.
+            ordered: list[str] = []
+            for entry in self._tree:
+                if entry.parent is None:
+                    ordered.append(entry.scope)
+                    ordered += [e.scope for e in self._tree if e.parent == entry.scope]
+            wanted = [self._machine_bind] + [s for s in [UNBOUND, *ordered]
+                                             if s != self._machine_bind]
+        else:
+            wanted = [self._machine_bind] + [s for s in view.entitled
+                                             if s != self._machine_bind]
         if [combo.itemText(i) for i in range(combo.count())] == wanted:
             return
         current = combo.currentText()

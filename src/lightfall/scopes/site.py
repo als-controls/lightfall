@@ -24,5 +24,19 @@ def get_site_bind() -> str:
         return "facility"
 
 
+def set_site_bind(bind: str) -> None:
+    """Bind this machine to ``bind`` (``"facility"`` unbinds) in the user config file.
+
+    Takes effect on the next start: the scope chain, identity defaults and the device
+    rows all come from it.
+    """
+    from lightfall.config import ConfigManager
+    from lightfall.core import LFApplication
+
+    cm = LFApplication.get_instance().services.get(ConfigManager)
+    cm.set("site.bind", None if bind == "facility" else bind, persist=True)
+    logger.info("site.bind set to {}", bind)
+
+
 def default_cache_dir() -> Path:
     return _user_config_dir("ncs") / "scope-cache"
