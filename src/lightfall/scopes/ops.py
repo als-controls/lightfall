@@ -8,7 +8,7 @@ from typing import Any
 from lightfall_settings import SpecRegistry
 
 from lightfall.scopes.client import ScopesClient, ScopesError, is_transient
-from lightfall.scopes.keys import beamline_capable, is_local_only
+from lightfall.scopes.keys import base_spec, beamline_capable, is_local_only
 from lightfall.utils.logging import logger
 
 
@@ -47,7 +47,8 @@ def migrate_user_prefs(client: ScopesClient, user_scope: str, prefs: Mapping[str
     """Upload this machine's YAML preferences to an empty user scope (spec section 5).
 
     Skips local-only and secret keys, keys whose spec forbids user scope, keys a
-    beamline may set (they describe the machine, not the person), None and non-JSON
+    beamline may set by their shared or client spec (they describe the machine, not
+    the person; settings-page specs don't count), None and non-JSON
     values. Per-key server rejections are logged and skipped; a transport
     failure propagates so the caller retries the whole migration later.
     """
@@ -57,7 +58,7 @@ def migrate_user_prefs(client: ScopesClient, user_scope: str, prefs: Mapping[str
         spec = registry.get(key)
         if value is None or is_local_only(key) or not spec.allows("user"):
             continue
-        if beamline_capable(spec):
+        if beamline_capable(base_spec(key, registry)):
             continue
         if not _json_ok(key, value):
             continue

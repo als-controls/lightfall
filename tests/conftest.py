@@ -147,6 +147,24 @@ def _reset_toast_state():
 
 
 @pytest.fixture(autouse=True)
+def _reset_client_spec_registry():
+    """Give each test a fresh client SpecRegistry.
+
+    Settings pages register their specs into one process-wide registry
+    (``lightfall.scopes.keys.register_client_specs``); without a reset, a test
+    that builds a page changes how later tests resolve those keys.
+    """
+    try:
+        from lightfall.scopes.keys import _reset_client_registry
+    except ImportError:  # lightfall-settings not installed: no registry to reset
+        yield
+        return
+    _reset_client_registry()
+    yield
+    _reset_client_registry()
+
+
+@pytest.fixture(autouse=True)
 def _reset_theme_manager():
     """Drop the process-global ThemeManager between tests.
 

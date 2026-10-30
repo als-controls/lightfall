@@ -10,7 +10,13 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from lightfall_settings import ALL_KINDS, SettingSpec, SpecRegistry, deployment_registry
+from lightfall_settings import (
+    ALL_KINDS,
+    SettingSpec,
+    SpecRegistry,
+    deployment_registry,
+    user_only_spec,
+)
 
 LOCAL_ONLY_KEYS: frozenset[str] = frozenset({
     # How this machine reaches servers (needed before login; differs per network).
@@ -91,6 +97,18 @@ def register_client_specs(specs: Iterable[SettingSpec]) -> None:
             continue
         _CLIENT_REGISTERED[spec.key] = spec
         reg.register(spec, replace=True)
+
+
+def base_spec(key: str, registry: SpecRegistry | None = None) -> SettingSpec:
+    """``key``'s spec from the shared/deployment specs and CLIENT_SPECS only.
+
+    Specs a settings page registered (``register_client_specs``) describe where the page
+    lets the key be edited, not what the key is, so they are ignored here. Page specs only
+    ever cover keys nothing else declares, so without them the key is user-only.
+    """
+    if key in _CLIENT_REGISTERED:
+        return user_only_spec(key)
+    return (registry or client_registry()).get(key)
 
 
 def _reset_client_registry() -> None:
