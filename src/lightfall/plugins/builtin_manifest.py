@@ -120,6 +120,12 @@ builtin_manifest = PluginManifest(
             name="scopes",
             import_path="lightfall.ui.preferences.scopes_settings:ScopesSettingsPlugin",
         ),
+        # Setting-key review (facility admins approve / reject / revoke)
+        PluginEntry(
+            type_name="settings",
+            name="setting_keys",
+            import_path="lightfall.ui.preferences.setting_keys_settings:SettingKeysSettingsPlugin",
+        ),
         # IPC settings
         PluginEntry(
             type_name="settings",

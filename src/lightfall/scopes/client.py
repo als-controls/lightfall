@@ -223,6 +223,34 @@ class ScopesClient:
         except (ValueError, KeyError, TypeError) as e:
             raise ScopesError(f"Settings for {scope}: malformed response ({e})") from e
 
+    # -- setting-key review (facility admins; the server enforces the role) -----------
+
+    def _key_record(self, r: httpx.Response, what: str) -> dict[str, Any]:
+        self._raise_for(r, what)
+        try:
+            body = r.json()
+        except ValueError as e:
+            raise ScopesError(f"{what}: malformed response ({e})") from e
+        if not isinstance(body, dict) or "key" not in body:
+            raise ScopesError(f"{what}: malformed response")
+        return body
+
+    def approve_key(self, key: str, *, edits: dict[str, Any] | None = None,
+                    note: str = "") -> dict[str, Any]:
+        """Approve ``key``'s proposal, optionally changing its rule fields."""
+        r = self._send("POST", f"/logbook/setting-keys/{key}/approve",
+                       json_body={"spec": edits or None, "note": note})
+        return self._key_record(r, f"Approve {key}")
+
+    def reject_key(self, key: str, *, note: str = "") -> dict[str, Any]:
+        r = self._send("POST", f"/logbook/setting-keys/{key}/reject", json_body={"note": note})
+        return self._key_record(r, f"Reject {key}")
+
+    def revoke_key(self, key: str) -> None:
+        """Forget ``key``'s record: an approved key falls back to user-only."""
+        r = self._send("DELETE", f"/logbook/setting-keys/{key}")
+        self._raise_for(r, f"Revoke {key}")
+
     def setting_keys(self) -> list[dict[str, Any]] | None:
         r = self._get("/logbook/setting-keys/")
         if r.status_code == 403:
