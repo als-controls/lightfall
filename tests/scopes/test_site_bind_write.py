@@ -10,7 +10,9 @@ from lightfall.config import ConfigManager
 def config_dirs(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path / "user"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "user"))
-    monkeypatch.setenv("PROGRAMDATA", str(tmp_path / "global"))
+    # The global layer is /etc/<app> on Linux whatever the environment says.
+    monkeypatch.setattr("lightfall_utils.config.manager._global_config_dir",
+                        lambda app: tmp_path / "global" / app)
     return tmp_path
 
 
