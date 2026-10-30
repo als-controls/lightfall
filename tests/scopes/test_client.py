@@ -169,3 +169,13 @@ def test_review_refused_for_non_admin_raises_403(httpx_mock):
     with pytest.raises(ScopesError) as ei:
         _client().approve_key("k")
     assert ei.value.status == 403
+
+
+def test_chain_info_carries_approved_specs():
+    from lightfall.scopes.client import ChainInfo
+
+    d = {"chain": ["facility"], "roles": {}, "facility_label": "",
+         "specs": [{"key": "voice.wake_word", "scopes": ["branch"]}, {"no": "key"}]}
+    info = ChainInfo.from_dict(d)
+    assert [s["key"] for s in info.specs] == ["voice.wake_word"]
+    assert ChainInfo.from_dict(info.to_dict()) == info

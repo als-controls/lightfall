@@ -186,3 +186,33 @@ def test_pending_reason_says_whether_anything_awaits_approval():
     assert "rejected" in _pending_reason("rejected")
     assert "no proposal was filed" in _pending_reason("unproposed")
     assert "no proposal was filed" in _pending_reason(None)
+
+
+def test_branch_value_counts_once_chain_carries_its_approval(tmp_path, qapp):
+    """A key approved on the server but unknown to this client resolves by the server's rules."""
+    from lightfall.scopes.cache import SnapshotCache
+    from lightfall.scopes.journal import WriteJournal
+    from lightfall.ui.preferences.scoped_backend import ScopedBackend
+    from tests.ui.preferences.test_scoped_backend import sync_run
+
+    class Approving(BranchServer):
+        specs = ()
+
+        def chain(self, bind):
+            info = super().chain(bind)
+            from dataclasses import replace
+            return replace(info, specs=self.specs)
+
+    server = Approving()
+    server.rows[(BRANCH, "voice.wake_word")] = ("hey lightfall", 1)
+    backend = ScopedBackend(FakeLocal(), client=server, cache=SnapshotCache(tmp_path / "c"),
+                            journal=WriteJournal(tmp_path / "j.json"), bind=BRANCH,
+                            identity="u1", run=sync_run, notify=lambda *a: None, poll_ms=0)
+    changes = []
+    backend.changed.connect(lambda k, v: changes.append((k, v)))
+    backend.activate()
+    assert backend.get("voice.wake_word") is None                # user-only: branch ignored
+    server.specs = ({"key": "voice.wake_word", "type": "str", "scopes": ["branch", "user"]},)
+    backend.refresh()
+    assert backend.get("voice.wake_word") == "hey lightfall"
+    assert ("voice.wake_word", "hey lightfall") in changes

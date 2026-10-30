@@ -118,6 +118,9 @@ class ScopedBackend(PreferenceBackend):
         self._bind = bind
         self._identity = identity
         self._registry = registry or client_registry()
+        # Rebuilt from each chain's approved specs unless a registry was passed in (tests).
+        self._own_registry = registry is None
+        self._server_specs: tuple[dict[str, Any], ...] = ()
         self._user_preferences = user_preferences
         self._run = run or _thread_runner
         self._notify = notify or _toast
@@ -503,6 +506,12 @@ class ScopedBackend(PreferenceBackend):
         watched = old_keys | new_keys | set(journal) | set(self._written)
         before = {k: self.get(k) for k in watched}
 
+        if self._own_registry and state.chain.specs != self._server_specs:
+            # Approvals take effect here: the server enforces these rules already.
+            self._server_specs = state.chain.specs
+            self._registry = client_registry(self._server_specs)
+            if self._store is not None:
+                self._store.set_registry(self._registry)
         if self._store is None:
             self._store = ScopedStore(self._registry, state)
         else:

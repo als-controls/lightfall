@@ -102,3 +102,14 @@ def test_tiled_service_keys_are_site_wide_not_per_user():
         spec = reg.get(key)
         assert spec.scopes == {"facility", "beamline", "branch"}
         assert spec.type is tp
+
+
+def test_server_approved_specs_win_over_client_advisory_ones():
+    wake = {"key": "voice.wake_word", "type": "str", "scopes": ["branch", "user"]}
+    advisory_override = {"key": "panel_layout", "scopes": ["facility"]}
+    core_attempt = {"key": "plugins.enabled", "scopes": ["user"]}
+    reg = client_registry([wake, advisory_override, core_attempt, {"key": "bad", "scopes": "x"}])
+    assert reg.get("voice.wake_word").scopes == {"branch", "user"}
+    assert reg.get("panel_layout").scopes == {"facility"}        # server beats CLIENT_SPECS
+    assert reg.get("plugins.enabled").policy == "union"         # core rules stay
+    assert not reg.is_declared("bad")                            # unreadable: skipped
