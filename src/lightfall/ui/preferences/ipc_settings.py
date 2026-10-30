@@ -121,8 +121,10 @@ class IPCSettingsPlugin(SettingsPlugin):
         self._url_edit.setPlaceholderText(DEFAULT_IPC_NATS_URL)
         connection_layout.addRow("Server URL:", self._url_edit)
 
+        # Read-only: derived from this console's beamline (one place to set it).
         self._prefix_edit = QLineEdit()
-        self._prefix_edit.setPlaceholderText(DEFAULT_IPC_TOPIC_PREFIX)
+        self._prefix_edit.setReadOnly(True)
+        self._prefix_edit.setToolTip("Set by this console's beamline: Settings › Advanced › Scopes")
         connection_layout.addRow("Topic Prefix:", self._prefix_edit)
 
         self._display_name_edit = QLineEdit()
@@ -247,12 +249,8 @@ class IPCSettingsPlugin(SettingsPlugin):
         if self._url_edit:
             self._url_edit.setText(prefs.get("ipc_nats_url", DEFAULT_IPC_NATS_URL))
         if self._prefix_edit:
-            derived = prefs.derived_value("ipc_topic_prefix")
-            if isinstance(derived, str):  # bound console: blank means "use the derived prefix"
-                self._prefix_edit.setPlaceholderText(derived)
-                self._prefix_edit.setText(prefs.explicit("ipc_topic_prefix", ""))
-            else:
-                self._prefix_edit.setText(prefs.get("ipc_topic_prefix", DEFAULT_IPC_TOPIC_PREFIX))
+            self._prefix_edit.setText(
+                str(prefs.get("ipc_topic_prefix", DEFAULT_IPC_TOPIC_PREFIX) or ""))
         if self._display_name_edit:
             self._display_name_edit.setText(prefs.get("ipc_display_name", ""))
         if self._local_enable_cb:
@@ -267,11 +265,9 @@ class IPCSettingsPlugin(SettingsPlugin):
         prefs = PreferencesManager.get_instance()
 
         url = self._url_edit.text().strip() if self._url_edit else ""
-        prefix = self._prefix_edit.text().strip() if self._prefix_edit else ""
         display_name = self._display_name_edit.text().strip() if self._display_name_edit else ""
 
         prefs.set("ipc_nats_url", url)
-        prefs.set_unless_derived("ipc_topic_prefix", prefix)
         prefs.set("ipc_display_name", display_name)
         use_local = self._local_enable_cb.isChecked() if self._local_enable_cb else False
         prefs.set("ipc_use_local_nats", use_local)

@@ -206,8 +206,11 @@ class TiledSettingsPlugin(SettingsPlugin):
         authz_group = QGroupBox("Per-entry authorization (alshub-api)")
         authz_layout = QFormLayout()
 
+        # Read-only: the beamline is this console's binding (one place to set it).
         self._beamline_edit = QLineEdit()
-        self._beamline_edit.setPlaceholderText("4.0.2")
+        self._beamline_edit.setReadOnly(True)
+        self._beamline_edit.setToolTip("Set by this console's beamline: Settings › Advanced › Scopes")
+        self._beamline_edit.setPlaceholderText("not bound — bind this console on the Scopes page")
         authz_layout.addRow("Beamline:", self._beamline_edit)
 
         self._alshub_url_edit = QLineEdit()
@@ -387,10 +390,7 @@ class TiledSettingsPlugin(SettingsPlugin):
             self._key_lifetime_combo.setCurrentIndex(index)
 
         if self._beamline_edit:
-            derived = prefs.derived_value("tiled_beamline")
-            if isinstance(derived, str):  # bound console: blank means "this console's beamline"
-                self._beamline_edit.setPlaceholderText(derived)
-            self._beamline_edit.setText(prefs.explicit("tiled_beamline", ""))
+            self._beamline_edit.setText(str(prefs.get("tiled_beamline", "") or ""))
 
         if self._alshub_url_edit:
             self._alshub_url_edit.setText(
@@ -436,9 +436,7 @@ class TiledSettingsPlugin(SettingsPlugin):
                 int(self._key_lifetime_combo.currentData()),
             )
 
-        beamline = self._beamline_edit.text().strip() if self._beamline_edit else ""
         alshub_url = self._alshub_url_edit.text().strip() if self._alshub_url_edit else ""
-        prefs.set_unless_derived("tiled_beamline", beamline)
         prefs.set("tiled_alshub_url", alshub_url)
 
         override_esaf = self._override_esaf_edit.text().strip() if self._override_esaf_edit else ""

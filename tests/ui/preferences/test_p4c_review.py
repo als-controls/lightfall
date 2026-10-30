@@ -102,7 +102,8 @@ def test_saving_the_derived_value_stores_nothing(bound):
     assert manager.explicit("ipc_topic_prefix") == "dev.me"
 
 
-def test_ipc_page_shows_derived_prefix_as_placeholder(bound, qtbot):
+def test_ipc_page_shows_the_derived_prefix_read_only(bound, qtbot):
+    # One place to set a console's beamline (the Scopes page): the prefix follows it.
     from lightfall.ui.preferences.ipc_settings import IPCSettingsPlugin
 
     manager, _ = bound
@@ -110,10 +111,24 @@ def test_ipc_page_shows_derived_prefix_as_placeholder(bound, qtbot):
     widget = plugin.create_widget()
     qtbot.addWidget(widget)
     plugin.load_settings()
-    assert plugin._prefix_edit.text() == ""
-    assert plugin._prefix_edit.placeholderText() == "als.7011"
+    assert plugin._prefix_edit.text() == "als.7011"
+    assert plugin._prefix_edit.isReadOnly()
     plugin.save_settings()
     assert manager.explicit("ipc_topic_prefix") is None
+
+
+def test_tiled_page_shows_the_bound_beamline_read_only(bound, qtbot):
+    from lightfall.ui.preferences.tiled_settings import TiledSettingsPlugin
+
+    manager, _ = bound
+    plugin = TiledSettingsPlugin()
+    widget = plugin.create_widget()
+    qtbot.addWidget(widget)
+    plugin.load_settings()
+    assert plugin._beamline_edit.text() == "7.0.1.1"
+    assert plugin._beamline_edit.isReadOnly()
+    plugin.save_settings()
+    assert manager.explicit("tiled_beamline") is None
 
 
 # I-5 / I-6 -----------------------------------------------------------------
