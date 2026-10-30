@@ -190,3 +190,13 @@ def test_remove_nonempty_scope_raises_409(httpx_mock):
     with pytest.raises(ScopesError) as ei:
         _client().remove_scope("beamline:7.0.1")
     assert ei.value.status == 409 and "branches" in str(ei.value)
+
+
+def test_chain_info_carries_approved_specs():
+    from lightfall.scopes.client import ChainInfo
+
+    d = {"chain": ["facility"], "roles": {}, "facility_label": "",
+         "specs": [{"key": "voice.wake_word", "scopes": ["branch"]}, {"no": "key"}]}
+    info = ChainInfo.from_dict(d)
+    assert [s["key"] for s in info.specs] == ["voice.wake_word"]
+    assert ChainInfo.from_dict(info.to_dict()) == info
