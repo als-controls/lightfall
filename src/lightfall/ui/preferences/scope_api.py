@@ -38,13 +38,13 @@ class LockInfo:
     reason: str
 
 
-def _label(scope: str) -> str:
+def _label(scope: str, facility_label: str = "") -> str:
     kind = ScopeId.parse(scope).kind
     name = scope.partition(":")[2]
     if kind == "user":
         return f"User — {name}"
     if kind == "facility":
-        return _KIND_LABELS["facility"]
+        return f"{_KIND_LABELS['facility']} 2014 {facility_label or 'facility'}"
     return f"{_KIND_LABELS[kind]} {name}"
 
 
@@ -55,11 +55,13 @@ def _local_choice() -> ScopeChoice:
 def scope_choices(prefs: PreferencesManager) -> list[ScopeChoice]:
     """Scopes the caller can address, most specific first."""
     info = prefs.scope_info
+    scoped = prefs.scoped_backend
+    fac = getattr(scoped, "facility_label", "") if info.mode == "server" and scoped else ""
     if info.mode == "off":
         return [_local_choice()]
     if info.mode == "local":
         return [_local_choice()] + [
-            ScopeChoice(s, ScopeId.parse(s).kind, _label(s), None, _READ_ONLY_FILES)
+            ScopeChoice(s, ScopeId.parse(s).kind, _label(s, fac), None, _READ_ONLY_FILES)
             for s in reversed(info.chain)
         ]
     out: list[ScopeChoice] = []
@@ -75,7 +77,7 @@ def scope_choices(prefs: PreferencesManager) -> list[ScopeChoice]:
             reason = ""
         else:
             reason = f"Read-only: you are a {role or 'not a member'} here"
-        out.append(ScopeChoice(s, kind, _label(s), role, reason))
+        out.append(ScopeChoice(s, kind, _label(s, fac), role, reason))
     return out
 
 

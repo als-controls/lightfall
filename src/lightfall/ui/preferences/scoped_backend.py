@@ -114,6 +114,7 @@ class ScopedBackend(PreferenceBackend):
         self._notify = notify or _toast
         self._store: ScopedStore | None = None
         self._roles: dict[str, str | None] = {}
+        self._facility_label = ""
         self._active = False
         self._refreshing = False
         self._migrating = False
@@ -196,6 +197,10 @@ class ScopedBackend(PreferenceBackend):
     def roles(self) -> dict[str, str | None]:
         return dict(self._roles)
 
+    @property
+    def facility_label(self) -> str:
+        return self._facility_label
+
     def resolution(self, key: str) -> Resolution | None:
         """How ``key`` resolves through the chain (origin, lock); None before the first fetch."""
         return self._store.resolve(key) if self._store is not None else None
@@ -217,6 +222,7 @@ class ScopedBackend(PreferenceBackend):
         self._session += 1
         self._store = None
         self._roles = {}
+        self._facility_label = ""
         self._refreshing = False
         self._migrating = False
         self._written.clear()
@@ -524,6 +530,7 @@ class ScopedBackend(PreferenceBackend):
                 else:
                     store.put_local(scope, key, entry["value"])
         self._roles = dict(state.chain.roles)
+        self._facility_label = state.chain.facility_label
         if user_ok and not state.offline:
             watched |= self._drop_old_user_cache(store.user_settings())
 

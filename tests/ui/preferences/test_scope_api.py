@@ -7,6 +7,7 @@ from lightfall_settings import Lock
 from lightfall.scopes.keys import client_registry
 from lightfall.ui.preferences.manager import PreferencesManager
 from tests.ui.preferences import test_scoped_backend as tsb
+from tests.ui.preferences.test_manager_identity import FakeCM
 from tests.ui.preferences.test_manager_scopes import pm  # noqa: F401
 
 
@@ -25,13 +26,14 @@ def _login(manager, role="operator"):
     assert manager.activate_scopes("u1", "branch:7.0.1.1")
 
 
-def test_choices_off_mode_is_console_only(qapp):
+def test_choices_off_mode_is_console_only(qapp, tmp_path, monkeypatch):
+    monkeypatch.delenv("LIGHTFALL_SCOPES_DISABLED", raising=False)
     PreferencesManager.reset()
     try:
         m = PreferencesManager.get_instance()
         m.deactivate_scopes()
-        if m.scope_info.mode != "off":
-            pytest.skip("local scope files present")
+        assert m.load_local_scopes(tmp_path) is False
+        assert m.scope_info.mode == "off"
         (c,) = m.scope_choices()
         assert (c.scope, c.kind, c.label, c.read_only_reason) == ("local", "local", "This console", "")
         assert m.default_scope() == "local"
@@ -39,6 +41,44 @@ def test_choices_off_mode_is_console_only(qapp):
         assert m.allowed_at("theme", "local")
     finally:
         PreferencesManager.reset()
+
+
+@pytest.fixture
+def local_pm(qapp, tmp_path, monkeypatch):
+    monkeypatch.delenv("LIGHTFALL_SCOPES_DISABLED", raising=False)
+    (tmp_path / "facility.yaml").write_text(
+        "settings:\n  tiled_url: https://facility\n", encoding="utf-8")
+    (tmp_path / "branch-7.0.1.1.yaml").write_text(
+        "settings:\n  device_bcs_port: 5577\nlocks:\n  device_bcs_port: site standard\n",
+        encoding="utf-8")
+    PreferencesManager.reset()
+    manager = PreferencesManager.get_instance()
+    manager.set_config_manager(FakeCM("branch:7.0.1.1"))
+    assert manager.load_local_scopes(tmp_path) is True
+    yield manager
+    PreferencesManager.reset()
+
+
+def test_local_file_mode_choices_and_rules(local_pm):
+    m = local_pm
+    choices = m.scope_choices()
+    assert [c.scope for c in choices] == ["local", "branch:7.0.1.1", "beamline:7.0.1", "facility"]
+    assert choices[0].read_only_reason == ""
+    assert {c.read_only_reason for c in choices[1:]} == {"Read-only: scope files on this console"}
+    assert choices[3].label == "Facility 2014 facility"
+    assert m.default_scope() == "local"
+    assert m.allowed_at("theme", "local")
+    assert m.writable_at("theme", "local")
+    assert not m.writable_at("theme", "branch:7.0.1.1")
+    assert not m.writable_at("theme", "facility")
+
+
+def test_local_file_mode_lock_from_resolution(local_pm):
+    m = local_pm
+    info = m.lock_at("device_bcs_port", "local")
+    assert info is not None and info.locked_at == "branch:7.0.1.1"
+    assert m.lock_at("device_bcs_port", "branch:7.0.1.1") is None
+    assert m.lock_at("tiled_url", "local") is None
 
 
 def test_choices_server_order_and_labels(pm):  # noqa: F811
@@ -49,6 +89,7 @@ def test_choices_server_order_and_labels(pm):  # noqa: F811
     assert [c.label for c in choices[:4]] == [
         "User — u1", "This console", "Branch 7.0.1.1", "Beamline 7.0.1"]
     assert choices[2].read_only_reason == ""
+    assert choices[4].label == "Facility 2014 ALS"
     assert "facility admins" in choices[4].read_only_reason
 
 
