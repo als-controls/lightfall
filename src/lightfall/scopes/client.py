@@ -23,10 +23,13 @@ class ScopesError(Exception):
     """A scoped-settings request failed. ``status`` is None for transport failures;
     ``code`` is the server's machine-readable reason (e.g. ``key_pending``)."""
 
-    def __init__(self, message: str, status: int | None = None, code: str | None = None) -> None:
+    def __init__(self, message: str, status: int | None = None, code: str | None = None,
+                 key_status: str | None = None) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
+        # For key_pending: the key's proposal status ("pending", "rejected", "unproposed").
+        self.key_status = key_status
 
 
 # Statuses that say "try again later", not "this write is wrong": transport failures
@@ -39,14 +42,18 @@ def is_transient(exc: BaseException) -> bool:
     return status is None or status in _TRANSIENT or (isinstance(status, int) and status >= 500)
 
 
-def _code(r: httpx.Response) -> str | None:
+def _extra(r: httpx.Response, field: str) -> str | None:
     try:
         body = r.json()
     except ValueError:
         return None
     extra = body.get("extra") if isinstance(body, dict) else None
-    code = extra.get("code") if isinstance(extra, dict) else None
-    return str(code) if code else None
+    value = extra.get(field) if isinstance(extra, dict) else None
+    return str(value) if value else None
+
+
+def _code(r: httpx.Response) -> str | None:
+    return _extra(r, "code")
 
 
 @dataclass(frozen=True)
@@ -164,7 +171,8 @@ class ScopesClient:
     @staticmethod
     def _raise_for(r: httpx.Response, what: str) -> None:
         if r.status_code >= 400:
-            raise ScopesError(f"{what}: {_detail(r)}", status=r.status_code, code=_code(r))
+            raise ScopesError(f"{what}: {_detail(r)}", status=r.status_code, code=_code(r),
+                              key_status=_extra(r, "status"))
 
     def _send(self, method: str, path: str, *, json_body: Any = None,
               headers: dict[str, str] | None = None) -> httpx.Response:
@@ -214,6 +222,34 @@ class ScopesClient:
             return Snapshot.from_dict(r.json())
         except (ValueError, KeyError, TypeError) as e:
             raise ScopesError(f"Settings for {scope}: malformed response ({e})") from e
+
+    # -- setting-key review (facility admins; the server enforces the role) -----------
+
+    def _key_record(self, r: httpx.Response, what: str) -> dict[str, Any]:
+        self._raise_for(r, what)
+        try:
+            body = r.json()
+        except ValueError as e:
+            raise ScopesError(f"{what}: malformed response ({e})") from e
+        if not isinstance(body, dict) or "key" not in body:
+            raise ScopesError(f"{what}: malformed response")
+        return body
+
+    def approve_key(self, key: str, *, edits: dict[str, Any] | None = None,
+                    note: str = "") -> dict[str, Any]:
+        """Approve ``key``'s proposal, optionally changing its rule fields."""
+        r = self._send("POST", f"/logbook/setting-keys/{key}/approve",
+                       json_body={"spec": edits or None, "note": note})
+        return self._key_record(r, f"Approve {key}")
+
+    def reject_key(self, key: str, *, note: str = "") -> dict[str, Any]:
+        r = self._send("POST", f"/logbook/setting-keys/{key}/reject", json_body={"note": note})
+        return self._key_record(r, f"Reject {key}")
+
+    def revoke_key(self, key: str) -> None:
+        """Forget ``key``'s record: an approved key falls back to user-only."""
+        r = self._send("DELETE", f"/logbook/setting-keys/{key}")
+        self._raise_for(r, f"Revoke {key}")
 
     def setting_keys(self) -> list[dict[str, Any]] | None:
         r = self._get("/logbook/setting-keys/")

@@ -102,7 +102,7 @@ def test_put_key_pending_carries_code_and_sends_proposal(httpx_mock):
     with pytest.raises(ScopesError) as ei:
         _client().put_setting("branch:7.0.1.1", "tiled_url", "x",
                               proposed_spec={"key": "tiled_url", "type": "any"})
-    assert (ei.value.status, ei.value.code) == (409, "key_pending")
+    assert (ei.value.status, ei.value.code, ei.value.key_status) == (409, "key_pending", "pending")
     assert '"tiled_url"' in httpx_mock.get_request().headers["X-Proposed-Spec"]
 
 
@@ -131,3 +131,41 @@ def test_chain_info_parses_and_round_trips_the_scope_tree():
     assert ChainInfo.from_dict(info.to_dict()) == info
     old_server = {k: v for k, v in d.items() if k != "tree"}
     assert ChainInfo.from_dict(old_server).tree == ()
+
+
+def test_approve_sends_edits_and_note(httpx_mock):
+    import json as _json
+
+    rec = {"key": "tiled_enabled", "status": "approved", "spec": {"key": "tiled_enabled"}}
+    httpx_mock.add_response(method="POST",
+                            url=f"{BASE}/logbook/setting-keys/tiled_enabled/approve", json=rec)
+    got = _client().approve_key("tiled_enabled", edits={"scopes": ["facility"]}, note="ok")
+    assert got == rec
+    assert _json.loads(httpx_mock.get_request().content) == {
+        "spec": {"scopes": ["facility"]}, "note": "ok"}
+
+
+def test_approve_without_edits_sends_null_spec(httpx_mock):
+    import json as _json
+
+    httpx_mock.add_response(method="POST", url=f"{BASE}/logbook/setting-keys/k/approve",
+                            json={"key": "k", "status": "approved"})
+    _client().approve_key("k")
+    assert _json.loads(httpx_mock.get_request().content)["spec"] is None
+
+
+def test_reject_and_revoke(httpx_mock):
+    httpx_mock.add_response(method="POST", url=f"{BASE}/logbook/setting-keys/k/reject",
+                            json={"key": "k", "status": "rejected"})
+    httpx_mock.add_response(method="DELETE", url=f"{BASE}/logbook/setting-keys/k",
+                            status_code=204)
+    assert _client().reject_key("k", note="no")["status"] == "rejected"
+    _client().revoke_key("k")
+
+
+def test_review_refused_for_non_admin_raises_403(httpx_mock):
+    httpx_mock.add_response(method="POST", url=f"{BASE}/logbook/setting-keys/k/approve",
+                            status_code=403, json={"detail": "facility admin role required"})
+    with pytest.raises(ScopesError) as ei:
+        _client().approve_key("k")
+    assert ei.value.status == 403

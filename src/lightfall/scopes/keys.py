@@ -51,9 +51,15 @@ _BEAMLINE_CAPABLE = (
     "device_happi_enabled", "device_happi_beamline", "device_happi_instantiate",
 )
 
+# How a site reaches its services: set for everyone at facility/beamline/branch, never
+# per user (Ron, 2026-10-30). Same rules as the server's approved specs.
+_SITE_WIDE = frozenset({"facility", "beamline", "branch"})
+_SITE_WIDE_KEYS: dict[str, type] = {"tiled_enabled": bool, "tiled_auth_mode": str}
+
 CLIENT_SPECS: tuple[SettingSpec, ...] = (
     *(SettingSpec(key=k, scopes=ALL_KINDS) for k in _FACILITY_CAPABLE),
     *(SettingSpec(key=k, scopes=_BEAMLINE_AND_BELOW) for k in _BEAMLINE_CAPABLE),
+    *(SettingSpec(key=k, type=tp, scopes=_SITE_WIDE) for k, tp in _SITE_WIDE_KEYS.items()),
 )
 
 
