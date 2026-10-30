@@ -50,10 +50,11 @@ dependencies = [
     "h5py>=3.0",
     # epics
     "caproto>=1.1",
-    # required for caproto to enumerate all interfaces on multi-homed hosts;
-    # excluded on macOS: netifaces is unmaintained and ships no arm64 wheels,
-    # which blocks briefcase packaging (caproto degrades gracefully without it)
-    "netifaces>=0.11; sys_platform != 'darwin'",
+    # required for caproto to enumerate all interfaces on multi-homed hosts
+    # (caproto degrades gracefully without it). netifaces-plus is a maintained
+    # drop-in fork that installs the same `netifaces` module and ships wheels
+    # for Windows and macOS arm64; upstream netifaces is sdist-only past cp39
+    "netifaces-plus>=0.12.5",
     # acquire
     "bluesky>=1.10",
     "ophyd>=1.7",
@@ -250,8 +251,8 @@ requires = [
 
     # EPICS
     "caproto>=1.1",
-    # see [project].dependencies for why netifaces is excluded on macOS
-    "netifaces>=0.11; sys_platform != 'darwin'",
+    # see [project].dependencies for why netifaces-plus, not netifaces
+    "netifaces-plus>=0.12.5",
 
     # Data acquisition
     "bluesky>=1.10",

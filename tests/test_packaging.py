@@ -19,8 +19,8 @@ def _canonical_name(requirement: str) -> str:
     """Extract the PEP 503 canonical package name from a requirement string.
 
     Strips extras, version specifiers, and environment markers:
-    "httpx[socks]>=0.27" -> "httpx", "netifaces>=0.11; sys_platform ..." ->
-    "netifaces".
+    "httpx[socks]>=0.27" -> "httpx", "netifaces-plus>=0.12; sys_platform ..." ->
+    "netifaces-plus".
     """
     name = re.split(r"[;\[<>=!~ ]", requirement.strip(), maxsplit=1)[0]
     return re.sub(r"[-_.]+", "-", name).lower()
