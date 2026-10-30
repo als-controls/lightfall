@@ -59,8 +59,11 @@ class BeamStatusFeed(MonitorFeed):
         if data.beam_available:
             if self._lost:
                 self._lost = False
+                # Loss and restoration share one state key so the rate
+                # limiter sees a severity change each way; a second loss in
+                # the same run would otherwise be suppressed.
                 return self._obs(
-                    "info", window, "beam_restored", "Beam restored",
+                    "info", window, "beam", "Beam restored",
                     f"Beam is back at {data.beam_current:.1f} mA.", data,
                     "Points measured while the beam was down may need re-measuring.",
                 )
@@ -71,7 +74,7 @@ class BeamStatusFeed(MonitorFeed):
             self._lost = True
             comment = f" Operations: {data.comment}" if data.comment else ""
             return self._obs(
-                "critical", window, "beam_lost", "Beam lost",
+                "critical", window, "beam", "Beam lost",
                 f"Beam became unavailable during the run.{comment}", data,
                 "Pause the queue until the beam returns.",
             )

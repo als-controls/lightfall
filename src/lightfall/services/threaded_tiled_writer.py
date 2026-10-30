@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from typing import TYPE_CHECKING, Any
 
 from lightfall.utils.logging import logger
@@ -159,11 +160,16 @@ class ThreadedTiledWriter:
         Returns:
             True if queue was flushed, False if timeout.
         """
-        try:
-            self._queue.join()
-            return True
-        except Exception:
-            return False
+        # queue.Queue.join() has no timeout: it would block forever once the
+        # worker has stopped with documents still queued (shutdown order).
+        deadline = time.monotonic() + max(0.0, timeout)
+        with self._queue.all_tasks_done:
+            while self._queue.unfinished_tasks:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not self._thread.isRunning():
+                    return False
+                self._queue.all_tasks_done.wait(min(remaining, 0.5))
+        return True
 
     @property
     def queue_size(self) -> int:

@@ -32,6 +32,9 @@ class LocalUser:
     roles: list[str] = field(default_factory=lambda: ["user"])
     groups: list[str] = field(default_factory=list)
     enabled: bool = True
+    # Hashes made by add_user() include the provider's per-process salt;
+    # hashes read from a users file cannot (the file predates the salt).
+    salted: bool = True
 
 
 def _hash_password(password: str, salt: str = "") -> str:
@@ -51,7 +54,9 @@ class LocalAuthProvider(AuthProvider):
 
     Users can be defined in a YAML file or added programmatically.
 
-    User file format (users.yaml):
+    User file format (users.yaml). ``password_hash`` is the hex SHA-256 of
+    the password (``sha256sum <<< -n secret``); ``password`` (plain text)
+    is also accepted for throwaway setups:
         users:
           admin:
             password_hash: "sha256_hash_here"
@@ -114,14 +119,20 @@ class LocalAuthProvider(AuthProvider):
                 data = yaml.safe_load(f) or {}
 
             for username, user_data in data.get("users", {}).items():
+                plain = user_data.get("password")
+                if plain is not None:
+                    password_hash, salted = _hash_password(str(plain), self._salt), True
+                else:
+                    password_hash, salted = str(user_data.get("password_hash", "")), False
                 self._users[username] = LocalUser(
                     username=username,
-                    password_hash=user_data.get("password_hash", ""),
+                    password_hash=password_hash,
                     display_name=user_data.get("display_name", username),
                     email=user_data.get("email", ""),
                     roles=user_data.get("roles", ["user"]),
                     groups=user_data.get("groups", []),
                     enabled=user_data.get("enabled", True),
+                    salted=salted,
                 )
             logger.info("Loaded {} users from {}", len(self._users), path)
         except Exception as e:
@@ -190,9 +201,10 @@ class LocalAuthProvider(AuthProvider):
     def _verify_password(self, username: str, password: str) -> bool:
         """Verify a password for a user."""
         user = self._users.get(username)
-        if not user or not user.enabled:
+        if not user or not user.enabled or not user.password_hash:
             return False
-        return user.password_hash == _hash_password(password, self._salt)
+        expected = _hash_password(password, self._salt if user.salted else "")
+        return secrets.compare_digest(user.password_hash.lower(), expected)
 
     async def authenticate(
         self,

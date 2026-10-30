@@ -91,7 +91,9 @@ def render_markdown(text: str) -> str:
             return _highlight_code(code, lang if lang else None)
 
         result = re.sub(
-            r'<pre><code(?:\s+class="language-(\w+)")?>(.*?)</code></pre>',
+            # Language ids can carry +, #, . and - (c++, c#, objective-c,
+            # shell-session); \w alone left those blocks unhighlighted.
+            r'<pre><code(?:\s+class="language-([\w+#.-]+)")?>(.*?)</code></pre>',
             _replace_code_block,
             result,
             flags=re.DOTALL,
