@@ -27,6 +27,10 @@ class LocalScopesBackend(PreferenceBackend):
     def chain(self) -> tuple[str, ...]:
         return self._store.chain
 
+    def resolution(self, key: str) -> Any:
+        """How ``key`` resolves through the scope files (origin, lock)."""
+        return self._store.resolve(key)
+
     def keys(self) -> set[str]:
         return set(self._keys)
 

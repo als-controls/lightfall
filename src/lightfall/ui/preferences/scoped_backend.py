@@ -14,7 +14,7 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from lightfall_settings import ScopeId, SpecRegistry, role_at_least, spec_to_dict
+from lightfall_settings import Resolution, ScopeId, SpecRegistry, role_at_least, spec_to_dict
 from PySide6.QtCore import QTimer, Signal
 
 from lightfall.scopes.cache import SnapshotCache
@@ -187,6 +187,18 @@ class ScopedBackend(PreferenceBackend):
     @property
     def store(self) -> ScopedStore | None:
         return self._store
+
+    @property
+    def user_scope(self) -> str | None:
+        return self._store.user_scope if self._store is not None else None
+
+    @property
+    def roles(self) -> dict[str, str | None]:
+        return dict(self._roles)
+
+    def resolution(self, key: str) -> Resolution | None:
+        """How ``key`` resolves through the chain (origin, lock); None before the first fetch."""
+        return self._store.resolve(key) if self._store is not None else None
 
     def serves(self, identity: str, bind: str) -> bool:
         return self._active and identity == self._identity and bind == self._bind
