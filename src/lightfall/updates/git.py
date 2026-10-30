@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from lightfall.utils.logging import logger
@@ -49,3 +50,119 @@ def run_git(root: Path, *args: str, timeout: float = 30.0) -> str:
     if result.returncode != 0:
         raise GitError(f"git {' '.join(args)}: {result.stderr.strip()}")
     return result.stdout.strip()
+
+
+@dataclass(frozen=True)
+class RepoState:
+    """A source checkout's branch, local changes and position against its remote.
+
+    ``ahead`` / ``behind`` are None when the remote could not be reached (or was
+    not fetched and has no remote-tracking ref yet).
+    """
+
+    root: Path
+    dists: tuple[str, ...]
+    branch: str | None  # None: detached HEAD
+    default_branch: str
+    remote: str
+    dirty: bool
+    head: str
+    ahead: int | None
+    behind: int | None
+    remote_head: str | None
+
+    @property
+    def name(self) -> str:
+        return self.root.name
+
+    @property
+    def on_default(self) -> bool:
+        return self.branch == self.default_branch
+
+    @property
+    def reachable(self) -> bool:
+        return self.behind is not None
+
+    @property
+    def has_update(self) -> bool:
+        return self.on_default and self.behind is not None and self.behind > 0
+
+    @property
+    def blockers(self) -> list[str]:
+        """Why this repo can't be fast-forwarded now; empty when it can."""
+        reasons = []
+        if self.dirty:
+            reasons.append("uncommitted changes")
+        if self.branch is None:
+            reasons.append("detached HEAD")
+        elif not self.on_default:
+            reasons.append(f"on branch {self.branch}, not {self.default_branch}")
+        if self.ahead:
+            reasons.append(f"{self.ahead} unpushed commit(s)")
+        return reasons
+
+    @property
+    def noteworthy(self) -> bool:
+        """Worth showing in the git-state indicator."""
+        return not self.on_default or self.dirty or (self.ahead or 0) > 0
+
+
+def _try_git(root: Path, *args: str) -> str | None:
+    try:
+        return run_git(root, *args)
+    except GitError:
+        return None
+
+
+def _default_branch(root: Path, remote: str) -> str:
+    ref = _try_git(root, "symbolic-ref", "--short", f"refs/remotes/{remote}/HEAD")
+    if ref and ref.startswith(f"{remote}/"):
+        return ref[len(remote) + 1:]
+    for candidate in ("master", "main"):
+        if _try_git(root, "rev-parse", "--verify", "-q", f"refs/remotes/{remote}/{candidate}"):
+            return candidate
+    return "master"
+
+
+def read_repo_state(root: Path, dists: tuple[str, ...], fetch: bool) -> RepoState:
+    """Read ``root``'s state; with ``fetch``, refresh its default branch first.
+
+    A failed fetch leaves ahead/behind as None (unreachable) instead of raising.
+    Raises GitError only if ``root`` is not a readable git repo at all.
+    """
+    head = run_git(root, "rev-parse", "--short", "HEAD")
+    branch = _try_git(root, "symbolic-ref", "--short", "-q", "HEAD") or None
+    remote = (_try_git(root, "config", f"branch.{branch}.remote") if branch else None) or "origin"
+    default = _default_branch(root, remote)
+    dirty = bool(run_git(root, "status", "--porcelain", "--untracked-files=no"))
+    tracking = f"refs/remotes/{remote}/{default}"
+    ahead = behind = remote_head = None
+    fetched = True
+    if fetch:
+        try:
+            run_git(root, "fetch", "--quiet", remote, default)
+        except GitError as e:
+            logger.debug("Update check: {} unreachable: {}", root.name, e)
+            fetched = False
+    if fetched and _try_git(root, "rev-parse", "--verify", "-q", tracking):
+        counts = _try_git(root, "rev-list", "--left-right", "--count", f"HEAD...{tracking}")
+        if counts:
+            left, right = counts.split()
+            ahead, behind = int(left), int(right)
+            remote_head = _try_git(root, "rev-parse", "--short", tracking)
+    return RepoState(root, dists, branch, default, remote, dirty, head, ahead, behind,
+                     remote_head)
+
+
+def pull_ff(state: RepoState) -> tuple[str, str]:
+    """Fast-forward ``state.root`` to its remote default branch; return (old, new) HEADs."""
+    old = run_git(state.root, "rev-parse", "HEAD")
+    run_git(state.root, "pull", "--ff-only", "--quiet", state.remote, state.default_branch,
+            timeout=120.0)
+    new = run_git(state.root, "rev-parse", "HEAD")
+    return old, new
+
+
+def pyproject_changed(root: Path, old: str, new: str) -> bool:
+    """Whether ``pyproject.toml`` differs between commits ``old`` and ``new``."""
+    return bool(run_git(root, "diff", "--name-only", old, new, "--", "pyproject.toml"))
