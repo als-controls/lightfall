@@ -9,21 +9,16 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from lightfall_settings import SettingSpec
 from loguru import logger
-from PySide6.QtWidgets import (
-    QComboBox,
-    QFormLayout,
-    QGroupBox,
-    QLabel,
-    QVBoxLayout,
-    QWidget,
-)
 
 from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.form.schema import Choice, Section, SettingField
 from lightfall.ui.preferences.manager import PreferencesManager
-from lightfall.ui.theme import scaled_px
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from PySide6.QtGui import QIcon
 
 
@@ -59,17 +54,11 @@ class LoginSettingsProvider:
 class LoginSettingsPlugin(SettingsPlugin):
     """Settings plugin for login and session configuration.
 
-    Provides controls for:
-    - Session duration selection for local authentication
+    Provides the session duration selection for local authentication.
 
     Note: Keycloak sessions use server-controlled expiry from JWT tokens,
     so the session duration setting only affects local authentication.
     """
-
-    def __init__(self) -> None:
-        """Initialize the login settings plugin."""
-        self._widget: QWidget | None = None
-        self._duration_combo: QComboBox | None = None
 
     @property
     def name(self) -> str:
@@ -96,89 +85,23 @@ class LoginSettingsPlugin(SettingsPlugin):
         """Return sort order (lower = higher in list)."""
         return 5  # After appearance (0)
 
-    def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        """Create the settings widget.
+    def specs(self) -> Sequence[SettingSpec]:
+        return [
+            SettingSpec(key="session_duration", scopes=frozenset({"user", "facility"}),
+                        label="Session duration"),
+        ]
 
-        Args:
-            parent: Parent widget (the dialog).
-
-        Returns:
-            A QWidget containing the login settings controls.
-        """
-        widget = QWidget(parent)
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        # Session group
-        session_group = QGroupBox("Session Settings")
-        session_layout = QFormLayout(session_group)
-
-        # Session duration selector
-        self._duration_combo = QComboBox()
-        for seconds, label in SESSION_DURATION_OPTIONS.items():
-            self._duration_combo.addItem(label, seconds)
-        session_layout.addRow("Session Duration:", self._duration_combo)
-
-        # Info label
-        info_label = QLabel(
-            "This setting applies to local accounts only.\n"
-            "Keycloak sessions are controlled by the server."
-        )
-        info_label.setStyleSheet(f"color: gray; font-size: {scaled_px(10)}px;")
-        info_label.setWordWrap(True)
-        session_layout.addRow("", info_label)
-
-        layout.addWidget(session_group)
-        layout.addStretch()
-
-        self._widget = widget
-        return widget
-
-    def load_settings(self) -> None:
-        """Load current settings into the widget."""
-        if not self._duration_combo:
-            return
-
-        prefs = PreferencesManager.get_instance()
-        duration = prefs.get("session_duration", DEFAULT_SESSION_DURATION)
-
-        # Find and select the matching duration
-        index = self._duration_combo.findData(duration)
-        if index >= 0:
-            self._duration_combo.setCurrentIndex(index)
-        else:
-            # If saved duration isn't in options, use default
-            index = self._duration_combo.findData(DEFAULT_SESSION_DURATION)
-            if index >= 0:
-                self._duration_combo.setCurrentIndex(index)
-
-    def save_settings(self) -> None:
-        """Save widget values to persistent storage."""
-        if not self._duration_combo:
-            return
-
-        prefs = PreferencesManager.get_instance()
-        duration = self._duration_combo.currentData()
-        prefs.set("session_duration", duration)
-
-    def validate(self) -> list[str]:
-        """Validate current widget values.
-
-        Returns:
-            Empty list (no validation needed for login settings).
-        """
-        return []
-
-    def apply_preview(self) -> None:
-        """Apply settings temporarily for live preview.
-
-        No preview needed for session settings.
-        """
-        pass
-
-    def revert_preview(self) -> None:
-        """Revert preview changes if user cancels.
-
-        No preview to revert for session settings.
-        """
-        pass
+    def sections(self) -> Sequence[Section]:
+        return [
+            Section("Session Settings", [
+                SettingField(
+                    "session_duration",
+                    Choice(SESSION_DURATION_OPTIONS.items()),
+                    label="Session duration",
+                    description=(
+                        "This setting applies to local accounts only. "
+                        "Keycloak sessions are controlled by the server."
+                    ),
+                ),
+            ]),
+        ]
