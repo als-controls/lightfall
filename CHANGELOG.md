@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Depend on `netifaces-plus` instead of `netifaces` so caproto can enumerate every interface on multi-homed hosts on all platforms. It is a maintained drop-in fork (same `netifaces` module) with Windows and macOS arm64 wheels; upstream `netifaces` is sdist-only past Python 3.9, so it is no longer excluded on macOS.
+
 ### Added
 
 - Assistant: choose Claude Code or Gemini (agy) in Preferences → Assistant, with sign-in, model picker and switching without a restart.
