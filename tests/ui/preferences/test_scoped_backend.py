@@ -50,6 +50,9 @@ class FakeLocal:
         def get(self, key, default=None):
             return self.data.get(key, default)
 
+        def unset(self, key, *, persist=True):
+            self.data.pop(key, None)
+
         def set(self, key, value, *, persist=False):
             if value is None:
                 self.data.pop(key, None)

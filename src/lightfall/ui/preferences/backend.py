@@ -124,7 +124,10 @@ class LocalPreferenceBackend(PreferenceBackend):
         """
         if self._cm is None:
             return
-        self._cm.set(self._config_key(key), value, persist=True)
+        if value is None:
+            self._cm.unset(self._config_key(key))
+        else:
+            self._cm.set(self._config_key(key), value, persist=True)
 
     def owns(self, key: str) -> bool:
         return key not in self._user_portable_keys
@@ -159,5 +162,7 @@ class LocalPreferenceBackend(PreferenceBackend):
             config_key = f"preferences.beamlines.{self._beamline}.{key}"
         else:
             config_key = f"preferences.{key}"
-        self._cm.set(config_key, None, persist=True)
+        # Delete, don't write None: a ``key: null`` in the YAML fails validation for
+        # non-optional fields, which used to reset the whole config (site.bind too).
+        self._cm.unset(config_key)
         self.changed.emit(key, None)
