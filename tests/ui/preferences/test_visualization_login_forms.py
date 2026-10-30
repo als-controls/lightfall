@@ -161,3 +161,12 @@ def test_visualization_untouched_writes_nothing(qtbot, env):
     dialog = _dialog(qtbot)
     assert dialog._apply() is True
     assert env.prefs.calls == []
+
+
+def test_visualization_number_fields_show_their_units(qtbot, env):
+    from PySide6.QtWidgets import QLabel
+
+    dialog = _dialog(qtbot)
+    for key, unit in (("visualization.update_rate", "Hz"), ("visualization.decimation_threshold", "points")):
+        editor = _row(dialog, "visualization", key).editor
+        assert unit in [lbl.text() for lbl in editor.findChildren(QLabel) if not lbl.isHidden()]

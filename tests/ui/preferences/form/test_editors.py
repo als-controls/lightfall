@@ -249,3 +249,71 @@ def test_muted_follows_palette_change_and_keeps_disabled_group(qtbot):
     editor.setPalette(pal)
     assert btn.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.ButtonText) == QColor("#123456")
     assert btn.palette().color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText) != QColor("#123456")
+
+
+@pytest.mark.parametrize("kind", ["integer", "number", "text"])
+def test_read_only_line_edit_looks_disabled_but_stays_selectable(qtbot, kind):
+    from qtpy.QtGui import QPalette
+
+    editor = make(qtbot, kind)
+    line = editor.findChild(QLineEdit)
+    active, disabled = QPalette.ColorGroup.Active, QPalette.ColorGroup.Disabled
+    text = QPalette.ColorRole.Text
+    normal = line.palette().color(active, text)
+    assert normal != line.palette().color(disabled, text)
+    editor.set_read_only(True)
+    assert line.isReadOnly() and line.isEnabled()  # text can still be selected and copied
+    assert line.palette().color(active, text) == line.palette().color(disabled, text)
+    editor.set_read_only(False)
+    assert line.palette().color(active, text) == normal
+
+
+def test_number_editor_shows_unit_suffix(qtbot):
+    spec = Integer(5, 60)
+    editor = create_editor(spec, SettingField("visualization.update_rate", spec, unit="Hz"))
+    qtbot.addWidget(editor)
+    assert "Hz" in [lbl.text() for lbl in editor.findChildren(QLabel) if not lbl.isHidden()]
+
+
+def test_number_editor_without_unit_has_no_suffix(qtbot):
+    spec = Integer(5, 60)
+    editor = create_editor(spec, SettingField("k", spec))
+    qtbot.addWidget(editor)
+    assert [lbl.text() for lbl in editor.findChildren(QLabel) if not lbl.isHidden()] == []
+
+
+@pytest.mark.parametrize(
+    ("spec", "start", "key", "expected"),
+    [
+        (Integer(0, 10, step=3), 4, Qt.Key_Up, 7),
+        (Integer(0, 10, step=3), 9, Qt.Key_Up, 10),   # clamped to the maximum
+        (Integer(0, 10, step=3), 1, Qt.Key_Down, 0),  # clamped to the minimum
+        (Number(0, 1, step=0.1), 0.2, Qt.Key_Up, 0.3),
+    ],
+)
+def test_arrow_keys_step_number(qtbot, spec, start, key, expected):
+    editor = create_editor(spec, SettingField("k", spec))
+    qtbot.addWidget(editor)
+    editor.set_value(start)
+    calls = []
+    editor.changed.connect(lambda: calls.append(editor.value()))
+    line = editor.findChild(QLineEdit)
+    qtbot.keyClick(line, key)
+    assert editor.value() == pytest.approx(expected)
+    assert calls and editor.is_valid()
+
+
+def test_arrow_keys_do_nothing_when_read_only_or_without_step(qtbot):
+    spec = Integer(0, 10, step=1)
+    editor = create_editor(spec, SettingField("k", spec))
+    qtbot.addWidget(editor)
+    editor.set_value(4)
+    editor.set_read_only(True)
+    qtbot.keyClick(editor.findChild(QLineEdit), Qt.Key_Up)
+    assert editor.value() == 4
+    plain = Number(0, 10)
+    other = create_editor(plain, SettingField("k2", plain))
+    qtbot.addWidget(other)
+    other.set_value(4.0)
+    qtbot.keyClick(other.findChild(QLineEdit), Qt.Key_Up)
+    assert other.value() == 4.0
