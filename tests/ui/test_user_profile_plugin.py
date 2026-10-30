@@ -224,6 +224,87 @@ def test_load_settings_download_failure_is_not_logged_as_error(
     assert not p._avatar_label.pixmap().isNull()  # placeholder
 
 
+def test_download_failure_after_page_deleted_does_not_touch_dead_label(
+    qtbot, stub_session, _reset_prefs
+):
+    """The page can be deleted (Preferences dialog closed) while the
+    profile-image download is still running. When the download then fails,
+    the error callback must not call setPixmap on the deleted QLabel
+    (GlitchTip LIGHTFALL-9: "Internal C++ object (QLabel) already deleted").
+    """
+    import threading
+
+    import shiboken6
+    from loguru import logger
+
+    from lightfall.settings.user_settings_client import UserSettingsError
+    from lightfall.ui.preferences.manager import PreferencesManager
+    from lightfall.ui.preferences.user_profile_settings import (
+        UserProfileSettingsPlugin,
+    )
+
+    release = threading.Event()
+
+    def _slow_401(*_a, **_kw):
+        release.wait(5)
+        raise UserSettingsError(
+            "Image download for 'img-1' failed: Client error '401 Unauthorized'"
+        )
+
+    fake_client = _reset_prefs
+    fake_client.download_image.side_effect = _slow_401
+    prefs = PreferencesManager.get_instance()
+    prefs._user_portable._cache["profile_image_id"] = "img-1"
+
+    records: list[tuple[str, str]] = []
+    sink_id = logger.add(
+        lambda m: records.append((m.record["level"].name, m.record["message"])),
+        level="WARNING",
+    )
+    try:
+        p = UserProfileSettingsPlugin()
+        w = p.create_widget()
+        p.load_settings()  # download starts and blocks in _slow_401
+        label = p._avatar_label
+        shiboken6.delete(w)  # dialog closed: page and its QLabel are gone
+        assert not shiboken6.isValid(label)
+        release.set()
+        qtbot.waitUntil(
+            lambda: any("Failed to load profile image" in msg for _, msg in records),
+            timeout=5000,
+        )
+        qtbot.wait(50)  # let the slot finish
+    finally:
+        release.set()
+        logger.remove(sink_id)
+
+    assert [lvl for lvl, _ in records if lvl in ("ERROR", "CRITICAL")] == []
+    assert p._loaded_image_id is None
+
+
+def test_image_ready_after_page_deleted_does_not_touch_dead_label(
+    qtbot, stub_session
+):
+    """Same race on the success path: a download that completes after the
+    page was deleted is dropped and not recorded as loaded."""
+    import shiboken6
+    from PySide6.QtGui import QImage
+
+    from lightfall.ui.preferences.user_profile_settings import (
+        UserProfileSettingsPlugin,
+    )
+
+    p = UserProfileSettingsPlugin()
+    w = p.create_widget()
+    shiboken6.delete(w)
+
+    qimg = QImage.fromData(_png_bytes_1x1_red())
+    assert not qimg.isNull()
+    p._on_image_ready("img-1", qimg)  # must not raise RuntimeError
+    p._on_image_ready("img-1", None)  # null image → placeholder path
+    assert p._loaded_image_id is None
+
+
 ALLOWED_MIMES = {"image/png", "image/jpeg", "image/gif"}
 MAX_BYTES = 20 * 1024 * 1024
 

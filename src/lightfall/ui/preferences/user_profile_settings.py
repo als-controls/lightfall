@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import shiboken6
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -173,8 +174,9 @@ class UserProfileSettingsPlugin(SettingsPlugin):
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
-        if self._avatar_label is not None:
-            self._avatar_label.setPixmap(pm)
+        if not self._avatar_alive():
+            return  # page deleted while the download ran; nothing shows it
+        self._avatar_label.setPixmap(pm)
         self._loaded_image_id = image_id
 
     def _on_image_error(self, exc: BaseException) -> None:
@@ -311,9 +313,18 @@ class UserProfileSettingsPlugin(SettingsPlugin):
             logger.debug("Could not read identity from session: {}", e)
             return ("(unknown)", "", "", None)
 
+    def _avatar_alive(self) -> bool:
+        """True while the avatar QLabel still exists.
+
+        The plugin outlives the page it builds: closing the Preferences
+        dialog deletes the page and its QLabel, but a profile-image download
+        (or a later ``profile_image_id`` change) can still call back here.
+        """
+        return self._avatar_label is not None and shiboken6.isValid(self._avatar_label)
+
     def _set_placeholder_avatar(self) -> None:
         """Show a blank silhouette placeholder."""
-        if self._avatar_label is None:
+        if not self._avatar_alive():
             return
         pm = QPixmap(_AVATAR_PX, _AVATAR_PX)
         pm.fill(Qt.GlobalColor.lightGray)
