@@ -21,12 +21,8 @@ class _HappiEditor(BackendEditor):
         path_row = QHBoxLayout()
         path_row.addWidget(self._path)
         path_row.addWidget(browse)
-        self._beamline = QLineEdit(str(config.get("beamline", "")))
-        self._beamline.setPlaceholderText("(optional — filter by beamline)")
-        for edit in (self._path, self._beamline):
-            edit.textChanged.connect(lambda *_: self.changed.emit())
+        self._path.textChanged.connect(lambda *_: self.changed.emit())
         form.addRow("Database path:", path_row)
-        form.addRow("Beamline filter:", self._beamline)
         form.addRow(
             hint(
                 "Loads devices from a happi device database. "
@@ -42,7 +38,7 @@ class _HappiEditor(BackendEditor):
             self._path.setText(path)
 
     def get_config(self) -> dict[str, Any]:
-        return {"path": self._path.text().strip(), "beamline": self._beamline.text().strip()}
+        return {"path": self._path.text().strip()}
 
 
 class HappiBackendType(BackendType):
@@ -50,7 +46,7 @@ class HappiBackendType(BackendType):
     display_name = "Happi"
 
     def default_config(self) -> dict[str, Any]:
-        return {"path": "", "beamline": ""}
+        return {"path": ""}
 
     def summary(self, config: dict[str, Any]) -> str:
         return config.get("path") or "happi default config ($HAPPI_CFG)"
@@ -61,7 +57,7 @@ class HappiBackendType(BackendType):
     def build(self, config: dict[str, Any], name: str, ctx: BuildContext) -> HappiBackend:
         return HappiBackend(
             path=config.get("path") or None,
-            beamline=config.get("beamline") or None,
+            beamline=None,  # a console's happi file is its own: no beamline filter
             instantiate=ctx.instantiate_mode,
             connection_timeout=ctx.connection_timeout,
             name=name,

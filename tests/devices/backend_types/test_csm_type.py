@@ -64,7 +64,7 @@ def test_type_basics():
     cfg = t.default_config()
     assert cfg["url"] == "https://bcgmgmt.als.lbl.gov"
     assert cfg["beamline_id"] is None
-    assert t.validate(cfg) == ["Beamline is required"]
+    assert "bind it on the Scopes page" in t.validate(cfg)[0]
     assert t.validate({**cfg, "url": "", "beamline_id": 1}) == ["CSM URL is required"]
     assert t.summary(SAVED) == "csm.test · 7.0.1.1 / acr9000-7011"
     assert t.summary({**SAVED, "ioc_id": None, "ioc_name": None}) == "csm.test · 7.0.1.1"
@@ -97,22 +97,69 @@ def test_editor_offline_keeps_saved_selection(qtbot):
     assert not editor._beamline.isEnabled()
 
 
-def test_editor_populates_and_keeps_selection(qtbot):
+def _bound(monkeypatch, *names):
+    monkeypatch.setattr("lightfall.scopes.site.binding_names", lambda: list(names))
+
+
+def test_beamline_is_the_consoles_and_not_editable(qtbot, monkeypatch):
+    _bound(monkeypatch, "7.0.1.1", "7.0.1")
     editor = CSMBackendType().create_editor(SAVED)
     qtbot.addWidget(editor)
     editor._on_beamlines([(1, "6.0.1"), (12, "7.0.1.1")])
-    assert editor._beamline.isEnabled()
+    assert not editor._beamline.isEnabled()
     assert editor.get_config()["beamline_id"] == 12
     editor._on_iocs([(9, "adsim"), (34, "acr9000-7011")])
     cfg = editor.get_config()
     assert (cfg["ioc_id"], cfg["ioc_name"]) == (34, "acr9000-7011")
 
 
-def test_editor_saved_beamline_missing_from_list_is_kept(qtbot):
+def test_new_row_picks_the_branch_then_its_beamline(qtbot, monkeypatch):
+    _bound(monkeypatch, "7.0.1.1", "7.0.1")
+    fresh = CSMBackendType().default_config()
+    editor = CSMBackendType().create_editor(fresh)
+    qtbot.addWidget(editor)
+    editor._on_beamlines([(11, "7.0.1"), (13, "8.3.2")])          # CSM has no 7.0.1.1
+    assert (editor.get_config()["beamline_id"], editor.get_config()["beamline_name"]) == (
+        11, "7.0.1")
+
+
+def test_row_for_another_beamline_follows_the_console(qtbot, monkeypatch):
+    _bound(monkeypatch, "8.3.2")
+    editor = CSMBackendType().create_editor(SAVED)                 # saved for 7.0.1.1
+    qtbot.addWidget(editor)
+    editor._on_iocs([(34, "acr9000-7011")])
+    editor._on_beamlines([(12, "7.0.1.1"), (13, "8.3.2")])
+    cfg = editor.get_config()
+    assert cfg["beamline_id"] == 13
+    assert (cfg["ioc_id"], cfg["ioc_name"]) == (None, None)       # the old IOC is not 8.3.2's
+
+
+def test_no_match_keeps_the_saved_beamline_and_says_why(qtbot, monkeypatch):
+    # Opening an inherited row must not edit it.
+    _bound(monkeypatch, "12.0.2.1", "12.0.2")
     editor = CSMBackendType().create_editor(SAVED)
     qtbot.addWidget(editor)
     editor._on_beamlines([(1, "6.0.1")])
-    assert editor.get_config()["beamline_id"] == 12
+    assert editor.get_config() == SAVED
+    assert "12.0.2.1" in editor._status.text()
+
+
+def test_unbound_console_keeps_the_saved_beamline(qtbot, monkeypatch):
+    _bound(monkeypatch)
+    editor = CSMBackendType().create_editor(SAVED)
+    qtbot.addWidget(editor)
+    editor._on_beamlines([(12, "7.0.1.1"), (13, "8.3.2")])
+    assert editor.get_config() == SAVED
+    assert "Bind this console" in editor._status.text()
+
+
+def test_match_csm_beamline_is_loose_and_ordered():
+    from lightfall.devices.backend_types.csm import match_csm_beamline
+
+    items = [(11, "7.0.1"), (12, "7011")]
+    assert match_csm_beamline(items, ["7.0.1.1", "7.0.1"]) == (12, "7011")
+    assert match_csm_beamline(items, ["7.0.1.2", "7.0.1"]) == (11, "7.0.1")
+    assert match_csm_beamline(items, ["12.0.2.1"]) is None
 
 
 def test_editor_ioc_all_is_none(qtbot):
@@ -171,17 +218,6 @@ def test_token_never_passed_as_worker_arg(qtbot, monkeypatch):
         assert "secret-tok" not in repr(args)
         assert "secret-tok" not in repr(kwargs)
         assert kwargs.get("log_exceptions") is False
-
-
-def test_user_beamline_change_resets_ioc_to_all(qtbot):
-    editor = CSMBackendType().create_editor(SAVED)
-    qtbot.addWidget(editor)
-    editor._on_beamlines([(12, "7.0.1.1"), (13, "8.3.2")])
-    editor._on_iocs([(34, "acr9000-7011")])
-    editor._beamline.setCurrentIndex(editor._beamline.findData(13))
-    cfg = editor.get_config()
-    assert cfg["beamline_id"] == 13
-    assert (cfg["ioc_id"], cfg["ioc_name"]) == (None, None)
 
 
 def test_editor_logged_in_without_key_explains_relogin(qtbot, monkeypatch):

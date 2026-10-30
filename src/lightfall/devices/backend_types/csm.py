@@ -131,6 +131,23 @@ def fetch_beamlines(
     return sorted(((int(b["id"]), str(b["name"])) for b in rows), key=lambda item: item[1])
 
 
+def _norm(text: str) -> str:
+    return "".join(ch for ch in text.lower() if ch.isalnum())
+
+
+def match_csm_beamline(
+    items: list[tuple[int, str]], names: list[str]
+) -> tuple[int, str] | None:
+    """The CSM beamline for this console: the first of ``names`` (most specific first)
+    that CSM knows, compared loosely so ``7.0.1.1`` matches ``7011``."""
+    by_norm = {_norm(name): (item_id, name) for item_id, name in items}
+    for name in names:
+        found = by_norm.get(_norm(name))
+        if found is not None:
+            return found
+    return None
+
+
 def fetch_iocs(
     url: str, auth: httpx.Auth | None, beamline_id: int, timeout: float = 10.0
 ) -> list[tuple[int, str]]:
@@ -170,6 +187,9 @@ class _CSMEditor(BackendEditor):
             with_all=False,
         )
         self._beamline.currentIndexChanged.connect(self._on_beamline_changed)
+        # Not chosen here: the CSM beamline matching this console's binding.
+        self._beamline.setEnabled(False)
+        self._beamline.setToolTip("This console's beamline (Settings › Advanced › Scopes)")
         refresh = QToolButton()
         refresh.setText("⟳")
         refresh.setToolTip("Reload beamlines and IOCs from CSM")
@@ -269,7 +289,6 @@ class _CSMEditor(BackendEditor):
         """Reload the beamline list (and then IOCs) from CSM if logged in."""
         url = self._url.text().strip()
         if not url or not csm_api_key(url):
-            self._beamline.setEnabled(False)
             self._ioc.setEnabled(False)
             if url and session_authenticated():
                 # Keys are minted only at login (the bearer is gone afterwards).
@@ -286,11 +305,29 @@ class _CSMEditor(BackendEditor):
     def _on_beamlines(self, items: list[tuple[int, str]]) -> None:
         if not self._alive():
             return
-        keep_id, keep_name = self._current(self._beamline)
-        self._set_items(self._beamline, items, keep_id, keep_name, with_all=False)
-        self._beamline.setEnabled(True)
-        self._status.setText("")
-        self._load_iocs()
+        from lightfall.scopes.site import binding_names
+
+        names = binding_names()
+        before = self._current(self._beamline)
+        saved_name = before[1]
+        if saved_name is not None and match_csm_beamline([(0, saved_name)], names):
+            match: tuple[int, str] | None = (before[0], saved_name)  # already this console's
+        else:
+            match = match_csm_beamline(items, names)
+        if match is None:
+            # Keep what the row has: opening an inherited row must not edit it.
+            self._set_items(self._beamline, [], before[0], before[1], with_all=False)
+            self._status.setText(
+                "Bind this console to a beamline (Settings › Advanced › Scopes) to use CSM."
+                if not names else
+                f"CSM has no beamline matching this console's ({', '.join(names)}).")
+        else:
+            self._set_items(self._beamline, [match], match[0], match[1], with_all=False)
+            self._status.setText("")
+        if self._current(self._beamline) != before:
+            self._on_beamline_changed()
+        else:
+            self._load_iocs()
 
     def _on_beamline_changed(self, *_: Any) -> None:
         # The user picked another beamline: the old IOC belongs to the old one.
@@ -366,7 +403,8 @@ class CSMBackendType(BackendType):
         if not str(config.get("url") or "").strip():
             return ["CSM URL is required"]
         if config.get("beamline_id") is None:
-            return ["Beamline is required"]
+            return ["No CSM beamline for this console: bind it on the Scopes page, then "
+                    "refresh this row"]
         return []
 
     def build(self, config: dict[str, Any], name: str, ctx: BuildContext) -> CSMDeviceBackend:

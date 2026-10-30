@@ -19,6 +19,7 @@ class BuildContext:
 
     instantiate_mode: str = "background"
     connection_timeout: float = 5.0
+    beamline: str | None = None  # this console's binding (site.bind) name, if bound
 
 
 class BackendEditor(QWidget):

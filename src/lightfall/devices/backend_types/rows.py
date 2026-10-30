@@ -107,7 +107,6 @@ def migrate_legacy(get: Getter) -> list[BackendRow]:
                 config={
                     "host": get("device_bcs_host", "localhost") or "localhost",
                     "port": int(get("device_bcs_port", 5577)),
-                    "beamline": get("device_bcs_beamline", "") or "",
                     "timeout_ms": int(get("device_bcs_timeout_ms", 5000)),
                 },
             )
@@ -118,10 +117,7 @@ def migrate_legacy(get: Getter) -> list[BackendRow]:
                 type="happi",
                 name="happi",
                 enabled=happi_on,
-                config={
-                    "path": get("device_happi_path", "") or "",
-                    "beamline": get("device_happi_beamline", "") or "",
-                },
+                config={"path": get("device_happi_path", "") or ""},
             )
         )
     return rows
@@ -203,9 +199,13 @@ def build_context(get: Getter) -> BuildContext:
     mode = get("device_instantiate_mode", None)
     if mode is None:
         mode = "blocking" if get("device_happi_instantiate", False) else "none"
+    from lightfall.scopes.site import binding_names
+
+    names = binding_names()
     return BuildContext(
         instantiate_mode=str(mode),
         connection_timeout=float(get("device_connection_timeout", 5.0)),
+        beamline=names[0] if names else None,
     )
 
 

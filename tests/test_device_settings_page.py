@@ -100,7 +100,7 @@ def test_empty_name_fails_validation(page):
 def test_type_validation_prefixed_with_row_name(page):
     page._add_row("csm")  # no beamline chosen
     errors = page.validate()
-    assert "csm: Beamline is required" in errors
+    assert any(e.startswith("csm: No CSM beamline for this console") for e in errors)
 
 
 def test_disabled_row_skips_type_validation(page):

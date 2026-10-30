@@ -48,3 +48,20 @@ def test_ui_binding_overrides_a_provisioned_global_one(config_dirs, monkeypatch)
     assert ConfigManager().model.site.bind == "branch:12.0.2.1"
     _bind_with(cm, monkeypatch, "facility")
     assert ConfigManager().model.site.bind is None
+
+
+def test_binding_names_are_the_bind_then_its_beamline(monkeypatch):
+    from lightfall.scopes import site
+    from lightfall.ui.preferences.manager import PreferencesManager, ScopeInfo
+
+    class Manager:
+        scope_info = ScopeInfo("server", ("facility", "beamline:7.0.1", "branch:7.0.1.1",
+                                          "user:u1"))
+
+    monkeypatch.setattr(PreferencesManager, "get_instance", lambda: Manager)
+    monkeypatch.setattr(site, "get_site_bind", lambda: "branch:7.0.1.1")
+    assert site.binding_names() == ["7.0.1.1", "7.0.1"]
+    monkeypatch.setattr(site, "get_site_bind", lambda: "beamline:7.0.1")
+    assert site.binding_names() == ["7.0.1"]
+    monkeypatch.setattr(site, "get_site_bind", lambda: "facility")
+    assert site.binding_names() == []

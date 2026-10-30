@@ -34,10 +34,12 @@ def test_mock_build(registry):
 def test_bcs_build_and_validate(registry):
     t = registry.get("bcs")
     cfg = t.default_config()
-    assert cfg == {"host": "localhost", "port": 5577, "beamline": "", "timeout_ms": 5000}
+    assert cfg == {"host": "localhost", "port": 5577, "timeout_ms": 5000}
     backend = t.build({**cfg, "host": "bcs.lbl.gov"}, "bcs-a", CTX)
     assert isinstance(backend, BCSBackend)
     assert backend.name == "bcs-a"
+    labelled = t.build(cfg, "bcs-b", BuildContext(beamline="7.0.1.1"))
+    assert labelled._beamline == "7.0.1.1"  # this console's binding, not a row field
     assert t.summary({**cfg, "host": "bcs.lbl.gov"}) == "bcs.lbl.gov:5577"
     assert t.validate({**cfg, "host": "  "}) == ["Server host is required"]
 
