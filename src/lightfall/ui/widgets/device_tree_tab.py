@@ -273,14 +273,10 @@ class DeviceTreeTab(QWidget):
                 fav_action.triggered.connect(lambda: self.favorite_toggled.emit(device_name, True))
             menu.addSeparator()
 
-            from lightfall.devices.model import DeviceStatus
-            if (
-                device_info.state is not None
-                and device_info.state.status in (DeviceStatus.OFFLINE, DeviceStatus.ERROR)
-            ):
+            if self._catalog.can_retry_device(device_info.id):
                 reconnect_action = menu.addAction("Reconnect")
                 reconnect_action.triggered.connect(
-                    lambda checked=False, d=device_info: self._reconnect_device(d)
+                    lambda: self._catalog.retry_device_connection(device_info.id)
                 )
                 menu.addSeparator()
 
@@ -382,10 +378,6 @@ class DeviceTreeTab(QWidget):
     def _toggle_device_active(self, device_info, active: bool) -> None:
         device_info.active = active
         self._catalog.update_device(device_info)
-
-    def _reconnect_device(self, device_info) -> None:
-        """Retry connection for a device in OFFLINE or ERROR state."""
-        self._catalog.retry_device_connection(device_info.id)
 
     def _sync_devices(self) -> None:
         from lightfall.utils.threads import QThreadFuture

@@ -45,11 +45,13 @@ class ScopedStore:
     def user_settings(self) -> dict[str, Any]:
         return dict(self._settings.get(self.user_scope or "", {}))
 
-    def resolve(self, key: str) -> Resolution:
+    def resolve(self, key: str, *, include_user: bool = True) -> Resolution:
         spec = self._registry.get(key)
         snaps = []
         for scope in self.chain:
             sid = ScopeId.parse(scope)
+            if sid.kind == "user" and not include_user:
+                continue
             if sid.kind in spec.scopes:
                 snaps.append(ScopeSnapshot(scope=sid, settings=self._settings[scope],
                                            locks=self._locks[scope]))
@@ -58,6 +60,9 @@ class ScopedStore:
     def value(self, key: str) -> Any:
         res = self.resolve(key)
         return MISSING if res.origin is None else res.value
+
+    def scope_value(self, scope: str, key: str) -> Any:
+        return self._settings.get(scope, {}).get(key, MISSING)
 
     def user_value(self, key: str) -> Any:
         scope = self.user_scope

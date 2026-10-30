@@ -3,7 +3,13 @@ from __future__ import annotations
 
 import pytest
 
-from lightfall.scopes.keys import client_registry, flatten_preferences, is_local_only
+from lightfall.scopes.keys import (
+    LOCAL_LAYER_KEYS,
+    beamline_capable,
+    client_registry,
+    flatten_preferences,
+    is_local_only,
+)
 
 
 @pytest.mark.parametrize("key", [
@@ -66,3 +72,25 @@ def test_lightfall_settings_has_the_public_flag():
     from lightfall_settings import SettingSpec
 
     assert SettingSpec("x").public is False
+
+
+def test_client_registry_uses_deployment_specs():
+    from lightfall_settings import DEPLOYMENT_SPECS
+
+    reg = client_registry()
+    for spec in DEPLOYMENT_SPECS:
+        assert reg.get(spec.key) == spec
+    assert not reg.get("tiled_beamline").allows("user")
+    assert reg.get("device_backends").policy == "union"
+
+
+def test_local_layer_keys_are_the_device_rows():
+    assert LOCAL_LAYER_KEYS == {"device_backends", "device_backends_exclusive_restore"}
+
+
+def test_beamline_capable():
+    reg = client_registry()
+    assert beamline_capable(reg.get("tiled_beamline"))
+    assert beamline_capable(reg.get("device_favorites"))
+    assert not beamline_capable(reg.get("theme"))
+    assert not beamline_capable(reg.get("auth.realm"))  # facility only

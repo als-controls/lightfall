@@ -127,13 +127,15 @@ def migrate_legacy(get: Getter) -> list[BackendRow]:
     return rows
 
 
-def load_rows(get: Getter) -> list[BackendRow] | None:
-    """Read saved rows; ``None`` when the preference has never been written."""
-    raw = get(DEVICE_BACKENDS_KEY, None)
-    if raw is None:
-        return None
+def rows_from_value(raw: Any) -> list[BackendRow]:
+    """Rows from a stored value: ``{row id: row}`` (union shape) or a legacy list."""
+    if isinstance(raw, dict):
+        entries = [{**item, "id": rid} if isinstance(item, dict) else item
+                   for rid, item in raw.items()]
+    else:
+        entries = list(raw or [])
     rows: list[BackendRow] = []
-    for entry in raw:
+    for entry in entries:
         try:
             rows.append(BackendRow.from_dict(entry))
         except (KeyError, TypeError, ValueError) as exc:
@@ -141,16 +143,46 @@ def load_rows(get: Getter) -> list[BackendRow] | None:
     return rows
 
 
-def save_rows(prefs: Any, rows: Iterable[BackendRow]) -> None:
-    prefs.set(DEVICE_BACKENDS_KEY, [row.to_dict() for row in rows])
+def rows_to_value(rows: Iterable[BackendRow]) -> dict[str, dict[str, Any]]:
+    """The union shape lightfall-settings expects: rows keyed by id, in order."""
+    return {row.id: row.to_dict() for row in rows}
+
+
+def restore_ids_from_value(raw: Any) -> list[str]:
+    if isinstance(raw, dict):
+        return [str(rid) for rid, on in raw.items() if on]
+    return [str(rid) for rid in raw or []]
+
+
+def restore_value(ids: Iterable[str]) -> dict[str, bool]:
+    return dict.fromkeys(ids, True)
+
+
+def load_rows(get: Getter) -> list[BackendRow] | None:
+    """Read saved rows; ``None`` when the preference has never been written."""
+    raw = get(DEVICE_BACKENDS_KEY, None)
+    if raw is None:
+        return None
+    return rows_from_value(raw)
+
+
+def save_rows(prefs: Any, rows: Iterable[BackendRow], scope: str | None = None) -> None:
+    if scope is None:
+        prefs.set(DEVICE_BACKENDS_KEY, rows_to_value(rows))
+    else:
+        prefs.set(DEVICE_BACKENDS_KEY, rows_to_value(rows), scope=scope)
 
 
 def load_or_migrate(prefs: Any) -> list[BackendRow]:
-    """Saved rows, or (first run after upgrade) migrated legacy rows, saved."""
+    """Saved rows, or (first run after upgrade) migrated legacy rows, saved.
+
+    Legacy ``device_*`` keys describe this console, so the rows go to its local layer,
+    never to whoever happens to be logged in.
+    """
     rows = load_rows(prefs.get)
     if rows is None:
         rows = migrate_legacy(prefs.get)
-        save_rows(prefs, rows)
+        save_rows(prefs, rows, scope="local")
         logger.info("Migrated legacy device backend preferences into {} row(s)", len(rows))
     return rows
 
@@ -175,3 +207,39 @@ def build_context(get: Getter) -> BuildContext:
         instantiate_mode=str(mode),
         connection_timeout=float(get("device_connection_timeout", 5.0)),
     )
+
+
+def layer_rows_value(
+    rows: Iterable[BackendRow],
+    loaded: Iterable[BackendRow],
+    origins: dict[str, str],
+    target: str,
+    stored: Any,
+) -> dict[str, dict[str, Any]]:
+    """What to store at ``target`` after the page edited the merged row table.
+
+    ``loaded`` is the table as resolved when the page opened and ``origins`` maps each
+    row id to the layer it came from. The target keeps the items it already stored,
+    gains every row added or edited on the page, and loses rows it owned that were
+    removed. Rows another layer provides are written only when edited (a per-row
+    override); they can't be removed from here.
+    """
+    before = {row.id: row.to_dict() for row in loaded}
+    current = list(rows)
+    kept_ids = {row.id for row in current}
+    out = {rid: item for rid, item in _union_items(stored).items()
+           if not (origins.get(rid) == target and rid not in kept_ids)}
+    for row in current:
+        item = row.to_dict()
+        if row.id not in before or before[row.id] != item or origins.get(row.id) == target:
+            out[row.id] = item
+    # Table order first, then items shadowed by another layer (not shown on the page).
+    ordered = [row.id for row in current if row.id in out]
+    ordered += [rid for rid in out if rid not in kept_ids]
+    return {rid: out[rid] for rid in ordered}
+
+
+def _union_items(stored: Any) -> dict[str, Any]:
+    if isinstance(stored, dict):
+        return {str(k): v for k, v in stored.items() if v is not None}
+    return rows_to_value(rows_from_value(stored)) if stored else {}

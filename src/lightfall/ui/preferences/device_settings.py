@@ -36,11 +36,14 @@ from PySide6.QtWidgets import (
 from lightfall.devices.backend_types.base import BackendEditor
 from lightfall.devices.backend_types.registry import BackendTypeRegistry
 from lightfall.devices.backend_types.rows import (
+    DEVICE_BACKENDS_KEY,
     EXCLUSIVE_RESTORE_KEY,
     BackendRow,
+    layer_rows_value,
     load_rows,
     migrate_legacy,
-    save_rows,
+    restore_ids_from_value,
+    restore_value,
     unique_name,
 )
 from lightfall.devices.backend_types.session import (
@@ -56,7 +59,7 @@ from lightfall.utils.logging import logger
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
 
-_COL_ENABLED, _COL_NAME, _COL_TYPE, _COL_SUMMARY = range(4)
+_COL_ENABLED, _COL_NAME, _COL_TYPE, _COL_FROM, _COL_SUMMARY = range(5)
 
 
 class DeviceSettingsPlugin(SettingsPlugin):
@@ -69,6 +72,11 @@ class DeviceSettingsPlugin(SettingsPlugin):
     Saving applies backend rows to the running catalog: removed or changed
     rows drop their backend, new or changed rows build one. The connection
     settings apply to backends built from then on.
+
+    Rows come from several layers (beamline, branch, this console, the user;
+    settings-layering design). The table shows where each row comes from, and
+    "Save to" picks the layer that edits are written to: rows added or edited
+    here go there, rows owned by another layer can be switched off but not removed.
     """
 
     def __init__(self) -> None:
@@ -88,6 +96,9 @@ class DeviceSettingsPlugin(SettingsPlugin):
 
         # Backend rows
         self._rows: list[BackendRow] = []
+        self._loaded: list[BackendRow] = []  # as resolved when the page was loaded
+        self._origins: dict[str, str] = {}  # row id -> layer it comes from
+        self._target_combo: QComboBox | None = None
         self._editors: dict[str, QWidget] = {}  # row id -> editor (or placeholder)
         self._table: QTableWidget | None = None
         self._stack: QStackedWidget | None = None
@@ -257,8 +268,20 @@ class DeviceSettingsPlugin(SettingsPlugin):
         box = QVBoxLayout(group)
         box.setContentsMargins(12, 20, 12, 12)
 
-        table = QTableWidget(0, 4)
-        table.setHorizontalHeaderLabels(["", "Name", "Type", "Details"])
+        target_row = QHBoxLayout()
+        target_row.addWidget(QLabel("Save to:"))
+        self._target_combo = QComboBox()
+        self._target_combo.setToolTip(
+            "Where added or edited rows are saved. Rows from other places stay "
+            "as they are; switching one off here overrides it for this layer only."
+        )
+        self._target_combo.currentIndexChanged.connect(lambda _i: self._refresh_table())
+        target_row.addWidget(self._target_combo)
+        target_row.addStretch()
+        box.addLayout(target_row)
+
+        table = QTableWidget(0, 5)
+        table.setHorizontalHeaderLabels(["", "Name", "Type", "From", "Details"])
         table.verticalHeader().setVisible(False)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -267,6 +290,7 @@ class DeviceSettingsPlugin(SettingsPlugin):
         header.setSectionResizeMode(_COL_ENABLED, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(_COL_NAME, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(_COL_TYPE, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(_COL_FROM, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(_COL_SUMMARY, QHeaderView.ResizeMode.Stretch)
         table.itemSelectionChanged.connect(self._on_selection_changed)
         table.itemChanged.connect(self._on_item_changed)
@@ -355,11 +379,23 @@ class DeviceSettingsPlugin(SettingsPlugin):
             self._table.setItem(index, _COL_ENABLED, enabled)
             self._table.setItem(index, _COL_NAME, QTableWidgetItem(row.name))
             self._table.setItem(index, _COL_TYPE, QTableWidgetItem(self._type_label(row)))
+            self._table.setItem(index, _COL_FROM, QTableWidgetItem(self._origin_label(row)))
             self._table.setItem(index, _COL_SUMMARY, QTableWidgetItem(self._summary(row)))
         self._table.blockSignals(False)
         if 0 <= selected < len(self._rows):
             self._table.selectRow(selected)
         self._update_exclusive_hint(exclusive)
+
+    def _target(self) -> str:
+        combo = self._target_combo
+        data = combo.currentData() if combo is not None else None
+        return data if isinstance(data, str) else "local"
+
+    def _origin_label(self, row: BackendRow) -> str:
+        origin = self._origins.get(row.id)
+        if origin is None:
+            return f"new ({layer_label(self._target())})"
+        return layer_label(origin)
 
     def _update_exclusive_hint(self, exclusive: BackendRow | None) -> None:
         if self._exclusive_hint is None:
@@ -531,6 +567,15 @@ class DeviceSettingsPlugin(SettingsPlugin):
         index = self._selected_index()
         if index < 0:
             return
+        origin = self._origins.get(self._rows[index].id)
+        if origin is not None and origin != self._target():
+            QMessageBox.information(
+                self._widget,
+                "Device backends",
+                f"This backend comes from {layer_label(origin)}, so it can't be removed "
+                f"here. Untick it to switch it off for {layer_label(self._target())}.",
+            )
+            return
         row = self._rows.pop(index)
         if row.enabled and is_exclusive(row, BackendTypeRegistry.get_instance()):
             # Same as unticking it: the rows it switched off come back.
@@ -575,15 +620,22 @@ class DeviceSettingsPlugin(SettingsPlugin):
 
         # Backend rows
         rows = load_rows(prefs.get)
+        stored = rows is not None
         if rows is None:
             rows = migrate_legacy(prefs.get)  # shown, not saved, until the user saves
+            self._origins = {}
+        else:
+            self._origins = _item_origins(prefs, rows)
+        self._load_targets(prefs)
         for editor in self._editors.values():
             if self._stack is not None:
                 self._stack.removeWidget(editor)
             editor.deleteLater()
         self._editors.clear()
         self._rows = rows
-        self._restore_ids = list(prefs.get(EXCLUSIVE_RESTORE_KEY, []) or [])
+        # Migrated rows aren't stored anywhere yet, so saving treats them as new.
+        self._loaded = deepcopy(rows) if stored else []
+        self._restore_ids = restore_ids_from_value(prefs.get(EXCLUSIVE_RESTORE_KEY, None))
         self._refresh_table()
         self._select(0)
 
@@ -606,12 +658,41 @@ class DeviceSettingsPlugin(SettingsPlugin):
         if self._ca_tunnel_gateway:
             prefs.set("ca_tunnel_gateway", self._ca_tunnel_gateway.text() or "localhost:5099")
 
-        # Backend rows
+        # Backend rows: only what belongs to the chosen layer is written there.
         for row in self._rows:
             self._sync_row(row)
-        save_rows(prefs, self._rows)
-        prefs.set(EXCLUSIVE_RESTORE_KEY, list(self._restore_ids))
+        target = self._target()
+        stored = _layer_value(prefs, DEVICE_BACKENDS_KEY, target)
+        value = layer_rows_value(self._rows, self._loaded, self._origins, target, stored)
+        if value != layer_rows_value([], [], {}, target, stored):
+            prefs.set(DEVICE_BACKENDS_KEY, value, scope=target)
+        restore = restore_value(self._restore_ids)
+        stored_restore = restore_value(restore_ids_from_value(
+            _layer_value(prefs, EXCLUSIVE_RESTORE_KEY, target)))
+        if restore and restore != stored_restore:
+            prefs.set(EXCLUSIVE_RESTORE_KEY, restore, scope=target)
+        elif not restore and stored_restore:
+            prefs.remove(EXCLUSIVE_RESTORE_KEY, scope=target)
+        self._loaded = deepcopy(self._rows)
+        self._origins = _item_origins(prefs, self._rows)
+        self._refresh_table()
         self._apply_rows_live(prefs)
+
+    def _load_targets(self, prefs: PreferencesManager) -> None:
+        combo = self._target_combo
+        if combo is None:
+            return
+        targets = _write_targets(prefs)
+        combo.blockSignals(True)
+        combo.clear()
+        for target in targets:
+            combo.addItem(layer_label(target), target)
+        # Most consoles are configured per beamline: default to it when we may write it.
+        shared = [t for t in targets if t.startswith(("branch:", "beamline:"))]
+        default = shared[0] if shared else ("local" if "local" in targets else targets[0])
+        combo.setCurrentIndex(combo.findData(default))
+        combo.setEnabled(len(targets) > 1)
+        combo.blockSignals(False)
 
     def _apply_rows_live(self, prefs: PreferencesManager) -> None:
         """Bring the running device catalog in line with the saved rows."""
@@ -663,6 +744,40 @@ class DeviceSettingsPlugin(SettingsPlugin):
             if row.enabled and backend_type is not None:
                 errors.extend(f"{row.name}: {e}" for e in backend_type.validate(row.config))
         return errors
+
+
+def layer_label(scope: str) -> str:
+    """How a settings layer reads in the UI."""
+    if scope == "local":
+        return "This console"
+    kind, _, name = scope.partition(":")
+    if kind == "user":
+        return "Me"
+    if kind == "branch":
+        return f"{name} (branch)"
+    if kind == "beamline":
+        return f"{name} (beamline)"
+    return scope or "?"
+
+
+def _write_targets(prefs: object) -> list[str]:
+    targets = getattr(prefs, "write_targets", None)
+    found = targets(DEVICE_BACKENDS_KEY) if callable(targets) else ["local"]
+    return found or ["local"]
+
+
+def _item_origins(prefs: object, rows: list[BackendRow]) -> dict[str, str]:
+    origins = getattr(prefs, "item_origins", None)
+    if callable(origins):
+        return dict(origins(DEVICE_BACKENDS_KEY))
+    return dict.fromkeys((row.id for row in rows), "local")
+
+
+def _layer_value(prefs: object, key: str, scope: str) -> object:
+    layer = getattr(prefs, "layer_value", None)
+    if callable(layer):
+        return layer(key, scope)
+    return prefs.get(key, None) if scope == "local" else None  # type: ignore[attr-defined]
 
 
 def _device_backend_plugin_names() -> list[str]:

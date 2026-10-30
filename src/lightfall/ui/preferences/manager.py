@@ -360,7 +360,9 @@ class PreferencesManager(QObject):
         it requires active scoped settings. `persist` is retained for back-compat.
         """
         backend = self._backend_for(key)
-        if scope is not None:
+        if scope == "local" and backend is not self._scoped:
+            backend.set(key, value)  # no scopes active: every write is this console's
+        elif scope is not None:
             if backend is not self._scoped:
                 raise ValueError(f"Cannot write {key!r} at {scope}: scoped settings are not active")
             backend.set(key, value, scope=scope)
@@ -371,7 +373,9 @@ class PreferencesManager(QObject):
     def remove(self, key: str, *, scope: str | None = None) -> None:
         """Remove a preference (at `scope` when given). Dispatches to the owning backend."""
         backend = self._backend_for(key)
-        if scope is not None:
+        if scope == "local" and backend is not self._scoped:
+            backend.remove(key)
+        elif scope is not None:
             if backend is not self._scoped:
                 raise ValueError(f"Cannot reset {key!r} at {scope}: scoped settings are not active")
             backend.remove(key, scope=scope)
@@ -418,6 +422,33 @@ class PreferencesManager(QObject):
     @property
     def scoped_backend(self) -> Any:
         return self._scoped
+
+    def _active_scoped(self) -> Any:
+        scoped = self._scoped
+        return scoped if scoped is not None and scoped.active else None
+
+    def write_targets(self, key: str) -> list[str]:
+        """Where `key` may be written, most specific first ("local" = this console)."""
+        scoped = self._active_scoped()
+        return scoped.targets(key) if scoped is not None else ["local"]
+
+    def item_origins(self, key: str) -> dict[str, str]:
+        """For a union key: item id -> the scope it comes from ("local" = this console)."""
+        scoped = self._active_scoped()
+        if scoped is not None:
+            return scoped.item_origins(key)
+        value = self.get(key, None)
+        return dict.fromkeys(value, "local") if isinstance(value, dict) else {}
+
+    def layer_value(self, key: str, scope: str) -> Any:
+        """The value stored at one layer, or None."""
+        scoped = self._active_scoped()
+        if scoped is not None:
+            from lightfall.scopes.store import MISSING
+
+            value = scoped.layer_value(key, scope)
+            return None if value is MISSING else value
+        return self.get(key, None) if scope == "local" else None
 
     def _user_preferences(self) -> dict[str, Any]:
         cm = self._config_manager
