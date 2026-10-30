@@ -102,6 +102,15 @@ class DeviceBackend(ABC):
         """
         raise NotImplementedError(f"{type(self).__name__} does not implement instantiate()")
 
+    def release_instance(self, info: DeviceInfo, obj: Any) -> None:
+        """Forget any cached reference to `obj`, the live object for `info`.
+
+        Called by the catalog after it has destroyed `obj` (device disabled or
+        removed), so a later :meth:`instantiate` builds a fresh object instead
+        of handing back the destroyed one. Default: nothing cached.
+        """
+        return None
+
     def check_connection(self, obj: Any, timeout: float) -> bool:
         """Block until `obj` is connected or `timeout` elapses; return connected.
 

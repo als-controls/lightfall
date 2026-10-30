@@ -245,13 +245,20 @@ class DeviceCatalog(QObject):
 
             # Step 3: kick off concurrent instantiation + connection for the
             # devices that were actually registered (not skipped due to conflicts).
-            if registered:
+            # Disabled devices are not instantiated; enabling one does it later.
+            for info in registered:
+                if not info.active and info._state is None:
+                    info._state = DeviceState(
+                        device_id=info.id, status=DeviceStatus.INACTIVE, connected=False
+                    )
+            to_connect = [info for info in registered if info.active]
+            if registered:  # an all-disabled batch still announces completion
                 timeout = getattr(backend, "connection_timeout", None)
                 try:
                     from lightfall.devices.connection_manager import DeviceConnectionManager
 
                     manager = DeviceConnectionManager.get_instance()
-                    manager.connect_devices(backend, registered, timeout=timeout)
+                    manager.connect_devices(backend, to_connect, timeout=timeout)
                 except Exception as exc:
                     logger.error(
                         "connect_devices failed for backend \'{}\': {}",
@@ -411,6 +418,11 @@ class DeviceCatalog(QObject):
 
             device = self._device_cache.get(result.device_id)
             if device is None:
+                return
+
+            if not device.active:
+                # Disabled while the connection was in flight: don't keep it.
+                self._dispose_ophyd(device, result.ophyd_device)
                 return
 
             # Update device with ophyd instance
@@ -891,17 +903,88 @@ class DeviceCatalog(QObject):
 
         if backend.update_device(device):
             old_name = None
-            if device.id in self._device_cache:
-                old_name = self._device_cache[device.id].name
+            previous = self._device_cache.get(device.id)
+            if previous is not None:
+                old_name = previous.name
                 if old_name != device.name:
                     del self._name_index[old_name]
+                # An edit may hand us a fresh DeviceInfo; keep the live object.
+                if previous is not device and device._ophyd_device is None:
+                    device._ophyd_device = previous._ophyd_device
+                    device._state = device._state or previous._state
 
             self._device_cache[device.id] = device
             self._name_index[device.name] = device.id
+
+            # Disabling drops (and destroys) the live device object so it
+            # releases hardware; enabling instantiates it again.
+            if not device.active and device._ophyd_device is not None:
+                self._release_live_device(device)
+            elif device.active and device._ophyd_device is None and (
+                device._state is None or device._state.status == DeviceStatus.INACTIVE
+            ):
+                self._activate_device(device)
+
             self.device_updated.emit(device)
             logger.info("Updated device: {}", device.name)
             return True
 
+        return False
+
+    # === Activation ===
+
+    def _dispose_ophyd(self, device: DeviceInfo, obj: Any) -> None:
+        """Destroy a live ophyd object and have its backend forget any cached copy.
+
+        ophyd's ``destroy()`` is its teardown (releases PVs, subscriptions and,
+        for devices that implement it, hardware handles).
+        """
+        if obj is None or obj is device:  # fake backends use the info itself
+            return
+        destroy = getattr(obj, "destroy", None)
+        if callable(destroy):
+            try:
+                destroy()
+            except Exception as e:
+                logger.warning("Error destroying device '{}': {}", device.name, e)
+        backend = self._backends.get(self._device_backend_map.get(device.id, ""))
+        if backend is not None:
+            try:
+                backend.release_instance(device, obj)
+            except Exception as e:
+                logger.debug("release_instance failed for '{}': {}", device.name, e)
+
+    def _release_live_device(self, device: DeviceInfo) -> None:
+        """Detach and destroy a device's live ophyd object and mark it INACTIVE."""
+        obj = device._ophyd_device
+        device._ophyd_device = None
+        device._state = DeviceState(
+            device_id=device.id, status=DeviceStatus.INACTIVE, connected=False
+        )
+        self._dispose_ophyd(device, obj)
+        logger.info("Released live object for disabled device '{}'", device.name)
+        self.device_state_changed.emit(str(device.id), device._state)
+
+    def _activate_device(self, device: DeviceInfo) -> bool:
+        """Instantiate a (re-)enabled device through its backend's load path."""
+        try:
+            from lightfall.devices.connection_manager import DeviceConnectionManager
+
+            manager = DeviceConnectionManager.get_instance()
+            self._connect_to_connection_manager()
+            backend = self._retry_backend(device)
+            if backend is not None:
+                timeout = getattr(backend, "connection_timeout", None)
+                manager.connect_devices(backend, [device], timeout=timeout)
+                return True
+            happi_result = device.metadata.get("_happi_result")
+            if happi_result is not None:
+                manager.retry_connection(device, happi_result)
+                return True
+        except Exception as e:
+            logger.error("Failed to instantiate enabled device '{}': {}", device.name, e)
+            return False
+        logger.warning("No backend can instantiate enabled device '{}'", device.name)
         return False
 
     # === Scope Metadata ===
@@ -1006,6 +1089,10 @@ class DeviceCatalog(QObject):
         device_name = device.name if device else None
 
         if backend.remove_device(device_id):
+            # Destroy before dropping the backend mapping (_dispose_ophyd uses it).
+            if device is not None and device._ophyd_device is not None:
+                obj, device._ophyd_device = device._ophyd_device, None
+                self._dispose_ophyd(device, obj)
             if device_id in self._device_cache:
                 del self._device_cache[device_id]
             if device_name and device_name in self._name_index:

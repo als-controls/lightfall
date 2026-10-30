@@ -844,6 +844,24 @@ class HappiBackend(DeviceBackend):
 
         return results[0].get()
 
+    def release_instance(self, info: DeviceInfo, obj: Any) -> None:
+        """Drop happi's cached copies of a destroyed device object.
+
+        happi caches instantiated devices twice: on the SearchResult
+        (``_instantiated``) and module-wide in ``happi.loader.cache``. Both
+        would otherwise return the destroyed object on re-enable.
+        """
+        happi_result = info.metadata.get("_happi_result")
+        if happi_result is not None and getattr(happi_result, "_instantiated", None) is obj:
+            happi_result._instantiated = None
+        try:
+            from happi import loader
+
+            if loader.cache.get(info.name) is obj:
+                del loader.cache[info.name]
+        except Exception as e:  # happi missing or cache layout changed
+            logger.debug("Could not evict '{}' from happi cache: {}", info.name, e)
+
     # === Device CRUD ===
 
     def get_device(self, device_id: UUID) -> DeviceInfo | None:
