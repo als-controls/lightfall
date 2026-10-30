@@ -32,6 +32,8 @@ involve writing code (user plans, for example), it says so up front.
    manual notes, images, and offline-first sync.
 9. **[Preferences](preferences.md)** — every settings page, from themes to
    device backends.
+10. **[Updates and Source Checkouts](updates.md)** — the update and git-state
+    status bar indicators, and updating Lightfall from inside the app.
 
 ```{toctree}
 :maxdepth: 2
@@ -45,4 +47,5 @@ claude-assistant
 agent-customization
 logbook
 preferences
+updates
 ```
