@@ -18,8 +18,12 @@ def config_manager():
     def _set(key, value, persist=True):
         cm._store[key] = value
 
+    def _unset(key, persist=True):
+        cm._store.pop(key, None)
+
     cm.get.side_effect = _get
     cm.set.side_effect = _set
+    cm.unset.side_effect = _unset
     return cm
 
 
@@ -76,7 +80,8 @@ def test_local_backend_remove_emits_none(qapp, config_manager):
 
     b.remove("theme")
 
-    assert config_manager._store["preferences.theme"] is None
+    # Deleted, not stored as None (a null would fail config validation).
+    assert "preferences.theme" not in config_manager._store
     assert captured == [("theme", None)]
 
 

@@ -9,15 +9,19 @@ stylesheet regen + pyqtgraph re-theme), which stutters the dialog open.
 from __future__ import annotations
 
 import pytest
+from PySide6.QtCore import QObject, Signal
 
 from lightfall.ui.preferences.builtin import AppearanceSettingsPlugin
 from lightfall.ui.theme import ThemeManager
 
 
-class _FakePrefs:
+class _FakePrefs(QObject):
     """Minimal PreferencesManager stand-in for the appearance plugin."""
 
+    scopes_changed = Signal(object)
+
     def __init__(self, theme: str, islands: bool, font_size: int = 10) -> None:
+        super().__init__()
         self.theme = theme
         self.font_size = font_size
         self._islands = islands
@@ -131,3 +135,21 @@ def test_revert_preview_restores_font_size(qtbot, fake_prefs):
         assert _app_point_size() == 10
     finally:
         _set_app_point_size(original)
+
+
+def test_scope_activation_reapplies_islands(qtbot, monkeypatch):
+    """islands_mode saved at user scope only resolves after login activates
+    scopes (post-preload); the scope change must re-apply it."""
+    prefs = _FakePrefs(theme="system", islands=False)
+    monkeypatch.setattr(
+        "lightfall.ui.preferences.builtin.PreferencesManager.get_instance",
+        lambda: prefs,
+    )
+    ThemeManager.reset()
+    plugin = AppearanceSettingsPlugin()
+    plugin.on_loaded()
+    assert ThemeManager.get_instance().islands_mode is False
+
+    prefs._islands = True  # scope chain now resolves the user's saved value
+    prefs.scopes_changed.emit(object())
+    assert ThemeManager.get_instance().islands_mode is True
