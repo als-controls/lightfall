@@ -224,7 +224,8 @@ def test_write_at_beamline_scope_sends_proposal_and_notifies_pending(make):
     class Pending(Server):
         def put_setting(self, scope, key, value, *, version=None, proposed_spec=None):
             self.calls.append(("put", scope, key, value, proposed_spec))
-            raise ScopesError("not approved", status=409, code="key_pending")
+            raise ScopesError("not approved", status=409, code="key_pending",
+                              key_status="pending")
 
     backend, server, _, _, notes = make(server=Pending())
     backend.activate()
