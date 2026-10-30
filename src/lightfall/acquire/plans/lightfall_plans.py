@@ -515,6 +515,7 @@ def tune_centroid_2d(
         Bluesky plan messages.
     """
     target_field = _resolve_target_field(detectors, target_field, plan_name="tune_centroid_2d")
+    previous: tuple[float, float] | None = None
     for _ in range(max_iterations):
         # Tune motor1
         yield from bp.tune_centroid(
@@ -526,6 +527,15 @@ def tune_centroid_2d(
             detectors, target_field, motor2, start2, stop2,
             min_step2, num=num, step_factor=step_factor, snake=snake,
         )
+        # Converged when neither motor moved more than its min_step since the
+        # previous pass; otherwise the loop would always run max_iterations.
+        pos1 = float((yield from bps.rd(motor1)))
+        pos2 = float((yield from bps.rd(motor2)))
+        if previous is not None and (
+            abs(pos1 - previous[0]) <= min_step1 and abs(pos2 - previous[1]) <= min_step2
+        ):
+            break
+        previous = (pos1, pos2)
 
 
 # =============================================================================

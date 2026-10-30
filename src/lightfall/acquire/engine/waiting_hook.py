@@ -198,15 +198,24 @@ class WaitingHookBridge(QObject):
             self._done_buffer.clear()
             group_cleared = self._group_cleared
             self._group_cleared = False
+            group_active = bool(self._active_statuses)
 
-        for name, (current, initial, target, fraction) in progress_snapshot.items():
-            self.sigDeviceProgress.emit(name, current, initial, target, fraction)
-
+        # Order matters when a wait group resolved and the next one started
+        # inside the same flush window: finish the old group's devices, clear
+        # the group, then show the new group's progress (buffered progress
+        # for the resolved group was dropped in _on_all_resolved).
         for name in done_snapshot:
             self.sigDeviceFinished.emit(name)
 
         if group_cleared:
             self.sigWaitGroupCleared.emit()
+
+        for name, (current, initial, target, fraction) in progress_snapshot.items():
+            self.sigDeviceProgress.emit(name, current, initial, target, fraction)
+
+        # Keep flushing while a (new) group is still waiting; watch()
+        # callbacks only buffer, they do not restart the timer.
+        if group_cleared and not group_active:
             self._timer.stop()
 
     def _on_all_resolved(self) -> None:
@@ -218,6 +227,9 @@ class WaitingHookBridge(QObject):
         with self._lock:
             self._group_cleared = True
             self._active_statuses.clear()
+            # Progress for the finished group must not resurface after the
+            # clear (a new group may start before the next flush).
+            self._buffer.clear()
         logger.debug("[waiting_hook] all waits resolved")
         # Ensure the timer is running so _flush can emit the cleared signal
         QMetaObject.invokeMethod(

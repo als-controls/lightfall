@@ -100,6 +100,16 @@ class BlueskyEngine(BaseEngine):
         self._interrupt_future: QThreadFuture | None = None
         self._queue_future: QThreadFuture | None = None
         self._waiting_bridge = WaitingHookBridge()
+        # Pause settlement. bluesky's RunEngine.__call__ returns (raising
+        # RunEngineInterrupted) as soon as a plan pauses, so the engine thread
+        # parks in _settle_interrupted() until a GUI-thread control slot
+        # records how the pause ended: ("finished" | "aborted" | "error", exc).
+        self._pause_settled = threading.Event()
+        self._pause_outcome: tuple[str, BaseException | None] | None = None
+        self._awaiting_pause = False
+        # True from dispatching resume()/stop()/abort()/halt() off-thread
+        # until its finished/except slot has run.
+        self._control_pending = False
 
         # Connect sigOutput to sigDocumentYield for backward compatibility
         self.sigOutput.connect(self.sigDocumentYield.emit)
@@ -382,8 +392,20 @@ class BlueskyEngine(BaseEngine):
         try:
             self._RE(plan, **kwargs)
         except RunEngineInterrupted:
-            logger.info("[bluesky] Plan was interrupted by user")
-            self.sigAbort.emit()
+            # Raised both when a plan is stopped/aborted and when it merely
+            # pauses (bluesky hands control back at every pause). A paused
+            # plan is not finished: hold the queue until it is resumed or
+            # stopped, then report the real outcome exactly once.
+            outcome, error = self._settle_interrupted()
+            if outcome == "finished":
+                success = True
+                self.sigFinish.emit()
+            elif outcome == "error":
+                logger.error(f"[bluesky] Error after resuming plan: {error}")
+                self.sigException.emit(error)
+            else:
+                logger.info("[bluesky] Plan was interrupted by user")
+                self.sigAbort.emit()
         except Exception as ex:
             logger.error(f"[bluesky] Error during plan execution: {ex}")
             logger.exception(ex)
@@ -427,6 +449,66 @@ class BlueskyEngine(BaseEngine):
         except Exception as ex:
             logger.warning(f"[bluesky] Failed to dispatch on_complete callback: {ex}")
 
+    def _settle_interrupted(self) -> tuple[str, BaseException | None]:
+        """Wait on the engine thread until an interrupted plan has settled.
+
+        Returns ``("finished" | "aborted" | "error", error)``. Returns
+        immediately with ``"aborted"`` when the RunEngine is not paused (the
+        interruption was a stop/abort/halt of a running plan). While paused,
+        the control slots (:meth:`_on_resume_finished` and friends) record the
+        outcome; a resume that pauses again keeps waiting. If the RunEngine
+        leaves "paused" without one of our dispatches in flight (``RE.resume()``
+        typed into the console), the outcome is read off the RunEngine state.
+        """
+        assert self._RE is not None
+        if self._RE.state != "paused":
+            return "aborted", None
+
+        logger.info("[bluesky] Plan paused; holding the queue until it is resumed or stopped")
+        self._announce_pause()
+        self._pause_settled.clear()
+        self._pause_outcome = None
+        self._awaiting_pause = True
+        try:
+            while True:
+                if self._pause_settled.wait(0.25):
+                    self._pause_settled.clear()
+                    outcome, self._pause_outcome = self._pause_outcome, None
+                    if outcome is not None:
+                        return outcome
+                    continue
+                if QThread.currentThread().isInterruptionRequested():
+                    return "aborted", None
+                if self._control_pending:
+                    continue
+                state = self._RE.state
+                if state == "idle":
+                    return "finished", None
+                if state == "panicked":
+                    return "error", RuntimeError("RunEngine panicked while paused")
+        finally:
+            self._awaiting_pause = False
+
+    def _announce_pause(self) -> None:
+        """Emit sigPause/PAUSED unless pause() already did (plan-initiated
+        pauses — ``bps.pause()``, suspenders — never went through pause())."""
+        if self._state != EngineState.PAUSED:
+            self.sigPause.emit()
+            self._set_state(EngineState.PAUSED)
+
+    def _record_pause_outcome(self, outcome: str, error: BaseException | None = None) -> bool:
+        """Hand a settled pause to the waiting engine thread.
+
+        Returns False when no plan is waiting (the slot should then signal
+        on its own, as it did before pause settlement existed).
+        """
+        self._control_pending = False
+        if not self._awaiting_pause:
+            return False
+        self._pause_outcome = (outcome, error)
+        self._pause_settled.set()
+        return True
+
     # === Control Operations ===
 
     def pause(self, defer: bool = False) -> None:
@@ -452,6 +534,7 @@ class BlueskyEngine(BaseEngine):
         logger.info("[bluesky] Resuming plan")
 
         # Run resume in a separate thread to not block
+        self._control_pending = True
         self._resume_future = QThreadFuture(
             self._RE.resume,
             key="bluesky_resume",
@@ -464,14 +547,29 @@ class BlueskyEngine(BaseEngine):
         self._set_state(EngineState.RUNNING)
 
     def _on_resume_finished(self) -> None:
-        """Called when resume completes successfully."""
-        self.sigFinish.emit()
+        """Called when the resumed plan ran to completion."""
+        if not self._record_pause_outcome("finished"):
+            self.sigFinish.emit()
         if self._RE:
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.IDLE))
 
     def _on_resume_error(self, ex: Exception) -> None:
-        """Called when resume fails."""
-        self.sigException.emit(ex)
+        """Called when RunEngine.resume() raised.
+
+        bluesky raises RunEngineInterrupted from resume() both when the plan
+        pauses again (keep waiting) and when it was stopped/aborted after
+        resuming (settle as aborted). Anything else is a plan failure.
+        """
+        if isinstance(ex, RunEngineInterrupted):
+            if self._RE is not None and self._RE.state == "paused":
+                logger.info("[bluesky] Plan paused again")
+                self._control_pending = False
+                self._announce_pause()
+                return
+            if not self._record_pause_outcome("aborted"):
+                self.sigAbort.emit()
+        elif not self._record_pause_outcome("error", ex):
+            self.sigException.emit(ex)
         if self._RE:
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ERROR))
 
@@ -495,6 +593,7 @@ class BlueskyEngine(BaseEngine):
             logger.debug("[bluesky] Interrupt already in flight; not dispatching another")
             return
 
+        self._control_pending = True
         self._interrupt_future = QThreadFuture(
             method,
             key="bluesky_interrupt",
@@ -507,13 +606,20 @@ class BlueskyEngine(BaseEngine):
         self._set_state(pending_state)
 
     def _on_interrupt_finished(self) -> None:
-        """Called when a stop/abort/halt dispatched from paused completes."""
+        """Called when a stop/abort/halt dispatched from paused completes.
+
+        Settles the paused plan as aborted, which matches what a stop/abort
+        of a *running* plan reports (RunEngineInterrupted out of RE(plan)).
+        """
+        if not self._record_pause_outcome("aborted"):
+            self.sigAbort.emit()
         if self._RE:
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.IDLE))
 
     def _on_interrupt_error(self, ex: Exception) -> None:
         """Called when a stop/abort/halt dispatched from paused fails."""
-        self.sigException.emit(ex)
+        if not self._record_pause_outcome("error", ex):
+            self.sigException.emit(ex)
         if self._RE:
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ERROR))
 
@@ -575,7 +681,7 @@ class BlueskyEngine(BaseEngine):
         else:
             self._RE.abort(reason=reason)
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ABORTING))
-        self.sigAbort.emit()
+        # sigAbort is emitted once by _execute_plan when the plan has unwound.
         return True
 
     def halt(self) -> bool:
@@ -602,7 +708,7 @@ class BlueskyEngine(BaseEngine):
         else:
             self._RE.halt()
             self._set_state(_RE_STATE_MAP.get(self._RE.state, EngineState.ABORTING))
-        self.sigAbort.emit()
+        # sigAbort is emitted once by _execute_plan when the plan has unwound.
         return True
 
     # === Bluesky-Specific Methods ===
