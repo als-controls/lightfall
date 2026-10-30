@@ -254,6 +254,19 @@ class ScopesClient:
         r = self._send("DELETE", f"/logbook/setting-keys/{key}")
         self._raise_for(r, f"Revoke {key}")
 
+    # -- scope tree (facility admins; the server enforces the role) -------------------
+
+    def add_scope(self, scope: str, *, parent: str | None = None, label: str = "") -> None:
+        """Add a beamline, or a branch under ``parent`` (a beamline)."""
+        r = self._send("POST", "/logbook/scopes/tree",
+                       json_body={"scope": scope, "parent": parent, "label": label})
+        self._raise_for(r, f"Add {scope}")
+
+    def remove_scope(self, scope: str) -> None:
+        """Remove an empty beamline or branch."""
+        r = self._send("DELETE", f"/logbook/scopes/tree/{scope}")
+        self._raise_for(r, f"Remove {scope}")
+
     def setting_keys(self) -> list[dict[str, Any]] | None:
         r = self._get("/logbook/setting-keys/")
         if r.status_code == 403:
