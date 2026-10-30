@@ -134,7 +134,6 @@ def test_migrate_bcs_only_with_settings():
     assert rows["bcs"].config == {
         "host": "bcs.lbl.gov",
         "port": 6000,
-        "beamline": "7.0.1.1",
         "timeout_ms": 2000,
     }
     assert "happi" not in rows
@@ -157,7 +156,7 @@ def test_migrate_disabled_happi_with_path_keeps_config():
     )
     rows = _by_type(migrate_legacy(prefs.get))
     assert rows["happi"].enabled is False
-    assert rows["happi"].config == {"path": "/db.json", "beamline": "bl1"}
+    assert rows["happi"].config == {"path": "/db.json"}  # beamline comes from site.bind
 
 
 def test_load_or_migrate_saves_once():

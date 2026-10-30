@@ -50,15 +50,26 @@ def _code(r: httpx.Response) -> str | None:
 
 
 @dataclass(frozen=True)
+class TreeEntry:
+    """One beamline or branch of the server's scope tree, with the caller's role."""
+
+    scope: str
+    parent: str | None = None
+    role: str | None = None
+
+
+@dataclass(frozen=True)
 class ChainInfo:
     chain: tuple[str, ...]
     roles: dict[str, str | None]
     entitled: tuple[str, ...]
     facility_label: str
+    tree: tuple[TreeEntry, ...] = ()  # empty from servers before the binding picker
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["chain"], d["entitled"] = list(self.chain), list(self.entitled)
+        d["tree"] = [asdict(e) for e in self.tree]
         return d
 
     @classmethod
@@ -68,6 +79,10 @@ class ChainInfo:
             roles=dict(d["roles"]),
             entitled=tuple(d.get("entitled", ())),
             facility_label=str(d.get("facility_label", "")),
+            tree=tuple(
+                TreeEntry(scope=str(e["scope"]), parent=e.get("parent"), role=e.get("role"))
+                for e in d.get("tree") or () if isinstance(e, dict) and e.get("scope")
+            ),
         )
 
 

@@ -117,3 +117,17 @@ def test_delete_transport_error(httpx_mock):
     with pytest.raises(ScopesError) as ei:
         _client().delete_setting("user:u1", "theme")
     assert ei.value.status is None
+
+
+def test_chain_info_parses_and_round_trips_the_scope_tree():
+    from lightfall.scopes.client import ChainInfo, TreeEntry
+
+    d = {"chain": ["facility", "user:u"], "roles": {"facility": None, "user:u": "owner"},
+         "entitled": ["branch:7.0.1.1"], "facility_label": "ALS",
+         "tree": [{"scope": "beamline:7.0.1", "parent": None, "role": None},
+                  {"scope": "branch:7.0.1.1", "parent": "beamline:7.0.1", "role": "maintainer"}]}
+    info = ChainInfo.from_dict(d)
+    assert info.tree[1] == TreeEntry("branch:7.0.1.1", "beamline:7.0.1", "maintainer")
+    assert ChainInfo.from_dict(info.to_dict()) == info
+    old_server = {k: v for k, v in d.items() if k != "tree"}
+    assert ChainInfo.from_dict(old_server).tree == ()

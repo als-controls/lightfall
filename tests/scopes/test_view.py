@@ -106,9 +106,9 @@ def test_pending_key_listed_without_value(tmp_path):
 def test_non_maintainer_sees_core_keys_and_restricted_flag(tmp_path):
     view = load_view(FakeClient(keys=None), SnapshotCache(tmp_path), "branch:7.0.1.1")
     assert view.keys_restricted is True
-    from lightfall_settings import CORE_SPECS
+    from lightfall_settings import CORE_SPECS, DEPLOYMENT_SPECS
 
-    assert [r.key for r in view.keys] == sorted(s.key for s in CORE_SPECS)
+    assert [r.key for r in view.keys] == sorted(s.key for s in (*CORE_SPECS, *DEPLOYMENT_SPECS))
     assert "plugins.enabled" in [r.key for r in view.keys]
 
 

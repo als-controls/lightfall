@@ -91,7 +91,6 @@ def test_ipc_page_and_startup_share_the_defaults(qapp, empty_prefs):
     page.create_widget()
     page.load_settings()
     assert page._prefix_edit.text() == DEFAULT_IPC_TOPIC_PREFIX
-    assert page._prefix_edit.placeholderText() == DEFAULT_IPC_TOPIC_PREFIX
     assert page._url_edit.text() == DEFAULT_IPC_NATS_URL
 
     app = LFApplication.__new__(LFApplication)

@@ -8,7 +8,7 @@ from lightfall_settings import (
     Lock,
     ScopeId,
     ScopeSnapshot,
-    core_registry,
+    deployment_registry,
     resolve,
     spec_from_dict,
     user_only_spec,
@@ -16,7 +16,7 @@ from lightfall_settings import (
 from lightfall_settings.scopes import KIND_RANK
 
 from lightfall.scopes.cache import SnapshotCache
-from lightfall.scopes.client import ScopesClient, ScopesError, Snapshot
+from lightfall.scopes.client import ScopesClient, ScopesError, Snapshot, TreeEntry
 from lightfall.scopes.state import fetch_state
 from lightfall.utils.logging import logger
 
@@ -45,6 +45,7 @@ class ScopesView:
     offline: bool
     cached_at: float | None
     server: str = ""
+    tree: tuple[TreeEntry, ...] = ()  # every beamline/branch, with the caller's role
 
 
 def _kinds(spec: Any) -> tuple[str, ...]:
@@ -113,7 +114,7 @@ def load_view(client: ScopesClient, cache: SnapshotCache, bind: str,
             if records is not None and identity is not None:
                 cache.save_keys(records, identity)
 
-    registry = core_registry()
+    registry = deployment_registry()  # the specs the server enforces for every key
     rows: dict[str, KeyRow] = {}
     for key in registry.keys():
         rows[key] = _resolved_row(registry.get(key), "core", snaps)
@@ -143,4 +144,5 @@ def load_view(client: ScopesClient, cache: SnapshotCache, bind: str,
         keys_restricted=records is None,
         offline=offline, cached_at=state.cached_at,
         server=_server(client),
+        tree=info.tree,
     )

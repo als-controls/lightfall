@@ -19,25 +19,22 @@ class _BCSEditor(BackendEditor):
         self._port = QSpinBox()
         self._port.setRange(1, 65535)
         self._port.setValue(int(config.get("port", 5577)))
-        self._beamline = QLineEdit(str(config.get("beamline", "")))
-        self._beamline.setPlaceholderText("(optional)")
         self._timeout = QSpinBox()
         self._timeout.setRange(100, 60000)
         self._timeout.setSingleStep(500)
         self._timeout.setSuffix(" ms")
         self._timeout.setValue(int(config.get("timeout_ms", 5000)))
-        for edit in (self._host, self._beamline):
-            edit.textChanged.connect(lambda *_: self.changed.emit())
+        self._host.textChanged.connect(lambda *_: self.changed.emit())
         for spin in (self._port, self._timeout):
             spin.valueChanged.connect(lambda *_: self.changed.emit())
         form.addRow("Server host:", self._host)
         form.addRow("Server port:", self._port)
-        form.addRow("Beamline:", self._beamline)
         form.addRow("Timeout:", self._timeout)
         form.addRow(
             hint(
                 "Connects to a BCS server via ZMQ and auto-discovers devices "
-                "using bcsophyd. Requires bcsophyd package."
+                "using bcsophyd. Requires bcsophyd package. Devices are labelled "
+                "with this console's beamline (Settings › Advanced › Scopes)."
             )
         )
 
@@ -45,7 +42,6 @@ class _BCSEditor(BackendEditor):
         return {
             "host": self._host.text().strip(),
             "port": self._port.value(),
-            "beamline": self._beamline.text().strip(),
             "timeout_ms": self._timeout.value(),
         }
 
@@ -55,7 +51,7 @@ class BCSBackendType(BackendType):
     display_name = "BCS (ZMQ)"
 
     def default_config(self) -> dict[str, Any]:
-        return {"host": "localhost", "port": 5577, "beamline": "", "timeout_ms": 5000}
+        return {"host": "localhost", "port": 5577, "timeout_ms": 5000}
 
     def summary(self, config: dict[str, Any]) -> str:
         return f"{config.get('host', 'localhost')}:{config.get('port', 5577)}"
@@ -73,6 +69,6 @@ class BCSBackendType(BackendType):
             host=str(config.get("host") or "localhost"),
             port=int(config.get("port", 5577)),
             timeout_ms=int(config.get("timeout_ms", 5000)),
-            beamline=config.get("beamline") or None,
+            beamline=ctx.beamline,
             name=name,
         )

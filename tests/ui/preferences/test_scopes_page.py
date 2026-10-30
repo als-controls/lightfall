@@ -176,3 +176,55 @@ def test_offline_without_cache_is_not_called_live(qtbot):
     partial = ScopesView(**{**VIEW.__dict__, "offline": True, "cached_at": None})
     _, w = _page(qtbot, lambda bind: partial)
     qtbot.waitUntil(lambda: _status(w) == "Offline — no cached copy", timeout=3000)
+
+
+# -- binding this console ------------------------------------------------------
+
+from lightfall.scopes.client import TreeEntry  # noqa: E402
+from lightfall.ui.preferences.scopes_settings import can_bind  # noqa: E402
+
+TREE = (TreeEntry("beamline:7.0.1", None, "maintainer"),
+        TreeEntry("beamline:12.0.2", None, None),
+        TreeEntry("branch:7.0.1.1", "beamline:7.0.1", "maintainer"),
+        TreeEntry("branch:12.0.2.1", "beamline:12.0.2", "maintainer"))
+
+
+def test_can_bind_needs_maintainer_on_the_target_or_the_current_scope():
+    assert can_bind(TREE, "facility", "branch:12.0.2.1")
+    assert not can_bind(TREE, "facility", "beamline:12.0.2")        # no role there
+    assert can_bind(TREE, "branch:7.0.1.1", "facility")            # unbind: role on current
+    assert not can_bind(TREE, "beamline:12.0.2", "facility")
+    assert not can_bind(TREE, "branch:7.0.1.1", "branch:7.0.1.1")  # already bound
+    assert not can_bind((), "facility", "branch:7.0.1.1")          # no tree: old server
+
+
+def test_combo_lists_the_whole_tree_with_branches_under_beamlines(qtbot):
+    view = ScopesView(**{**VIEW.__dict__, "tree": TREE})
+    _, w = _page(qtbot, lambda bind: view)
+    combo = w.findChild(QComboBox, "scopesBind")
+    qtbot.waitUntil(lambda: combo.count() == 5, timeout=3000)
+    assert [combo.itemText(i) for i in range(5)] == [
+        "branch:7.0.1.1", "facility", "beamline:7.0.1", "beamline:12.0.2", "branch:12.0.2.1"]
+
+
+def test_bind_writes_site_bind_and_restarts(qtbot, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox, QPushButton
+
+    calls = []
+    monkeypatch.setattr("lightfall.scopes.site.set_site_bind", lambda b: calls.append(("bind", b)))
+    monkeypatch.setattr("lightfall.utils.restart.request_restart", lambda: calls.append("restart"))
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    view = ScopesView(**{**VIEW.__dict__, "tree": TREE})
+    _, w = _page(qtbot, lambda bind: view)
+    combo = w.findChild(QComboBox, "scopesBind")
+    button = w.findChild(QPushButton, "scopesBindButton")
+    qtbot.waitUntil(lambda: combo.count() == 5, timeout=3000)
+    assert not button.isEnabled()                      # already bound to the selection
+    combo.setCurrentIndex(combo.findText("beamline:12.0.2"))
+    assert not button.isEnabled()                      # no role there
+    assert "maintainer" in w.findChild(QLabel, "scopesBindHint").text()
+    combo.setCurrentIndex(combo.findText("branch:12.0.2.1"))
+    assert button.isEnabled()
+    button.click()
+    assert calls == [("bind", "branch:12.0.2.1"), "restart"]
