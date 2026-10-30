@@ -355,7 +355,9 @@ class PreferencesManager(QObject):
         it requires active scoped settings. `persist` is retained for back-compat.
         """
         backend = self._backend_for(key)
-        if scope is not None:
+        if scope == "local" and backend is not self._scoped:
+            backend.set(key, value)  # no scopes active: every write is this console's
+        elif scope is not None:
             if backend is not self._scoped:
                 raise ValueError(f"Cannot write {key!r} at {scope}: scoped settings are not active")
             backend.set(key, value, scope=scope)
@@ -366,7 +368,9 @@ class PreferencesManager(QObject):
     def remove(self, key: str, *, scope: str | None = None) -> None:
         """Remove a preference (at `scope` when given). Dispatches to the owning backend."""
         backend = self._backend_for(key)
-        if scope is not None:
+        if scope == "local" and backend is not self._scoped:
+            backend.remove(key)
+        elif scope is not None:
             if backend is not self._scoped:
                 raise ValueError(f"Cannot reset {key!r} at {scope}: scoped settings are not active")
             backend.remove(key, scope=scope)

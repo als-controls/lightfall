@@ -64,8 +64,9 @@ def test_shared_console_never_hands_one_users_values_to_the_next(tmp_path, qapp)
 
     bob = mk("bob")
     bob.activate()
+    assert bob.get("theme") == "bob-theme"
     bob.deactivate()
-    assert local.get("theme") == "bob-theme"   # bob's cache, on a shared OS account
+    assert local.get("theme") is None          # nothing of bob's lands on the console
 
     server.who = "alice"
     alice = mk("alice")
@@ -73,7 +74,6 @@ def test_shared_console_never_hands_one_users_values_to_the_next(tmp_path, qapp)
     assert ("user:alice", "profile_image_id") not in server.rows
     assert ("user:alice", "theme") not in server.rows
     assert alice.get("theme") is None
-    assert local.get("theme") is None          # bob's values no longer cached as alice's
 
 
 def test_foreign_yaml_is_not_read_offline(tmp_path, qapp):
@@ -102,7 +102,7 @@ def test_refresh_overlapping_an_inflight_write_keeps_it(make):
     sync_run(*push)
     fetch[1](state)             # stale refresh lands afterwards
     assert backend.get("theme") == "dark"
-    assert local.get("theme") == "dark"
+    assert local.get("theme") is None
 
 
 def test_write_inflight_at_logout_is_replayed_next_login(make, tmp_path):
@@ -170,7 +170,8 @@ def test_migration_runs_even_when_legacy_rows_exist(make):
     server = Server()
     server.rows[("user:u1", "profile_image_id")] = ("img", 1)   # moved by the server
     backend, _, _, _, _ = make(server=server, local=FakeLocal(theme="dark"),
-                               prefs={"theme": "dark", "profile_image_id": "old"})
+                               prefs={"theme": "dark", "profile_image_id": "old"},
+                               bind="facility")
     backend.activate()
     assert server.rows[("user:u1", "theme")][0] == "dark"
     assert server.rows[("user:u1", "profile_image_id")][0] == "img"  # server value kept
@@ -179,7 +180,7 @@ def test_migration_runs_even_when_legacy_rows_exist(make):
 def test_partial_migration_resumes_on_next_refresh(make):
     server = Server(offline_after=0)           # first PUT fails in transport
     backend, _, _, _, _ = make(server=server, local=FakeLocal(a=1, b=2),
-                               prefs={"a": 1, "b": 2})
+                               prefs={"a": 1, "b": 2}, bind="facility")
     backend.activate()
     server.offline_after = None
     backend.refresh()

@@ -2,7 +2,11 @@
 
 Owns every non-local key while a user is logged in. Reads come from an in-memory
 ScopedStore; writes are optimistic and pushed to the logbook server on a worker.
-The local YAML stays the user-scope cache, so logged-out behaviour is unchanged.
+
+The local YAML is this console's own configuration, never a copy of the user's scope
+(offline reads come from the snapshot cache and the write journal). It is the fallback
+below every scope, and for LOCAL_LAYER_KEYS a layer between branch and user scope
+(docs/developer-guide/settings-layering.md).
 """
 from __future__ import annotations
 
@@ -10,13 +14,18 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from lightfall_settings import SpecRegistry, spec_to_dict
+from lightfall_settings import ScopeId, SpecRegistry, role_at_least, spec_to_dict
 from PySide6.QtCore import QTimer, Signal
 
 from lightfall.scopes.cache import SnapshotCache
 from lightfall.scopes.client import is_transient
 from lightfall.scopes.journal import WriteJournal
-from lightfall.scopes.keys import client_registry, flatten_preferences, is_local_only
+from lightfall.scopes.keys import (
+    LOCAL_LAYER_KEYS,
+    client_registry,
+    flatten_preferences,
+    is_local_only,
+)
 from lightfall.scopes.ops import migrate_user_prefs, push_write, replay_journal
 from lightfall.scopes.state import FetchedState, fetch_state
 from lightfall.scopes.store import MISSING, ScopedStore
@@ -24,10 +33,27 @@ from lightfall.ui.preferences.backend import PreferenceBackend
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
 
-# Local-only YAML markers (leading underscore => never uploaded). The YAML is one
-# user's cache; consoles often share an OS account, so record whose it is.
+# Local-only YAML markers (leading underscore => never uploaded). Clients before the
+# settings-layering fix cached the logged-in user's values in the YAML and recorded whose
+# they were here; _drop_old_user_cache() removes that copy once, then this marker.
 _OWNER_KEY = "_scoped_cache_owner"
 _MIGRATED_KEY = "_scoped_migrated"
+LOCAL = "local"  # write target for a console's own layer (the YAML)
+
+
+def _as_union(value: Any) -> dict[str, Any]:
+    """A row key's value as {item id: item}; legacy YAML stores lists."""
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, list):
+        out: dict[str, Any] = {}
+        for item in value:
+            if isinstance(item, dict) and item.get("id"):
+                out[str(item["id"])] = item
+            elif isinstance(item, str):
+                out[item] = True
+        return out
+    return {}
 
 
 def _is_json(value: Any) -> bool:
@@ -86,6 +112,7 @@ class ScopedBackend(PreferenceBackend):
         self._run = run or _thread_runner
         self._notify = notify or _toast
         self._store: ScopedStore | None = None
+        self._roles: dict[str, str | None] = {}
         self._active = False
         self._refreshing = False
         self._migrating = False
@@ -176,6 +203,7 @@ class ScopedBackend(PreferenceBackend):
         self._active = False
         self._session += 1
         self._store = None
+        self._roles = {}
         self._refreshing = False
         self._migrating = False
         self._written.clear()
@@ -203,12 +231,75 @@ class ScopedBackend(PreferenceBackend):
 
     def get(self, key: str, default: Any = None) -> Any:
         if self._store is not None:
-            value = self._store.value(key)
+            if key in LOCAL_LAYER_KEYS:
+                value, _origins = self._layered(key)
+            else:
+                value = self._store.value(key)
             if value is not MISSING:
                 return value
         if self._yaml_foreign():
-            return default  # the YAML caches another user's values
+            return default  # an old client's cache of another user's values
         return self._fallback(key, default)
+
+    def _layered(self, key: str) -> tuple[Any, dict[str, str]]:
+        """beamline -> branch -> local (YAML) -> user. Returns (value, item origins)."""
+        store = self._store
+        assert store is not None
+        spec = self._registry.get(key)
+        chain = store.resolve(key, include_user=False)
+        local = MISSING if self._yaml_foreign() else self._local.get(key, MISSING)
+        user = store.user_value(key) if spec.allows("user") else MISSING
+        if chain.locked_at is not None:
+            local = user = MISSING  # locked above: lower layers don't apply
+        if spec.policy != "union":
+            for value, origin in ((user, store.user_scope), (local, LOCAL)):
+                if value is not MISSING and value is not None:
+                    return value, {"": str(origin)}
+            if chain.origin is None:
+                return MISSING, {}
+            return chain.value, {"": str(chain.origin)}
+        merged: dict[str, Any] = dict(chain.value) if chain.origin is not None else {}
+        origins = {name: str(scope) for name, scope in chain.item_origins.items()}
+        found = chain.origin is not None
+        for value, origin in ((local, LOCAL), (user, store.user_scope)):
+            if value is MISSING or value is None:
+                continue
+            found = True
+            for name, item in _as_union(value).items():
+                if item is not None:
+                    merged[name], origins[name] = item, str(origin)
+        return (merged if found else MISSING), origins
+
+    def item_origins(self, key: str) -> dict[str, str]:
+        """For a row key: item id -> the scope it comes from (``"local"`` = this console)."""
+        if self._store is None or key not in LOCAL_LAYER_KEYS:
+            return {}
+        return self._layered(key)[1]
+
+    def layer_value(self, key: str, scope: str) -> Any:
+        """The value stored at one layer (a chain scope or ``"local"``), or MISSING."""
+        if scope == LOCAL:
+            return self._local.get(key, MISSING)
+        if self._store is None:
+            return MISSING
+        return self._store.scope_value(scope, key)
+
+    def targets(self, key: str) -> list[str]:
+        """Where this caller may write ``key``, most specific first."""
+        spec = self._registry.get(key)
+        store = self._store
+        out: list[str] = []
+        if store is not None and store.user_scope and spec.allows("user"):
+            out.append(store.user_scope)
+        if key in LOCAL_LAYER_KEYS:
+            out.append(LOCAL)
+        for scope in reversed(store.chain if store is not None else ()):
+            sid = ScopeId.parse(scope)
+            if sid.kind in ("user", "facility") or not spec.allows(sid.kind):
+                continue
+            if role_at_least(self._roles.get(scope), spec.required_role(sid.kind)):
+                out.append(scope)
+        return out
 
     def set_fallback(self, reader: Callable[[str, Any], Any]) -> None:
         """Read path for keys no scope sets (default: the YAML). The manager passes one
@@ -226,14 +317,20 @@ class ScopedBackend(PreferenceBackend):
         if value is None:
             self.remove(key, scope=scope)
             return
+        if scope == LOCAL:
+            self._write_local(key, value)
+            return
+        if scope is None:
+            target = self._default_target(key)
+            if target is False:
+                return
+            scope = target
         user_scope = self._store.user_scope if self._store is not None else None
         if not _is_json(value):
             if scope not in (None, user_scope):
                 raise TypeError(f"{key!r}: value is not JSON and cannot be shared at {scope}")
             logger.warning("{} is not JSON-serializable; keeping it on this machine only", key)
-            before = self.get(key)
-            self._cache_yaml(key, value)
-            self._emit_if_moved(key, before)
+            self._write_local(key, value)
             return
         if scope is None or scope == user_scope:
             self._write_user(key, "set", value)
@@ -243,6 +340,14 @@ class ScopedBackend(PreferenceBackend):
     def remove(self, key: str, scope: str | None = None) -> None:
         if is_local_only(key):
             raise ValueError(f"{key!r} is local-only and never goes through scoped settings")
+        if scope == LOCAL:
+            self._write_local(key, None)
+            return
+        if scope is None:
+            target = self._default_target(key)
+            if target is False:
+                return
+            scope = target
         user_scope = self._store.user_scope if self._store is not None else None
         if scope is None or scope == user_scope:
             self._write_user(key, "delete", None)
@@ -251,11 +356,29 @@ class ScopedBackend(PreferenceBackend):
 
     # ── writes ──────────────────────────────────────────────────────────
 
+    def _default_target(self, key: str) -> str | None | bool:
+        """Scope for an unscoped write: the user's, unless the key's spec forbids user
+        scope; then the most specific scope this caller may write. False = refused."""
+        spec = self._registry.get(key)
+        if spec.allows("user") or self._store is None:
+            return None
+        writable = [t for t in self.targets(key) if t != LOCAL]
+        if writable:
+            return writable[0]
+        self._notify("Setting not saved",
+                     f"{key} is set per beamline; ask beamline staff to change it")
+        return False
+
+    def _write_local(self, key: str, value: Any) -> None:
+        before = self.get(key)
+        self._cache_yaml(key, value)
+        self._emit_if_moved(key, before)
+
     def _cache_yaml(self, key: str, value: Any) -> None:
         try:
             self._local.store_quiet(key, value)
         except Exception as e:
-            logger.warning("Could not cache {} in user config: {}", key, e)
+            logger.warning("Could not write {} to the local config: {}", key, e)
 
     def _emit_if_moved(self, key: str, before: Any) -> None:
         after = self.get(key)
@@ -264,7 +387,6 @@ class ScopedBackend(PreferenceBackend):
 
     def _write_user(self, key: str, op: str, value: Any) -> None:
         before = self.get(key)
-        self._cache_yaml(key, value)
         # Write-ahead: the entry survives logout or quit mid-push and is overlaid on
         # refreshes until the server confirms it.
         self._journal.record(key, op, value)
@@ -315,7 +437,6 @@ class ScopedBackend(PreferenceBackend):
             return  # a refresh already replaced this value; don't clobber it
         before = self.get(key)
         store.restore(scope, key, prev, prev_version)
-        self._cache_yaml(key, None if prev is MISSING else prev)
         self._emit_if_moved(key, before)
         self._notify("Setting not saved", f"{key}: {exc}")
 
@@ -367,7 +488,6 @@ class ScopedBackend(PreferenceBackend):
         self._refreshing = False
         old_chain = self._store.chain if self._store is not None else None
         old_keys = self._store.keys() if self._store is not None else set()
-        old_user = self._store.user_settings() if self._store is not None else {}
         new_keys = {k for snap in state.snapshots.values() for k in snap.settings}
         journal = self._journal.entries()
         watched = old_keys | new_keys | set(journal) | set(self._written)
@@ -388,11 +508,9 @@ class ScopedBackend(PreferenceBackend):
                     store.drop_local(scope, key)
                 else:
                     store.put_local(scope, key, entry["value"])
-        if user_ok:
-            if not state.offline:
-                watched |= self._claim_yaml(store.user_settings())
-            if not self._yaml_foreign():
-                self._sync_yaml(old_user, store.user_settings(), journal)
+        self._roles = dict(state.chain.roles)
+        if user_ok and not state.offline:
+            watched |= self._drop_old_user_cache(store.user_settings())
 
         for key in sorted(watched):
             after = self.get(key)
@@ -421,24 +539,28 @@ class ScopedBackend(PreferenceBackend):
             else:
                 del self._written[key]
 
-    def _claim_yaml(self, user_settings: Mapping[str, Any]) -> set[str]:
-        """Make this user the owner of the YAML cache. Returns keys whose YAML moved.
+    def _drop_old_user_cache(self, user_settings: Mapping[str, Any]) -> set[str]:
+        """Remove values an old client cached in the YAML for the logged-in user.
 
-        If another user's values are cached here (shared console), drop them instead
-        of ever uploading them, and skip this user's YAML migration.
+        Runs once per console (the owner marker is dropped afterwards). Values equal to
+        the owner's server values are a cached copy; with another user's cache we cannot
+        tell, so every scoped key goes. Returns the keys removed.
         """
         owner = self._local.get(_OWNER_KEY, None)
-        if owner == self._identity:
+        if owner is None:
             return set()
         purged: set[str] = set()
-        if owner is not None:
-            for key in flatten_preferences(self._user_preferences()):
-                if not is_local_only(key) and key not in user_settings:
-                    self._cache_yaml(key, None)
-                    purged.add(key)
-            self._mark_migrated()
-            logger.info("Scoped settings cache taken over from another user")
-        self._cache_yaml(_OWNER_KEY, self._identity)
+        for key, value in flatten_preferences(self._user_preferences()).items():
+            if is_local_only(key):
+                continue
+            if owner == self._identity and user_settings.get(key, MISSING) != value:
+                continue  # differs from the user's value: console config, keep it
+            self._cache_yaml(key, None)
+            purged.add(key)
+        self._cache_yaml(_OWNER_KEY, None)
+        if owner != self._identity:
+            self._mark_migrated()  # never upload the YAML another user left behind
+        logger.info("Removed {} cached user value(s) from the local config", len(purged))
         return purged
 
     def _migrated(self) -> bool:
@@ -454,18 +576,10 @@ class ScopedBackend(PreferenceBackend):
         if self._identity not in done:
             self._cache_yaml(_MIGRATED_KEY, [*done, self._identity])
 
-    def _sync_yaml(self, old_user: Mapping[str, Any], new_user: Mapping[str, Any],
-                   journal: Mapping[str, Any]) -> None:
-        for key, value in new_user.items():
-            if not is_local_only(key) and self._local.get(key, None) != value:
-                self._cache_yaml(key, value)
-        for key in set(old_user) - set(new_user) - set(journal):
-            if not is_local_only(key):
-                self._cache_yaml(key, None)
-
     def _after_online(self, scope: str, state: FetchedState) -> None:
         client, registry = self._client, self._registry
-        if not self._migrated() and not self._yaml_foreign():
+        # A bound console's YAML belongs to the console, not to whoever logs in first.
+        if self._bind == "facility" and not self._migrated() and not self._yaml_foreign():
             if self._migrating:
                 return
             # Per-key PUTs without a version never overwrite: existing keys 412 and
