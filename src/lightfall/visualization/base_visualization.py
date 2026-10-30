@@ -7,9 +7,12 @@ orchestrates the selection flow; subclasses handle display logic.
 
 from __future__ import annotations
 
+import io
+import json
 from abc import abstractmethod
 from typing import Any
 
+import numpy as np
 from PySide6.QtWidgets import QWidget
 
 
@@ -43,6 +46,67 @@ class BaseVisualization(QWidget):
         self._run: Any | None = None
         self._stream_name: str = ""
         self._field_name: str = ""
+
+    # ------------------------------------------------------------------
+    # Export (used by VisualizationPanel's "Export..." button)
+    # ------------------------------------------------------------------
+
+    def get_supported_export_formats(self) -> list[str]:
+        """File formats ``export_data`` can produce (first is the default)."""
+        return ["csv", "json"]
+
+    def export_columns(self) -> dict[str, np.ndarray]:
+        """Columns to export, in order. All columns must be the same length.
+
+        Default: every per-event scalar column of the current stream
+        (array-valued columns such as detector images are skipped).
+        Subclasses override this to export what they display.
+        """
+        if self._run is None or not self._stream_name:
+            raise ValueError("No run is open")
+        from lightfall.utils.tiled_helpers import read_events, stream_data_keys
+
+        stream = self._run[self._stream_name]
+        try:
+            data_keys = stream_data_keys(stream)
+        except Exception:
+            data_keys = {}
+        scalar_names = [
+            name for name, dk in data_keys.items()
+            if list(dk.get("shape") or []) == []
+        ]
+        # Request only scalar columns so detector images are not downloaded.
+        events = read_events(stream, variables=scalar_names or None)
+        if events is None:
+            raise ValueError(f"Could not read stream '{self._stream_name}'")
+        variables = getattr(events, "data_vars", events)
+        columns: dict[str, np.ndarray] = {}
+        for name in variables:
+            if getattr(events[name], "ndim", 1) != 1:
+                continue
+            arr = np.asarray(events[name])
+            if arr.ndim == 1:
+                columns[str(name)] = arr
+        if not columns:
+            raise ValueError(f"Stream '{self._stream_name}' has no scalar columns")
+        return columns
+
+    def export_data(self, fmt: str) -> bytes:
+        """Serialise ``export_columns()`` as ``fmt`` ("csv" or "json")."""
+        columns = self.export_columns()
+        n = min((len(c) for c in columns.values()), default=0)
+        columns = {k: v[:n] for k, v in columns.items()}
+        fmt = fmt.lower()
+        if fmt == "csv":
+            import pandas as pd
+
+            buf = io.StringIO()
+            pd.DataFrame(columns).to_csv(buf, index=False)
+            return buf.getvalue().encode("utf-8")
+        if fmt == "json":
+            payload = {k: v.tolist() for k, v in columns.items()}
+            return json.dumps(payload, indent=2, default=str).encode("utf-8")
+        raise ValueError(f"Unsupported export format: {fmt}")
 
     @staticmethod
     @abstractmethod

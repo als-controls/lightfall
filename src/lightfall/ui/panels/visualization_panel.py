@@ -703,37 +703,64 @@ class VisualizationPanel(BasePanel):
 
     def _on_export_clicked(self) -> None:
         """Export data from the current visualization."""
-        if not self._current_widget:
-            return
-
         from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-        if not hasattr(self._current_widget, "get_supported_export_formats"):
+        widget = self._current_widget
+        if widget is None:
+            QMessageBox.information(self, "Export", "Open a run before exporting.")
             return
 
-        formats = self._current_widget.get_supported_export_formats()
+        get_formats = getattr(widget, "get_supported_export_formats", None)
+        formats = get_formats() if callable(get_formats) else []
         if not formats:
+            QMessageBox.information(
+                self, "Export",
+                f"The {widget.viz_display_name or 'current'} view does not support export.",
+            )
             return
 
-        filter_parts = [f"{fmt.upper()} Files (*.{fmt})" for fmt in formats]
-        filter_str = ";;".join(filter_parts)
-
-        filename, _ = QFileDialog.getSaveFileName(
-            self, "Export Data", "", filter_str,
+        filters = [f"{fmt.upper()} Files (*.{fmt})" for fmt in formats]
+        filename, selected_filter = QFileDialog.getSaveFileName(
+            self, "Export Data", self._default_export_name(formats[0]),
+            ";;".join(filters),
         )
         if not filename:
             return
 
-        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else formats[0]
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename.rsplit("/", 1)[-1] else ""
+        if ext not in formats:
+            # No/unknown extension: use the filter the user picked.
+            ext = formats[filters.index(selected_filter)] if selected_filter in filters else formats[0]
+            filename = f"{filename}.{ext}"
 
         try:
-            data = self._current_widget.export_data(ext)
+            data = widget.export_data(ext)
             with open(filename, "wb") as f:
                 f.write(data)
             logger.info("Exported data to {}", filename)
         except Exception as e:
             logger.error("Export failed: {}", e)
             QMessageBox.warning(self, "Export Error", str(e))
+
+    def _default_export_name(self, ext: str) -> str:
+        """Suggested export filename, e.g. ``scan1_3DHallProbe_comparison.csv``."""
+        import re
+
+        start: dict[str, Any] = {}
+        try:
+            start = dict(self._entry.metadata.get("start", {})) if self._entry is not None else {}
+        except Exception:
+            pass
+        parts = []
+        if start.get("scan_id") is not None:
+            parts.append(f"scan{start['scan_id']}")
+        label = start.get("sample_name") or start.get("plan_name")
+        if label:
+            parts.append(str(label))
+        if not parts and start.get("uid"):
+            parts.append(str(start["uid"])[:8])
+        stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", "_".join(parts)) or "export"
+        return f"{stem}.{ext}"
 
     # ---- Engine document stream ------------------------------------------
 

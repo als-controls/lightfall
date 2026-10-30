@@ -335,3 +335,24 @@ def test_device_favorites_subscribe_gets_local_fallback_on_user_remove(
         QCoreApplication.processEvents()
 
     assert received == [["fallback_motor"]]
+
+
+@pytest.mark.parametrize(
+    "stored,default,expected",
+    [
+        (None, 7200, 7200),   # null must not shadow the caller's default
+        (None, None, None),
+        (10, 12, 10),
+        (False, True, False),  # falsy-but-set values are preserved
+        ("", "x", ""),
+    ],
+)
+def test_get_treats_stored_none_as_unset(qapp, prefs_manager, stored, default, expected):
+    """Unset typed prefs persist as ``null``; that crashed startup when
+    session_duration reached ``timedelta(seconds=None)``."""
+    prefs_manager._get_raw = lambda key, d=None: {"k": stored}.get(key, d)
+
+    result = prefs_manager.get("k", default)
+
+    assert result == expected
+    assert type(result) is type(expected)

@@ -10,8 +10,12 @@ if TYPE_CHECKING:
     from tiled.client.array import ArrayClient
 
 
-def read_events(stream: Any) -> Any | None:
-    """Read all data variables from a Bluesky event stream.
+def read_events(stream: Any, variables: list[str] | None = None) -> Any | None:
+    """Read data variables from a Bluesky event stream.
+
+    ``variables`` limits the read to the named columns (modern streams only).
+    Pass it whenever possible: without it, streams carrying detector images
+    download every frame.
 
     Returns an xarray Dataset (or whatever the underlying Tiled layer
     produces) covering all data columns, regardless of whether the stream
@@ -31,6 +35,13 @@ def read_events(stream: Any) -> Any | None:
 
     if stream is None:
         return None
+
+    if variables is not None:
+        try:
+            return stream.read(variables=list(variables))
+        except Exception as e:
+            # Older clients lack ``variables=``; fall back to a full read.
+            logger.debug("read_events: read(variables=...) failed, reading all: {}", e)
 
     try:
         return stream.read()
