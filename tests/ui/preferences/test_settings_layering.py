@@ -163,3 +163,17 @@ def test_old_cache_of_another_user_is_dropped_entirely(make):
     assert local.get("theme") is None and local.get(ROWS) is None
     assert ("user:u1", "theme") not in server.rows   # bob's YAML is never uploaded
     assert backend.get("theme") is None
+
+
+def test_apply_with_the_beamline_value_or_blank_writes_nothing(make):
+    # Settings pages save every field on Apply; for an identity key that must neither
+    # nag an operator nor touch the branch's value.
+    server = BranchServer(role="maintainer")
+    server.rows[(BRANCH, "ipc_topic_prefix")] = ("als.7011", 1)
+    backend, _, _, _, notes = make(server=server, bind=BRANCH)
+    backend.activate()
+    backend.set("ipc_topic_prefix", "als.7011")
+    backend.remove("ipc_topic_prefix")
+    assert not [c for c in server.calls if c[0] in ("put", "delete")]
+    assert server.rows[(BRANCH, "ipc_topic_prefix")] == ("als.7011", 1)
+    assert notes == []

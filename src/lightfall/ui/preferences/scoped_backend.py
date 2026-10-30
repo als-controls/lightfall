@@ -321,6 +321,8 @@ class ScopedBackend(PreferenceBackend):
             self._write_local(key, value)
             return
         if scope is None:
+            if not self._registry.get(key).allows("user") and self.get(key) == value:
+                return  # e.g. Preferences "Apply" re-saving the beamline's value
             target = self._default_target(key)
             if target is False:
                 return
@@ -343,11 +345,9 @@ class ScopedBackend(PreferenceBackend):
         if scope == LOCAL:
             self._write_local(key, None)
             return
-        if scope is None:
-            target = self._default_target(key)
-            if target is False:
-                return
-            scope = target
+        if scope is None and not self._registry.get(key).allows("user"):
+            # Nothing of the user's to remove; resetting a beamline value needs its scope.
+            return
         user_scope = self._store.user_scope if self._store is not None else None
         if scope is None or scope == user_scope:
             self._write_user(key, "delete", None)
