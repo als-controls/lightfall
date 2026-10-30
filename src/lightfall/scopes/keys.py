@@ -7,10 +7,18 @@ uploaded (spec section 1: the scoped store never holds secrets).
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
-from lightfall_settings import ALL_KINDS, SettingSpec, SpecRegistry, deployment_registry
+from lightfall_settings import (
+    ALL_KINDS,
+    SettingSpec,
+    SpecRegistry,
+    deployment_registry,
+    spec_from_dict,
+)
+
+from lightfall.utils.logging import logger
 
 LOCAL_ONLY_KEYS: frozenset[str] = frozenset({
     # How this machine reaches servers (needed before login; differs per network).
@@ -63,8 +71,19 @@ CLIENT_SPECS: tuple[SettingSpec, ...] = (
 )
 
 
-def client_registry() -> SpecRegistry:
+def client_registry(server_specs: Iterable[Mapping[str, Any]] = ()) -> SpecRegistry:
+    """The rules this client resolves with. ``server_specs`` are the logbook's approved
+    specs (from /chain): they win over the client's own advisory ones, as the server
+    enforces them."""
     reg = deployment_registry()
+    for raw in server_specs:
+        try:
+            spec = spec_from_dict(raw)
+        except ValueError as e:
+            logger.warning("Ignoring an approved spec the client can't read: {}", e)
+            continue
+        if not reg.is_declared(spec.key):
+            reg.register(spec)
     # Shared specs win: lightfall-settings declares tiled_url (core, public) and the
     # beamline identity keys and device rows (DEPLOYMENT_SPECS), which the server enforces.
     reg.register_all(spec for spec in CLIENT_SPECS if not reg.is_declared(spec.key))

@@ -72,11 +72,13 @@ class ChainInfo:
     entitled: tuple[str, ...]
     facility_label: str
     tree: tuple[TreeEntry, ...] = ()  # empty from servers before the binding picker
+    specs: tuple[dict[str, Any], ...] = ()  # the server's approved (non-core) specs
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["chain"], d["entitled"] = list(self.chain), list(self.entitled)
         d["tree"] = [asdict(e) for e in self.tree]
+        d["specs"] = [dict(s) for s in self.specs]
         return d
 
     @classmethod
@@ -90,6 +92,7 @@ class ChainInfo:
                 TreeEntry(scope=str(e["scope"]), parent=e.get("parent"), role=e.get("role"))
                 for e in d.get("tree") or () if isinstance(e, dict) and e.get("scope")
             ),
+            specs=tuple(s for s in d.get("specs") or () if isinstance(s, dict) and s.get("key")),
         )
 
 

@@ -18,6 +18,9 @@ class ScopedStore:
         self._registry = registry
         self.replace(state)
 
+    def set_registry(self, registry: SpecRegistry) -> None:
+        self._registry = registry
+
     def replace(self, state: FetchedState) -> None:
         self.chain: tuple[str, ...] = tuple(state.chain.chain)
         self.offline = state.offline
