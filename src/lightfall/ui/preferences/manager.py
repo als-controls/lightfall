@@ -418,6 +418,33 @@ class PreferencesManager(QObject):
     def scoped_backend(self) -> Any:
         return self._scoped
 
+    def _active_scoped(self) -> Any:
+        scoped = self._scoped
+        return scoped if scoped is not None and scoped.active else None
+
+    def write_targets(self, key: str) -> list[str]:
+        """Where `key` may be written, most specific first ("local" = this console)."""
+        scoped = self._active_scoped()
+        return scoped.targets(key) if scoped is not None else ["local"]
+
+    def item_origins(self, key: str) -> dict[str, str]:
+        """For a union key: item id -> the scope it comes from ("local" = this console)."""
+        scoped = self._active_scoped()
+        if scoped is not None:
+            return scoped.item_origins(key)
+        value = self.get(key, None)
+        return dict.fromkeys(value, "local") if isinstance(value, dict) else {}
+
+    def layer_value(self, key: str, scope: str) -> Any:
+        """The value stored at one layer, or None."""
+        scoped = self._active_scoped()
+        if scoped is not None:
+            from lightfall.scopes.store import MISSING
+
+            value = scoped.layer_value(key, scope)
+            return None if value is MISSING else value
+        return self.get(key, None) if scope == "local" else None
+
     def _user_preferences(self) -> dict[str, Any]:
         cm = self._config_manager
         getter = getattr(cm, "user_preferences", None)

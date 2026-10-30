@@ -16,8 +16,12 @@ class FakePrefs:
     def get(self, key, default=None):
         return self.data.get(key, default)
 
-    def set(self, key, value):
+    def set(self, key, value, scope=None):
+        assert scope in (None, "local")
         self.data[key] = value
+
+    def remove(self, key, scope=None):
+        self.data.pop(key, None)
 
 
 @pytest.fixture()
@@ -58,7 +62,7 @@ def test_add_two_happi_rows_edit_save_reload(qtbot, page, prefs):
     editor._path.setText("/data/b.json")
     page.save_settings()
 
-    saved = _saved(prefs)
+    saved = list(_saved(prefs).values())
     assert [(r["type"], r["name"]) for r in saved] == [
         ("mock", "mock"),
         ("happi", "happi"),

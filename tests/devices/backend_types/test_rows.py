@@ -191,3 +191,40 @@ def test_build_context_defaults_and_legacy_fallback():
         FakePrefs({"device_instantiate_mode": "background", "device_connection_timeout": 2.5}).get
     )
     assert ctx == BuildContext("background", 2.5)
+
+
+def _r(rid, **over):
+    return BackendRow(type="happi", name=rid, id=rid, **over)
+
+
+def test_layer_value_writes_new_and_edited_rows_only():
+    from lightfall.devices.backend_types.rows import layer_rows_value
+
+    loaded = [_r("b"), _r("u")]
+    origins = {"b": "branch:7.0.1.1", "u": "user:u1"}
+    rows = [_r("b"), _r("u"), _r("c")]                  # c added on the page
+    assert layer_rows_value(rows, loaded, origins, "local", None) == {"c": _r("c").to_dict()}
+    rows = [_r("b", enabled=False), _r("u")]            # inherited row disabled here
+    assert layer_rows_value(rows, loaded, origins, "local", None) == {
+        "b": _r("b", enabled=False).to_dict()}
+
+
+def test_layer_value_keeps_target_items_and_drops_removed_ones():
+    from lightfall.devices.backend_types.rows import layer_rows_value
+
+    loaded = [_r("b"), _r("c"), _r("d")]
+    origins = {"b": "branch:7.0.1.1", "c": "local", "d": "local"}
+    stored = {"c": _r("c").to_dict(), "d": _r("d").to_dict(), "x": _r("x").to_dict()}
+    rows = [_r("b"), _r("c")]                           # d removed; x is shadowed upstream
+    assert layer_rows_value(rows, loaded, origins, "local", stored) == {
+        "c": _r("c").to_dict(), "x": _r("x").to_dict()}
+
+
+def test_layer_value_follows_table_order_and_reads_legacy_lists():
+    from lightfall.devices.backend_types.rows import layer_rows_value
+
+    loaded = [_r("a"), _r("b")]
+    origins = {"a": "local", "b": "local"}
+    stored = [_r("a").to_dict(), _r("b").to_dict()]
+    rows = [_r("b"), _r("a")]
+    assert list(layer_rows_value(rows, loaded, origins, "local", stored)) == ["b", "a"]

@@ -207,3 +207,39 @@ def build_context(get: Getter) -> BuildContext:
         instantiate_mode=str(mode),
         connection_timeout=float(get("device_connection_timeout", 5.0)),
     )
+
+
+def layer_rows_value(
+    rows: Iterable[BackendRow],
+    loaded: Iterable[BackendRow],
+    origins: dict[str, str],
+    target: str,
+    stored: Any,
+) -> dict[str, dict[str, Any]]:
+    """What to store at ``target`` after the page edited the merged row table.
+
+    ``loaded`` is the table as resolved when the page opened and ``origins`` maps each
+    row id to the layer it came from. The target keeps the items it already stored,
+    gains every row added or edited on the page, and loses rows it owned that were
+    removed. Rows another layer provides are written only when edited (a per-row
+    override); they can't be removed from here.
+    """
+    before = {row.id: row.to_dict() for row in loaded}
+    current = list(rows)
+    kept_ids = {row.id for row in current}
+    out = {rid: item for rid, item in _union_items(stored).items()
+           if not (origins.get(rid) == target and rid not in kept_ids)}
+    for row in current:
+        item = row.to_dict()
+        if row.id not in before or before[row.id] != item or origins.get(row.id) == target:
+            out[row.id] = item
+    # Table order first, then items shadowed by another layer (not shown on the page).
+    ordered = [row.id for row in current if row.id in out]
+    ordered += [rid for rid in out if rid not in kept_ids]
+    return {rid: out[rid] for rid in ordered}
+
+
+def _union_items(stored: Any) -> dict[str, Any]:
+    if isinstance(stored, dict):
+        return {str(k): v for k, v in stored.items() if v is not None}
+    return rows_to_value(rows_from_value(stored)) if stored else {}
