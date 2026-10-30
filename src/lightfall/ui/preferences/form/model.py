@@ -72,6 +72,10 @@ class FormModel:
         cell = (scope, key)
         return cell in self._edits and not _same(self._edits[cell], self.loaded(scope, key))
 
+    def dirty_cells(self) -> list[tuple[str, str]]:
+        """Every (scope, key) with an unsaved edit, sorted."""
+        return sorted(c for c in self._edits if self.is_dirty(*c))
+
     def dirty_scopes(self) -> set[str]:
         return {scope for scope, key in self._edits if self.is_dirty(scope, key)}
 

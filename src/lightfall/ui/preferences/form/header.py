@@ -37,6 +37,8 @@ class ScopeHeader(QWidget):
         self._state.setWordWrap(True)
         set_muted(self._state)
         layout.addWidget(self._state, 1)
+        # Takes the slack while the state text is hidden, so the combo stays put.
+        layout.addStretch(0)
 
     # Public API -----------------------------------------------------------
     def set_choices(self, choices: list[ScopeChoice], selected: str) -> None:

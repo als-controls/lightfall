@@ -60,8 +60,15 @@ class SettingsForm(QWidget):
         return bool(fields_at(self._plugin.sections(), scope, self._prefs.allowed_at))
 
     def show_scope(self, scope: str) -> None:
-        """Rebuild the rows for ``scope``; editors show the model's pending values."""
+        """Rebuild the rows for ``scope`` from fresh store values and current rules.
+
+        Each shown field is reloaded first, so values that changed while another
+        scope was shown appear; dirty edits keep their value (and get the conflict
+        flag if the stored value moved).
+        """
         self._scope = scope
+        for field in fields_at(self._plugin.sections(), scope, self._prefs.allowed_at):
+            self._model.reload(scope, field.key)
         self._rows.clear()
         self._fields.clear()
         self._blocks.clear()
@@ -138,7 +145,9 @@ class SettingsForm(QWidget):
             parent=self._content,
         )
         editor.set_value(self._model.pending(scope, field.key))
-        row.set_read_only(self._read_only_reason(field.key, scope, scope_reason))
+        reason = self._read_only_reason(field.key, scope, scope_reason)
+        # The header already states the scope's reason; repeat only the lock glyph.
+        row.set_read_only(reason, inline=reason != scope_reason)
         key = field.key
         editor.changed.connect(lambda: self._on_editor_changed(key))
         row.clear_requested.connect(lambda: self._on_clear(key))

@@ -279,3 +279,43 @@ def test_show_scope_twice_does_not_duplicate_rows(qtbot, scope):
     before = len(rows(form))
     form.show_scope(scope)
     assert len(rows(form)) == before
+
+
+def test_show_scope_reloads_values_changed_while_another_scope_was_shown(qtbot):
+    prefs = FakePrefs(layers={(USER, COUNT): 5})
+    form, model, _ = make_form(qtbot, prefs)
+    form.show_scope(BEAMLINE)
+    prefs.layers[(USER, COUNT)] = 9  # remote change at User while Beamline is shown
+    form.show_scope(USER)
+    assert rows(form)[COUNT].editor.value() == 9
+    assert not model.is_dirty(USER, COUNT)
+
+
+def test_show_scope_keeps_dirty_edit_and_flags_conflict(qtbot):
+    prefs = FakePrefs(layers={(USER, COUNT): 5})
+    form, model, _ = make_form(qtbot, prefs)
+    model.edit(USER, COUNT, 12)
+    form.show_scope(BEAMLINE)
+    prefs.layers[(USER, COUNT)] = 9
+    form.show_scope(USER)
+    row = rows(form)[COUNT]
+    assert row.editor.value() == 12
+    assert row.has_conflict_note()
+
+
+def test_reason_matching_scope_header_shows_only_the_lock(qtbot):
+    form, _, _ = make_form(qtbot, scope=BEAMLINE)
+    row = rows(form)[COUNT]
+    assert row.is_read_only()
+    assert row.reason_text() == "Read-only: you are a viewer here"
+    assert not row.reason_shown_inline()
+    assert row.lock_tooltip() == "Read-only: you are a viewer here"
+
+
+def test_lock_and_generic_reasons_still_show_inline(qtbot):
+    lock = LockInfo("facility", "", "")
+    prefs = FakePrefs(writable={LOCAL}, locks={(USER, COUNT): lock})
+    form, _, _ = make_form(qtbot, prefs)
+    r = rows(form)
+    assert r[COUNT].reason_shown_inline()
+    assert r[FLAG].reason_shown_inline()  # generic text: the User header has no reason

@@ -202,13 +202,18 @@ class SettingRow(QWidget):
         self._conflict.setVisible(conflict)
         self.clear_action.setEnabled(not self._read_only and (is_set or self._invalid))
 
-    def set_read_only(self, reason: str | None) -> None:
-        """Make the row read-only with ``reason`` shown inline; None makes it editable."""
+    def set_read_only(self, reason: str | None, inline: bool = True) -> None:
+        """Make the row read-only for ``reason``; None makes it editable.
+
+        The reason shows next to the lock, or only as the lock's tooltip when
+        ``inline`` is False (the scope header already says it).
+        """
         self._read_only = reason is not None
         self.editor.set_read_only(self._read_only)
         self._reason.setText(reason or "")
+        self._lock.setToolTip(reason or "")
         self._lock.setVisible(self._read_only)
-        self._reason.setVisible(self._read_only)
+        self._reason.setVisible(self._read_only and inline)
         if self._read_only:
             self.clear_action.setEnabled(False)
 
@@ -236,6 +241,12 @@ class SettingRow(QWidget):
 
     def reason_text(self) -> str:
         return self._reason.text() if self._read_only else ""
+
+    def reason_shown_inline(self) -> bool:
+        return self._read_only and not self._reason.isHidden()
+
+    def lock_tooltip(self) -> str:
+        return self._lock.toolTip() if self._read_only else ""
 
     def label_text(self) -> str:
         return self._label.text()

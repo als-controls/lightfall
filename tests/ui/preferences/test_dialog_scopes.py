@@ -47,6 +47,8 @@ class FakePrefs(QObject):
         self.default = USER
         self.subscribers: dict[str, list] = {}
         self.fail_on: str | None = None
+        self.allowed = {k: set(v) for k, v in ALLOWED.items()}
+        self.read_only_scopes: set[str] = set()
 
     def scope_choices(self):
         return self.choices
@@ -55,10 +57,10 @@ class FakePrefs(QObject):
         return self.default
 
     def allowed_at(self, key, scope):
-        return scope in ALLOWED.get(key, set())
+        return scope in self.allowed.get(key, set())
 
     def writable_at(self, key, scope):
-        return self.allowed_at(key, scope)
+        return self.allowed_at(key, scope) and scope not in self.read_only_scopes
 
     def lock_at(self, key, scope):
         return None
@@ -485,3 +487,70 @@ def test_cancel_discards_and_reverts(qtbot, env):
     assert env.prefs.calls == []
     assert not dialog._model.dirty_scopes()
     assert env.main.reverted == 1 and env.legacy.reverted == 1
+
+
+def test_scopes_changed_at_same_scope_updates_editability(qtbot, env):
+    dialog = make_dialog(qtbot, env)
+    assert not row(dialog, "main", FLAG).is_read_only()
+    env.prefs.read_only_scopes.add(USER)  # e.g. the role at this scope changed
+    env.prefs.scopes_changed.emit(None)
+    assert dialog.current_scope() == USER
+    assert row(dialog, "main", FLAG).is_read_only()
+    assert row(dialog, "main", COUNT).is_read_only()
+
+
+def test_scopes_changed_at_same_scope_updates_field_set(qtbot, env):
+    dialog = make_dialog(qtbot, env)
+    dialog.select_scope(LOCAL)
+    assert [r.key for r in form_of(dialog, "main").findChildren(SettingRow)] == []
+    env.prefs.allowed[FLAG].add(LOCAL)  # mode change: Flag is now settable on this console
+    env.prefs.scopes_changed.emit(None)
+    assert dialog.current_scope() == LOCAL
+    assert [r.key for r in form_of(dialog, "main").findChildren(SettingRow)] == [FLAG]
+    page = dialog._form_pages["main"]
+    assert form_of(dialog, "main").isVisibleTo(page)
+
+
+def test_switching_back_shows_remote_change_made_while_away(qtbot, env):
+    env.prefs.layers[(USER, COUNT)] = 5
+    dialog = make_dialog(qtbot, env)
+    dialog.select_scope(BEAMLINE)
+    env.prefs.push(USER, COUNT, 8)
+    dialog.select_scope(USER)
+    assert row(dialog, "main", COUNT).editor.value() == 8
+
+
+def test_edit_that_became_unwritable_blocks_save_with_warning(qtbot, env):
+    dialog = make_dialog(qtbot, env)
+    click_toggle(qtbot, row(dialog, "main", FLAG), "On")
+    dialog.select_scope(BEAMLINE)
+    type_number(qtbot, row(dialog, "main", COUNT), "5")
+    env.prefs.read_only_scopes.add(USER)
+    env.prefs.scopes_changed.emit(None)
+    assert dialog._apply() is False
+    assert env.prefs.calls == []
+    assert env.legacy.saved == 0
+    warnings = [text for kind, text in env.boxes if kind == "warning"]
+    assert len(warnings) == 1
+    assert "Flag (User — u1)" in warnings[0]
+    assert "Count" not in warnings[0]
+    assert dialog._model.is_dirty(USER, FLAG) and dialog._model.is_dirty(BEAMLINE, COUNT)
+    dialog.accept()
+    assert dialog.result() != dialog.DialogCode.Accepted
+
+
+def test_header_combo_stays_put_when_state_text_hides(qtbot):
+    h = ScopeHeader()
+    qtbot.addWidget(h)
+    viewer = ScopeChoice(BEAMLINE, "beamline", "Beamline 7.0.1", "viewer", "Read-only: you are a viewer here")
+    h.set_choices([_choices()[0], viewer], BEAMLINE)
+    h.resize(900, 40)
+    h.show()
+    qtbot.waitExposed(h)
+    assert h._state.isVisible()
+    with_state = h._combo.geometry()
+    h.set_selected(USER)
+    h.layout().activate()
+    assert not h._state.isVisible()
+    assert h._combo.x() == with_state.x()
+    assert h._combo.width() == with_state.width()

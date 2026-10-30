@@ -301,12 +301,11 @@ class PreferencesDialog(QDialog):
         selected = self._scope if self._scope in scopes else self._prefs.default_scope()
         self._header.set_choices(choices, selected)
         self._header.set_dirty_scopes(self._model.dirty_scopes())
-        if selected != self._scope:
-            self._scope = selected
-            for page in self._form_pages.values():
-                page.form.show_scope(selected)
+        self._scope = selected
+        # Rebuild even at the same scope: which fields show and which are editable
+        # may have changed. Dirty edits live in the model and survive.
         for page in self._form_pages.values():
-            page.form.refresh_from_store()
+            page.form.show_scope(selected)
         self._refresh_pages()
 
     # Scope selection --------------------------------------------------------
@@ -440,6 +439,14 @@ class PreferencesDialog(QDialog):
                 errors.append(f"{plugin.display_name} ({label}): Validation error - {e}")
         return errors
 
+    def _unwritable_edits(self) -> list[str]:
+        """Labels (with scope) of unsaved edits that can no longer be written."""
+        return [
+            f"{self._label(key)} ({self._scope_label(scope)})"
+            for scope, key in self._model.dirty_cells()
+            if not self._prefs.writable_at(key, scope)
+        ]
+
     def _write_ops(self) -> tuple[list[tuple[str, str, Any]], bool]:
         """Write every dirty, writable edit; stop at the first failure.
 
@@ -505,6 +512,17 @@ class PreferencesDialog(QDialog):
                 self,
                 "Validation Error",
                 "Please fix the following errors:\n\n" + "\n".join(errors),
+            )
+            return False
+
+        blocked = self._unwritable_edits()
+        if blocked:
+            QMessageBox.warning(
+                self,
+                "Can't save",
+                "You can no longer change these where you edited them, so nothing was saved:\n\n"
+                + "\n".join(blocked)
+                + "\n\nCancel to discard your changes.",
             )
             return False
 
