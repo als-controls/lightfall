@@ -214,6 +214,11 @@ builtin_manifest = PluginManifest(
             name="updates_status",
             import_path="lightfall.ui.statusbar.plugins.updates_status:UpdatesStatusPlugin",
         ),
+        PluginEntry(
+            type_name="statusbar",
+            name="git_state_status",
+            import_path="lightfall.ui.statusbar.plugins.git_state_status:GitStateStatusPlugin",
+        ),
         # Agent plugins (skill prompts and/or MCP tool bags).
         # Each contributes via ToolRegistry; per-plugin MCP servers are
         # assembled at agent-construction time in lightfall/claude/agent.py.
