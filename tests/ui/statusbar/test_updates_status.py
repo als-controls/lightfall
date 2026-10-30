@@ -49,3 +49,18 @@ def test_restart_pending_shows(qtbot):
     assert plugin.is_visible
     assert plugin._button.text() == "⟳ Restart pending"
     plugin.disconnect_signals()
+
+
+def test_restart_pending_hidden_after_logout(qtbot, monkeypatch):
+    from lightfall.utils import restart
+
+    checker = FakeChecker()
+    plugin = make(qtbot, checker)
+    checker.mark_restart_pending()
+    checker.allowed = False
+    checker.deactivate()
+    assert not plugin.is_visible
+    calls = []
+    monkeypatch.setattr(restart, "request_restart", lambda: calls.append(1))
+    plugin.on_clicked()
+    assert calls == []

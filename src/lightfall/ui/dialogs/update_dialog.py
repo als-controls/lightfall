@@ -67,6 +67,8 @@ class UpdateDialog(LFDialog):
         self._applying = False
         self._applied = False
         self._future: QThreadFuture | None = None
+        self._pending: list[str] = []
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle("Lightfall updates")
         self.resize(760, 420)
         self._build()
@@ -193,7 +195,8 @@ class UpdateDialog(LFDialog):
         self._banner.setVisible(busy)
         repos, pypi = self._selected()
         self._update_button.setEnabled(
-            not busy and not self._applying and not self._applied and bool(repos or pypi))
+            not busy and not self._applying and not self._applied
+            and not self._checker.applying and bool(repos or pypi))
 
     # -- applying -------------------------------------------------------------
 
@@ -207,10 +210,15 @@ class UpdateDialog(LFDialog):
         repos, pypi = self._selected()
         if not (repos or pypi):
             return
+        if not self._checker.begin_apply():
+            self._log.appendPlainText("Another update is already running.")
+            self._refresh_busy()
+            return
         self._applying = True
         self._refresh_busy()
-        for item in [*repos, *pypi]:
-            self._set_status(item.name, "Updating…")
+        self._pending = [item.name for item in [*repos, *pypi]]
+        for name in self._pending:
+            self._set_status(name, "Updating…")
         emit = self._log_line.emit
         apply = self._apply
 
@@ -221,15 +229,31 @@ class UpdateDialog(LFDialog):
                                      except_slot=self._on_apply_error, name="update_apply")
         self._future.start()
 
+    def done(self, result: int) -> None:
+        if self._applying:
+            return  # closing mid-update would hide its outcome; wait for it
+        self._busy_timer.stop()
+        super().done(result)
+
     def _on_apply_error(self, exc: Exception) -> None:
         self._applying = False
-        message = str(exc) if isinstance(exc, UpdateBlocked) else f"error: {exc}"
+        self._checker.end_apply()
+        blocked = isinstance(exc, UpdateBlocked)
+        message = str(exc) if blocked else f"error: {exc}"
         self._log.appendPlainText(f"Update stopped: {message}")
+        self._log_toggle.setChecked(True)
+        for name in self._pending:
+            self._set_status(name, f"Not updated: {message}" if blocked
+                             else "Unknown: update stopped (see log)")
+        if not blocked:
+            # Some repos may already have been pulled; a restart is the safe default.
+            self._checker.mark_restart_pending()
         self._refresh_busy()
 
     def _on_applied(self, results: list[ItemResult]) -> None:
         self._applying = False
         self._applied = True
+        self._checker.end_apply()
         names = self.row_names()
         for result in results:
             if result.name not in names:

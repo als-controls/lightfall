@@ -119,3 +119,68 @@ def test_update_refused_without_permission(qtbot):
     dlg._update_button.click()
     qtbot.wait(100)
     assert called == []
+
+
+def test_second_dialog_cannot_apply_concurrently(qtbot):
+    import threading
+
+    gate = threading.Event()
+    calls = []
+
+    def slow_apply(repos, pypi, log=lambda s: None):
+        calls.append(1)
+        gate.wait(5)
+        return [ItemResult("lightfall", True, False, "already current")]
+
+    checker = FakeChecker(RESULT)
+    first = make(qtbot, checker, apply=slow_apply)
+    first._update_button.click()
+    qtbot.waitUntil(lambda: calls == [1], timeout=5000)
+    second = make(qtbot, checker, apply=slow_apply)
+    assert not second._update_button.isEnabled()
+    second._on_update()
+    gate.set()
+    qtbot.waitUntil(lambda: not checker.applying, timeout=5000)
+    assert calls == [1]
+
+
+def test_close_refused_while_applying(qtbot):
+    import threading
+
+    gate = threading.Event()
+
+    def slow_apply(repos, pypi, log=lambda s: None):
+        gate.wait(5)
+        return []
+
+    dlg = make(qtbot, apply=slow_apply)
+    dlg.show()
+    dlg._update_button.click()
+    qtbot.waitUntil(lambda: dlg._applying, timeout=2000)
+    dlg.reject()
+    assert dlg.isVisible()
+    gate.set()
+    qtbot.waitUntil(lambda: not dlg._applying, timeout=5000)
+
+
+def test_apply_error_resets_rows(qtbot):
+    def boom(repos, pypi, log=lambda s: None):
+        raise RuntimeError("worker died")
+
+    checker = FakeChecker(RESULT)
+    dlg = make(qtbot, checker, apply=boom)
+    dlg._update_button.click()
+    qtbot.waitUntil(lambda: "worker died" in dlg._log.toPlainText(), timeout=5000)
+    assert not dlg._applying
+    assert not status(dlg, "lightfall").startswith("Updating")
+    assert not checker.applying
+
+
+def test_dialog_frees_itself_and_stops_polling(qtbot):
+    from PySide6.QtCore import Qt
+
+    dlg = make(qtbot)
+    assert dlg.testAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+    dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)  # keep it for the assert
+    dlg.done(0)
+    assert not dlg._busy_timer.isActive()

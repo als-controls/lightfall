@@ -147,3 +147,39 @@ def test_restart_pending(qtbot):
         checker.mark_restart_pending()
     assert blocker.args == [True]
     assert checker.restart_pending
+
+
+def test_local_refresh_blanks_repos_unreachable_at_last_fetch(qtbot):
+    from dataclasses import replace
+
+    reachable = replace(REPO, root=Path("lightfall-deck"))
+    unreachable = replace(REPO, ahead=None, behind=None, remote_head=None)
+    check = FakeCheck(CheckResult(repos=(reachable, unreachable)))
+    checker = make(qtbot, FakeSession(AuthState.AUTHENTICATED), check)
+    with qtbot.waitSignal(checker.result_changed, timeout=5000):
+        checker.check_now(fetch=True)
+    # the local refresh reads counts from an old remote-tracking ref for both
+    check.result = CheckResult(repos=(reachable, REPO))
+    with qtbot.waitSignal(checker.result_changed, timeout=5000):
+        checker.check_now(fetch=False)
+    by_name = {r.name: r for r in checker.result.repos}
+    assert by_name["lightfall-deck"].behind == 2
+    assert by_name["lightfall"].behind is None and by_name["lightfall"].ahead is None
+    assert checker.result.update_count == 1
+
+
+def test_local_refresh_before_first_fetch_has_no_counts(qtbot):
+    checker = make(qtbot, FakeSession(AuthState.AUTHENTICATED), FakeCheck())
+    with qtbot.waitSignal(checker.result_changed, timeout=5000):
+        checker.check_now(fetch=False)
+    assert checker.result.repos[0].behind is None
+    assert checker.result.update_count == 0
+
+
+def test_apply_lock_is_exclusive(qtbot):
+    checker = make(qtbot, FakeSession(AuthState.AUTHENTICATED))
+    assert checker.begin_apply() is True
+    assert checker.begin_apply() is False
+    assert checker.applying
+    checker.end_apply()
+    assert checker.begin_apply() is True

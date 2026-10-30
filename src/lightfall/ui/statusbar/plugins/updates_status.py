@@ -71,9 +71,11 @@ class UpdatesStatusPlugin(StatusBarPlugin):
         elif self.checker.restart_pending:
             self.set_text("⟳ Restart pending")
             self.set_tooltip("Updates were applied. Click to restart Lightfall.")
-        self.set_visible(bool(count) or self.checker.restart_pending)
+        self.set_visible(self.checker.active and (bool(count) or self.checker.restart_pending))
 
     def on_clicked(self) -> None:
+        if not self.checker.is_allowed():
+            return
         try:
             from lightfall.core.application import LFApplication
             from lightfall.ui.dialogs.update_dialog import UpdateDialog, ask_restart

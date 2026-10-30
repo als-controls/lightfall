@@ -8,6 +8,8 @@ indicators stay hidden. Checks run on a ``QThreadFuture`` worker.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -43,6 +45,10 @@ class UpdateChecker(QObject):
         self._running = False
         self._generation = 0
         self._restart_pending = False
+        self._applying = False
+        #: Repo roots whose remote answered at the last fetch; local refreshes
+        #: report ahead/behind only for these (other tracking refs may be stale).
+        self._reachable: set[Path] = set()
         self._future: QThreadFuture | None = None
 
         self._initial_timer = QTimer(self)
@@ -74,6 +80,20 @@ class UpdateChecker(QObject):
     def restart_pending(self) -> bool:
         return self._restart_pending
 
+    @property
+    def applying(self) -> bool:
+        return self._applying
+
+    def begin_apply(self) -> bool:
+        """Claim the one update slot for this process; False if an update is running."""
+        if self._applying:
+            return False
+        self._applying = True
+        return True
+
+    def end_apply(self) -> None:
+        self._applying = False
+
     def is_allowed(self) -> bool:
         """Logged in, online, and holding ``ADMIN_SYSTEM``."""
         session = self._session
@@ -96,6 +116,7 @@ class UpdateChecker(QObject):
             self._initial_timer.start()
             self._fetch_timer.start()
             self._local_timer.start()
+            self._set_result(self._result)  # let indicators re-show a pending restart
         elif not allowed and self._active:
             self._active = False
             self._generation += 1
@@ -107,7 +128,7 @@ class UpdateChecker(QObject):
 
     def check_now(self, fetch: bool = True) -> None:
         """Start a check in the background (no-op if inactive or one is running)."""
-        if not self._active or self._running:
+        if not self._active or self._running or self._applying:
             return
         self._running = True
         generation = self._generation
@@ -127,9 +148,17 @@ class UpdateChecker(QObject):
         generation, fetched, result = payload
         if generation != self._generation or not self._active:
             return
-        if not fetched:
-            # A local refresh doesn't ask the index; keep the last PyPI answers.
-            result = CheckResult(result.repos, self._result.pypi)
+        if fetched:
+            self._reachable = {r.root for r in result.repos if r.reachable}
+        else:
+            # A local refresh doesn't ask the index; keep the last PyPI answers, and
+            # trust tracking refs only for repos whose remote answered last time.
+            repos = tuple(
+                r if r.root in self._reachable
+                else replace(r, ahead=None, behind=None, remote_head=None)
+                for r in result.repos
+            )
+            result = CheckResult(repos, self._result.pypi)
         self._set_result(result)
 
     def _on_error(self, exc: Exception) -> None:

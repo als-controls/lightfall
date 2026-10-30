@@ -12,7 +12,14 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from lightfall.updates.git import GitError, RepoState, pull_ff, pyproject_changed, read_repo_state
+from lightfall.updates.git import (
+    NO_WINDOW,
+    GitError,
+    RepoState,
+    pull_ff,
+    pyproject_changed,
+    read_repo_state,
+)
 from lightfall.updates.pypi import PypiState
 
 
@@ -48,7 +55,8 @@ def _pip(cmd: list[str], run: Callable[..., subprocess.CompletedProcess],
          log: Callable[[str], None]) -> tuple[bool, str]:
     log("$ " + " ".join(cmd))
     try:
-        proc = run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        proc = run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                   creationflags=NO_WINDOW)
     except OSError as e:
         log(str(e))
         return False, str(e)
@@ -73,7 +81,12 @@ def _apply_repo(state: RepoState, python: str, run: Callable[..., subprocess.Com
         log(str(e))
         return ItemResult(state.name, False, False, "pull failed", str(e))
     changed = old != new
-    if changed and pyproject_changed(state.root, old, new):
+    try:
+        reinstall = changed and pyproject_changed(state.root, old, new)
+    except GitError as e:
+        log(str(e))
+        return ItemResult(state.name, False, True, "reinstall check failed", str(e))
+    if reinstall:
         ok, output = _pip([python, "-m", "pip", "install", "-e", str(state.root)], run, log)
         if not ok:
             return ItemResult(state.name, False, True, "reinstall failed", output)

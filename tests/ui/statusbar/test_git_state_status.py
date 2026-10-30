@@ -84,3 +84,11 @@ def test_dialog_open_folder(qtbot, monkeypatch):
     qtbot.addWidget(dlg)
     dlg.table.cellWidget(0, 4).click()
     assert opened[0].toLocalFile().replace("\\", "/").endswith("/src/lightfall-deck")
+
+
+def test_git_state_dialog_frees_itself(qtbot):
+    from PySide6.QtCore import Qt
+
+    dlg = GitStateDialog([repo("lightfall", dirty=True)])
+    qtbot.addWidget(dlg)
+    assert dlg.testAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)

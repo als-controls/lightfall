@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QDialogButtonBox,
@@ -35,6 +35,7 @@ class GitStateDialog(LFDialog):
 
     def __init__(self, repos: list[RepoState], parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle("Lightfall source checkouts")
         self.resize(720, 300)
         layout = QVBoxLayout(self)

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +13,12 @@ from lightfall.utils.logging import logger
 
 #: Set once git turned out not to be on PATH; every source repo is then quiet.
 GIT_MISSING = False
+
+#: Keeps git and pip from flashing a console window under ``lightfall-gui``.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+#: Abort transfers that stall (curl has no overall timeout of its own).
+STALL_LIMITS = ("-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=20")
 
 
 class GitError(Exception):
@@ -24,7 +32,7 @@ def git_env() -> dict[str, str]:
     env["GCM_INTERACTIVE"] = "never"
     env["GIT_ASKPASS"] = "echo"
     env["SSH_ASKPASS"] = "echo"
-    env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
+    env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=15")
     return env
 
 
@@ -35,21 +43,46 @@ def run_git(root: Path, *args: str, timeout: float = 30.0) -> str:
         GitError: on a non-zero exit, a timeout, or a missing git binary.
     """
     global GIT_MISSING
+    command = " ".join(args)
     try:
-        result = subprocess.run(
-            ["git", *args], cwd=root, env=git_env(), capture_output=True, text=True,
-            timeout=timeout, stdin=subprocess.DEVNULL,
+        proc = subprocess.Popen(
+            ["git", *args], cwd=root, env=git_env(), stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+            errors="replace", creationflags=NO_WINDOW,
+            start_new_session=sys.platform != "win32",
         )
     except FileNotFoundError as e:
         if not GIT_MISSING:
             logger.info("git is not on PATH; source checkouts will not be checked")
         GIT_MISSING = True
         raise GitError("git not found") from e
-    except (subprocess.TimeoutExpired, OSError) as e:
-        raise GitError(f"git {' '.join(args)}: {e}") from e
-    if result.returncode != 0:
-        raise GitError(f"git {' '.join(args)}: {result.stderr.strip()}")
-    return result.stdout.strip()
+    except OSError as e:
+        raise GitError(f"git {command}: {e}") from e
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        # Kill the whole tree: a surviving git-remote-https/ssh child keeps the
+        # pipes open and would block communicate() indefinitely.
+        _kill_tree(proc)
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        raise GitError(f"git {command}: timed out after {timeout:g} s") from e
+    if proc.returncode != 0:
+        raise GitError(f"git {command}: {stderr.strip()}")
+    return stdout.strip()
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                           capture_output=True, creationflags=NO_WINDOW, timeout=10)
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        proc.kill()
 
 
 @dataclass(frozen=True)
@@ -140,7 +173,7 @@ def read_repo_state(root: Path, dists: tuple[str, ...], fetch: bool) -> RepoStat
     fetched = True
     if fetch:
         try:
-            run_git(root, "fetch", "--quiet", remote, default)
+            run_git(root, *STALL_LIMITS, "fetch", "--quiet", remote, default)
         except GitError as e:
             logger.debug("Update check: {} unreachable: {}", root.name, e)
             fetched = False
@@ -157,8 +190,8 @@ def read_repo_state(root: Path, dists: tuple[str, ...], fetch: bool) -> RepoStat
 def pull_ff(state: RepoState) -> tuple[str, str]:
     """Fast-forward ``state.root`` to its remote default branch; return (old, new) HEADs."""
     old = run_git(state.root, "rev-parse", "HEAD")
-    run_git(state.root, "pull", "--ff-only", "--quiet", state.remote, state.default_branch,
-            timeout=120.0)
+    run_git(state.root, *STALL_LIMITS, "pull", "--ff-only", "--quiet", state.remote,
+            state.default_branch, timeout=120.0)
     new = run_git(state.root, "rev-parse", "HEAD")
     return old, new
 

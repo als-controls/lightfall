@@ -29,6 +29,17 @@ class FakeChecker(QObject):
         self.allowed = allowed
         self.checks: list[bool] = []
         self.gate_refreshes = 0
+        self.active = allowed
+        self.applying = False
+
+    def begin_apply(self) -> bool:
+        if self.applying:
+            return False
+        self.applying = True
+        return True
+
+    def end_apply(self) -> None:
+        self.applying = False
 
     def is_allowed(self) -> bool:
         return self.allowed
@@ -42,6 +53,10 @@ class FakeChecker(QObject):
     def mark_restart_pending(self) -> None:
         self.restart_pending = True
         self.restart_pending_changed.emit(True)
+
+    def deactivate(self) -> None:
+        self.active = False
+        self.publish(CheckResult.EMPTY)
 
     def publish(self, result: CheckResult) -> None:
         self.result = result

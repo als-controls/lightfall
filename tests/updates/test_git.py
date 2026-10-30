@@ -111,7 +111,7 @@ def test_missing_git_is_quiet(monkeypatch, tmp_path):
         raise FileNotFoundError("git")
 
     monkeypatch.setattr(git_mod, "GIT_MISSING", False)
-    monkeypatch.setattr(subprocess, "run", boom)
+    monkeypatch.setattr(subprocess, "Popen", boom)
     with pytest.raises(GitError):
         run_git(tmp_path, "status")
     assert git_mod.GIT_MISSING is True
@@ -129,3 +129,42 @@ def test_pyproject_unchanged_for_other_files(clone, git_remote, tmp_path):
     push_upstream(git_remote, tmp_path, "src.py", "x = 1\n")
     old, new = pull_ff(state(clone))
     assert pyproject_changed(clone, old, new) is False
+
+
+def test_timeout_kills_slow_child_processes(tmp_path):
+    import time
+
+    git(tmp_path, "init", "-q")
+    start = time.monotonic()
+    with pytest.raises(GitError):
+        run_git(tmp_path, "-c", "alias.slow=!sleep 20", "slow", timeout=2)
+    assert time.monotonic() - start < 10
+
+
+def test_git_runs_without_console_window(monkeypatch, tmp_path):
+    seen = {}
+    real = subprocess.Popen
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    git(tmp_path, "init", "-q")
+    monkeypatch.setattr(subprocess, "Popen", spy)
+    run_git(tmp_path, "status")
+    assert seen.get("creationflags", 0) == getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def test_fetch_has_stall_limits(monkeypatch, clone):
+    calls = []
+    real = git_mod.run_git
+
+    def spy(root, *args, **kw):
+        calls.append(args)
+        return real(root, *args, **kw)
+
+    monkeypatch.setattr(git_mod, "run_git", spy)
+    state(clone)
+    fetch = next(a for a in calls if "fetch" in a)
+    assert "http.lowSpeedLimit=1000" in fetch and "http.lowSpeedTime=20" in fetch
+    assert "ConnectTimeout" in git_env()["GIT_SSH_COMMAND"]

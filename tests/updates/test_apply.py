@@ -161,3 +161,30 @@ def test_python_default_is_sys_executable():
     import inspect
 
     assert inspect.signature(apply_updates).parameters["python"].default == sys.executable
+
+
+def test_reinstall_check_error_is_contained(git_remote, tmp_path, monkeypatch):
+    from lightfall.updates.git import GitError
+
+    one = make_clone(git_remote, tmp_path / "one")
+    two = make_clone(git_remote, tmp_path / "two")
+    advance(git_remote, tmp_path, "src.py")
+
+    def broken(*a):
+        raise GitError("diff timed out")
+
+    monkeypatch.setattr(apply_mod, "pyproject_changed", broken)
+    results = apply_updates([fetched(one), fetched(two)], [], run=FakeRun())
+    assert [(r.ok, r.changed) for r in results] == [(False, True), (False, True)]
+    assert results[0].message == "reinstall check failed"
+
+
+def test_pip_runs_without_console_window():
+    seen = {}
+
+    def run(cmd, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    apply_updates([], [PypiState("lightfall", "1", "2")], run=run)
+    assert seen.get("creationflags", 0) == getattr(subprocess, "CREATE_NO_WINDOW", 0)
