@@ -138,9 +138,24 @@ class DeviceToolsAgent(ToolPlugin):
                         "count": 0,
                     })
 
-                # If query is provided, use search
+                # If query is provided, use search, then apply the other
+                # filters to the hits (they used to be silently ignored).
                 if query:
                     devices = catalog.search_devices(query)
+                    if category_str:
+                        try:
+                            wanted = DeviceCategory(category_str)
+                        except ValueError:
+                            return mcp_result({
+                                "success": False,
+                                "error": f"Invalid category: {category_str}",
+                                "devices": [],
+                            })
+                        devices = [d for d in devices if d.category == wanted]
+                    if beamline:
+                        devices = [d for d in devices if d.beamline == beamline]
+                    if active_only:
+                        devices = [d for d in devices if d.active]
                 else:
                     # Convert category string to enum
                     category = None

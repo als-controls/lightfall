@@ -14,6 +14,18 @@ from lightfall.plugins.tool_plugin import ToolPlugin
 from lightfall.utils.git_tracker import GitTracker
 from lightfall.utils.logging import logger
 
+# User plan names become file names under the plans directory; anything but a
+# plain identifier (e.g. "../../etc/passwd") must be refused by every tool.
+_PLAN_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+_BAD_PLAN_NAME = (
+    "Invalid plan name. Must be a valid Python identifier "
+    "(letters, numbers, underscore; must start with letter or underscore)."
+)
+
+
+def _valid_plan_name(name: object) -> bool:
+    return isinstance(name, str) and bool(_PLAN_NAME_RE.match(name))
+
 
 class PlanBuildError(ValueError):
     """A plan could not be built from the tool arguments (message is user-facing)."""
@@ -465,6 +477,13 @@ Plans are saved to ~/lightfall/plans/ and immediately available in the Plan Runn
             },
         )
         async def create_user_plan(args: dict) -> dict[str, Any]:
+            """Create a user plan from Python code (MCP envelope around _create_user_plan)."""
+            from lightfall.plugins.agents._mcp_helpers import mcp_result
+
+            result = await _create_user_plan(args)
+            return mcp_result(result, is_error=not result.get("success", False))
+
+        async def _create_user_plan(args: dict) -> dict[str, Any]:
             """Create a user plan from Python code."""
             from lightfall.acquire.plans.user_plans import UserPlanService
 
@@ -474,12 +493,8 @@ Plans are saved to ~/lightfall/plans/ and immediately available in the Plan Runn
             overwrite = args.get("overwrite", False)
 
             # Validate name is a valid Python identifier
-            if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
-                return {
-                    "success": False,
-                    "error": "Invalid plan name. Must be a valid Python identifier "
-                    "(letters, numbers, underscore; must start with letter or underscore).",
-                }
+            if not _valid_plan_name(name):
+                return {"success": False, "error": _BAD_PLAN_NAME}
 
             # Validate code in-memory before writing
             is_valid, error = self._validate_plan_code(code, name)
@@ -913,6 +928,8 @@ messages would act on hardware here too. Never write such plans.""",
             from lightfall.plugins.agents._mcp_helpers import mcp_result
 
             name = args["name"]
+            if not _valid_plan_name(name):
+                return mcp_result({"success": False, "error": _BAD_PLAN_NAME}, is_error=True)
 
             try:
                 service = UserPlanService.get_instance()
@@ -959,6 +976,8 @@ messages would act on hardware here too. Never write such plans.""",
             from lightfall.plugins.agents._mcp_helpers import mcp_result
 
             name = args["name"]
+            if not _valid_plan_name(name):
+                return mcp_result({"success": False, "error": _BAD_PLAN_NAME}, is_error=True)
             confirm = args.get("confirm", False)
 
             if not confirm:
