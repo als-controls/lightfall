@@ -185,3 +185,21 @@ def test_proposed_revision_removes_stale_draft(user_root):
     assert path.name == "SKILL.md.proposed"
     # Stale draft should be deleted.
     assert not stale_draft.exists()
+
+
+def test_new_draft_replaces_stale_proposed_revision(user_root):
+    """A revision proposed while a skill was active must not shadow a fresh
+    draft saved under the same name after the skill is gone."""
+    active = user_root / "gone-skill"
+    active.mkdir()
+    (active / "SKILL.md").write_text("---\nname: gone-skill\ndescription: d\n---\nb",
+                                     encoding="utf-8")
+    _, is_rev = drafts.save_draft("gone-skill", "improved", "revision", author="a")
+    assert is_rev
+    (active / "SKILL.md").unlink()
+    active.rmdir()
+
+    path, is_rev = drafts.save_draft("gone-skill", "fresh", "fresh body", author="a")
+    assert not is_rev and path.name == "SKILL.md"
+    assert not (path.parent / "SKILL.md.proposed").exists()
+    assert "fresh body" in path.read_text(encoding="utf-8")

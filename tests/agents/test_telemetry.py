@@ -189,3 +189,19 @@ def test_otlp_half_credential_sends_no_header(monkeypatch):
     monkeypatch.setenv("LIGHTFALL_OTLP_USERNAME", "lf_host")
     monkeypatch.delenv("LIGHTFALL_OTLP_PASSWORD", raising=False)
     assert telemetry_otlp._auth_headers() == {}
+
+
+class _CancellableWorker(_Worker):
+    query_cancelled = Signal()
+    error_occurred = Signal(str)
+
+
+def test_attach_worker_forgets_pending_tools_after_a_cancelled_turn(tel):
+    w = _CancellableWorker()
+    attach_worker(w, agent="lightfall", backend="claude_code", model_fn=lambda: "sonnet")
+    w.tool_called.emit("orphan_tool", {})   # its result never arrives
+    w.query_cancelled.emit()
+    w.tool_called.emit("next_tool", {})
+    w.tool_result.emit("id", {"is_error": False})
+    (rec,) = _lines(tel)
+    assert rec["tool"] == "next_tool"

@@ -239,6 +239,12 @@ def attach_worker(worker: Any, *, agent: str, backend: str, model_fn) -> None:
     worker.result_received.connect(on_result)
     worker.tool_called.connect(on_tool_called)
     worker.tool_result.connect(on_tool_result)
+    # A cancelled or failed turn can leave a call without its result; drop
+    # the leftovers or every tool in the next turn is misattributed by one.
+    for name in ("query_cancelled", "error_occurred"):
+        signal = getattr(worker, name, None)
+        if signal is not None:
+            signal.connect(lambda *_args: pending.clear())
 
 
 def summarize_log(path: Path, since_days: float | None = None) -> list[dict[str, Any]]:
