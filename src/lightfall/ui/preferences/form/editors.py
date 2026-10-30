@@ -31,42 +31,57 @@ NOT_SET = "Not set"
 _TEXT_ROLES = (QPalette.ColorRole.ButtonText, QPalette.ColorRole.WindowText, QPalette.ColorRole.Text)
 
 
+_ACTIVE_GROUPS = (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive)
+_DISABLED_GROUP = (QPalette.ColorGroup.Disabled,)
+_ALL_GROUPS = _ACTIVE_GROUPS + _DISABLED_GROUP
+
+
+def _theme_color(name: str) -> QColor | None:
+    """A colour from the running Lightfall theme, or None if there is none."""
+    try:
+        from lightfall.ui.theme import ThemeManager
+
+        color = QColor(getattr(ThemeManager.get_instance().colors, name))
+    except Exception:  # noqa: BLE001 - theme unavailable (early init, tests)
+        return None
+    return color if color.isValid() else None
+
+
 def _muted_color(widget: QWidget) -> QColor:
-    return widget.palette().color(QPalette.ColorRole.PlaceholderText)
+    """Secondary text colour for "Not set", hints and read-only values.
 
-
-def _disabled_text_color(widget: QWidget) -> QColor:
-    """The theme's Disabled-group text colour: read-only line edits look disabled."""
-    return widget.palette().color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text)
+    Taken from the theme's ``text_secondary``: the theme builds its palette
+    with every colour group equal, so palette roles cannot be trusted to
+    differ from normal text. Falls back to PlaceholderText without a theme.
+    """
+    return _theme_color("text_secondary") or widget.palette().color(QPalette.ColorRole.PlaceholderText)
 
 
 def _error_color(widget: QWidget) -> QColor:
     """Theme error colour; falls back to a palette alert role."""
-    try:
-        from lightfall.ui.theme import ThemeManager
-
-        color = QColor(ThemeManager.get_instance().colors.error)
-        if color.isValid():
-            return color
-    except Exception:  # noqa: S110 - theme unavailable (early init, tests)
-        pass
-    return widget.palette().color(QPalette.ColorRole.Highlight)
+    return _theme_color("error") or widget.palette().color(QPalette.ColorRole.Highlight)
 
 
 class _RoleColor(QObject):
     """Keeps a colour override on a widget in step with theme changes.
 
-    Only the given roles of the Active and Inactive groups are overridden on a
-    fresh palette, so everything else (and the Disabled group) keeps inheriting
-    from the theme. ``color_fn`` returns the colour to show, or None to clear.
+    Only the given roles of the given colour groups (Active and Inactive by
+    default) are overridden on a fresh palette, so everything else keeps
+    inheriting from the theme. ``color_fn`` returns the colour to show, or
+    None to clear.
     """
 
     def __init__(
-        self, widget: QWidget, roles: tuple[QPalette.ColorRole, ...], color_fn: Callable[[QWidget], QColor | None]
+        self,
+        widget: QWidget,
+        roles: tuple[QPalette.ColorRole, ...],
+        color_fn: Callable[[QWidget], QColor | None],
+        groups: tuple[QPalette.ColorGroup, ...] = _ACTIVE_GROUPS,
     ) -> None:
         super().__init__(widget)
         self._widget = widget
         self._roles = roles
+        self._groups = groups
         self._color_fn = color_fn
         self._last: QColor | None = None
         widget.installEventFilter(self)
@@ -84,10 +99,50 @@ class _RoleColor(QObject):
         self._last = color
         pal = QPalette()
         if color is not None:
-            for group in (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive):
+            for group in self._groups:
                 for role in self._roles:
                     pal.setColor(group, role, color)
         self._widget.setPalette(pal)
+
+
+class _ReadOnlyLook(QObject):
+    """Makes a read-only line edit look like a value, not an input box.
+
+    The theme's palette gives disabled and enabled text the same colour and
+    its stylesheet gives every QLineEdit the same box, so neither can mark
+    read-only fields. Instead the box is flattened (no border, no
+    background) and the text drawn in the muted colour; the edit stays
+    enabled so the value can still be selected and copied.
+    """
+
+    def __init__(self, edit: QLineEdit) -> None:
+        super().__init__(edit)
+        self._edit = edit
+        self.read_only = False
+        self._last = ""
+        edit.installEventFilter(self)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if obj is self._edit and event.type() == QEvent.Type.PaletteChange:
+            self.refresh()
+        return False
+
+    def set_read_only(self, read_only: bool) -> None:
+        self.read_only = read_only
+        self._edit.setReadOnly(read_only)
+        self.refresh()
+
+    def refresh(self) -> None:
+        sheet = ""
+        if self.read_only:
+            muted = _muted_color(self._edit).name()
+            sheet = (
+                f"QLineEdit {{ color: {muted}; background: transparent;"
+                " border: 1px solid transparent; }"
+            )
+        if sheet != self._last:
+            self._last = sheet
+            self._edit.setStyleSheet(sheet)
 
 
 class _OutOfRangeError(ValueError):
@@ -132,8 +187,9 @@ class ToggleEditor(FieldEditor):
             btn = QToolButton(self)
             btn.setText(text)
             btn.setCheckable(True)
-            if val is None:
-                _RoleColor(btn, _TEXT_ROLES, _muted_color)
+            # Read-only segments are disabled; mute them explicitly because the
+            # theme's Disabled group matches normal text.
+            _RoleColor(btn, _TEXT_ROLES, _muted_color, _ALL_GROUPS if val is None else _DISABLED_GROUP)
             self._group.addButton(btn)
             layout.addWidget(btn)
             self._buttons[val] = btn
@@ -175,6 +231,7 @@ class ChoiceEditor(FieldEditor):
         options = spec.options() if callable(spec.options) else spec.options
         self._values: list[Any] = [None]
         self._loading = False
+        _RoleColor(self._combo, _TEXT_ROLES, _muted_color, _DISABLED_GROUP)
         self._combo.addItem(NOT_SET)
         self._mute_not_set_entry()
         for val, label in options:
@@ -243,11 +300,10 @@ class NumberEditor(FieldEditor):
         layout.addWidget(self._hint)
         _RoleColor(self._hint, _TEXT_ROLES, _muted_color)
         self._text_style = _RoleColor(self._edit, (QPalette.ColorRole.Text,), self._text_color)
+        self._read_only_look = _ReadOnlyLook(self._edit)
         self._edit.textEdited.connect(self._on_edited)
 
     def _text_color(self, widget: QWidget) -> QColor | None:
-        if self._read_only:
-            return _disabled_text_color(widget)
         return None if self._valid else _error_color(widget)
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
@@ -331,8 +387,7 @@ class NumberEditor(FieldEditor):
 
     def set_read_only(self, read_only: bool) -> None:
         self._read_only = read_only
-        self._edit.setReadOnly(read_only)
-        self._text_style.refresh()
+        self._read_only_look.set_read_only(read_only)
 
 
 class TextEditor(FieldEditor):
@@ -349,10 +404,7 @@ class TextEditor(FieldEditor):
         _RoleColor(self.empty_hint, _TEXT_ROLES, _muted_color)
         layout.addWidget(self.empty_hint)
         self._value: str | None = None
-        self._read_only = False
-        self._text_style = _RoleColor(
-            self._edit, (QPalette.ColorRole.Text,), lambda w: _disabled_text_color(w) if self._read_only else None
-        )
+        self._read_only_look = _ReadOnlyLook(self._edit)
         self._refresh()
         self._edit.textEdited.connect(self._on_edited)
 
@@ -375,9 +427,7 @@ class TextEditor(FieldEditor):
         self._refresh()
 
     def set_read_only(self, read_only: bool) -> None:
-        self._read_only = read_only
-        self._edit.setReadOnly(read_only)
-        self._text_style.refresh()
+        self._read_only_look.set_read_only(read_only)
 
 
 def create_editor(spec: EditorSpec, field: SettingField, parent: QWidget | None = None) -> FieldEditor:

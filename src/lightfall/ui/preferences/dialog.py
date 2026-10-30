@@ -14,7 +14,6 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -31,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.scopes.keys import client_registry
+from lightfall.ui.preferences.form.editors import _muted_color
 from lightfall.ui.preferences.form.header import ScopeHeader
 from lightfall.ui.preferences.form.model import FormModel
 from lightfall.ui.preferences.form.schema import SettingField, field_label
@@ -339,7 +339,7 @@ class PreferencesDialog(QDialog):
     def _refresh_pages(self) -> None:
         """Dim form pages with nothing at the scope and show their 'nothing here' note."""
         choices = self._prefs.scope_choices()
-        dim = self.palette().color(QPalette.ColorRole.PlaceholderText)
+        dim = _muted_color(self)
         label = self._scope_label(self._scope)
         for row, name in enumerate(self._page_names):
             page = self._form_pages.get(name)

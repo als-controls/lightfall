@@ -239,33 +239,80 @@ def test_unknown_kind_raises():
         create_editor(spec, SettingField("k", spec))
 
 
-def test_muted_follows_palette_change_and_keeps_disabled_group(qtbot):
-    from qtpy.QtGui import QColor, QPalette
+def _normal_text(widget):
+    from qtpy.QtGui import QPalette
+
+    return widget.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
+
+
+def test_not_set_segment_is_muted_even_when_read_only(qtbot):
+    """Holds under the real theme, whose Disabled group equals normal text."""
+    from qtpy.QtGui import QPalette
+
+    from lightfall.ui.preferences.form.editors import _muted_color
 
     editor = make(qtbot, "toggle")
     btn = next(b for b in editor.findChildren(QAbstractButton) if b.text() == "Not set")
-    pal = QPalette(editor.palette())
-    pal.setColor(QPalette.ColorRole.PlaceholderText, QColor("#123456"))
-    editor.setPalette(pal)
-    assert btn.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.ButtonText) == QColor("#123456")
-    assert btn.palette().color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText) != QColor("#123456")
+    off = next(b for b in editor.findChildren(QAbstractButton) if b.text() == "Off")
+    muted = _muted_color(btn)
+    assert muted != _normal_text(editor)
+    role = QPalette.ColorRole.ButtonText
+    assert btn.palette().color(QPalette.ColorGroup.Active, role) == muted
+    assert off.palette().color(QPalette.ColorGroup.Active, role) != muted
+    editor.set_read_only(True)
+    for b in (btn, off):  # read-only segments are drawn muted, not like live ones
+        assert not b.isEnabled()
+        assert b.palette().color(QPalette.ColorGroup.Disabled, role) == muted
+
+
+def test_read_only_choice_is_muted(qtbot):
+    from qtpy.QtGui import QPalette
+
+    from lightfall.ui.preferences.form.editors import _muted_color
+
+    editor = make(qtbot, "choice")
+    combo = editor.findChild(QComboBox)
+    editor.set_read_only(True)
+    assert not combo.isEnabled()
+    muted = _muted_color(combo)
+    assert muted != _normal_text(editor)
+    for role in (QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
+        assert combo.palette().color(QPalette.ColorGroup.Disabled, role) == muted
+
+
+def test_muted_falls_back_to_palette_without_a_theme(qtbot, monkeypatch):
+    from qtpy.QtGui import QPalette
+
+    from lightfall.ui.preferences.form.editors import _muted_color
+    from lightfall.ui.theme import ThemeManager
+
+    def no_theme():
+        raise RuntimeError("no theme")
+
+    monkeypatch.setattr(ThemeManager, "get_instance", no_theme)
+    editor = make(qtbot, "toggle")
+    assert _muted_color(editor) == editor.palette().color(QPalette.ColorRole.PlaceholderText)
 
 
 @pytest.mark.parametrize("kind", ["integer", "number", "text"])
-def test_read_only_line_edit_looks_disabled_but_stays_selectable(qtbot, kind):
-    from qtpy.QtGui import QPalette
+def test_read_only_line_edit_looks_different_but_stays_selectable(qtbot, kind):
+    from lightfall.ui.preferences.form.editors import _muted_color
 
     editor = make(qtbot, kind)
+    editor.set_value(CASES[kind][2])
+    editor.resize(240, 30)
     line = editor.findChild(QLineEdit)
-    active, disabled = QPalette.ColorGroup.Active, QPalette.ColorGroup.Disabled
-    text = QPalette.ColorRole.Text
-    normal = line.palette().color(active, text)
-    assert normal != line.palette().color(disabled, text)
+    editable = line.grab().toImage()
+    normal = _normal_text(line)
     editor.set_read_only(True)
     assert line.isReadOnly() and line.isEnabled()  # text can still be selected and copied
-    assert line.palette().color(active, text) == line.palette().color(disabled, text)
+    muted = _muted_color(line)
+    assert muted != normal
+    assert muted.name() in line.styleSheet() and "transparent" in line.styleSheet()
+    assert line.grab().toImage() != editable  # it actually renders differently
     editor.set_read_only(False)
-    assert line.palette().color(active, text) == normal
+    assert line.styleSheet() == ""
+    assert line.grab().toImage() == editable
 
 
 def test_number_editor_shows_unit_suffix(qtbot):
