@@ -169,3 +169,24 @@ def test_review_refused_for_non_admin_raises_403(httpx_mock):
     with pytest.raises(ScopesError) as ei:
         _client().approve_key("k")
     assert ei.value.status == 403
+
+
+def test_add_and_remove_scope(httpx_mock):
+    import json as _json
+
+    httpx_mock.add_response(method="POST", url=f"{BASE}/logbook/scopes/tree", status_code=201,
+                            json={"scope": "branch:12.0.2.1"})
+    httpx_mock.add_response(method="DELETE", url=f"{BASE}/logbook/scopes/tree/beamline:9.9.9",
+                            status_code=204)
+    _client().add_scope("branch:12.0.2.1", parent="beamline:12.0.2")
+    assert _json.loads(httpx_mock.get_requests()[0].content) == {
+        "scope": "branch:12.0.2.1", "parent": "beamline:12.0.2", "label": ""}
+    _client().remove_scope("beamline:9.9.9")
+
+
+def test_remove_nonempty_scope_raises_409(httpx_mock):
+    httpx_mock.add_response(method="DELETE", url=f"{BASE}/logbook/scopes/tree/beamline:7.0.1",
+                            status_code=409, json={"detail": "beamline:7.0.1 still has branches"})
+    with pytest.raises(ScopesError) as ei:
+        _client().remove_scope("beamline:7.0.1")
+    assert ei.value.status == 409 and "branches" in str(ei.value)

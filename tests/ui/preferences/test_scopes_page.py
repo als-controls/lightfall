@@ -228,3 +228,70 @@ def test_bind_writes_site_bind_and_restarts(qtbot, monkeypatch):
     assert button.isEnabled()
     button.click()
     assert calls == [("bind", "branch:12.0.2.1"), "restart"]
+
+
+# -- managing the tree (facility admins) -----------------------------------------
+
+class TreeActions:
+    def __init__(self):
+        self.calls = []
+
+    def add_scope(self, scope, *, parent=None, label=""):
+        self.calls.append(("add", scope, parent))
+
+    def remove_scope(self, scope):
+        self.calls.append(("remove", scope))
+
+
+def _tree_page(qtbot, facility_role):
+    roles = {**VIEW.roles, "facility": facility_role}
+    view = ScopesView(**{**VIEW.__dict__, "tree": TREE, "roles": roles})
+    plugin, w = _page(qtbot, lambda bind: view)
+    actions = TreeActions()
+    plugin.tree_actions = lambda: actions
+    combo = w.findChild(QComboBox, "scopesBind")
+    qtbot.waitUntil(lambda: combo.count() == 5, timeout=3000)
+    return plugin, w, combo, actions
+
+
+def test_tree_buttons_only_for_facility_admins(qtbot):
+    from PySide6.QtWidgets import QWidget
+
+    _, w, _, _ = _tree_page(qtbot, "maintainer")
+    assert not w.findChild(QWidget, "scopesTreeRow").isVisibleTo(w)
+    _, w, _, _ = _tree_page(qtbot, "admin")
+    assert w.findChild(QWidget, "scopesTreeRow").isVisibleTo(w)
+
+
+def test_add_branch_goes_under_the_selected_beamline(qtbot, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog, QPushButton
+
+    _, w, combo, actions = _tree_page(qtbot, "admin")
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("12.0.2.2", True))
+    combo.setCurrentIndex(combo.findText("branch:12.0.2.1"))   # a branch: its beamline
+    w.findChild(QPushButton, "scopesAddBranch").click()
+    qtbot.waitUntil(lambda: bool(actions.calls), timeout=3000)
+    assert actions.calls == [("add", "branch:12.0.2.2", "beamline:12.0.2")]
+
+
+def test_add_beamline_rejects_a_bad_name(qtbot, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog, QMessageBox, QPushButton
+
+    _, w, _, actions = _tree_page(qtbot, "admin")
+    warned = []
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("bad name!", True))
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+    w.findChild(QPushButton, "scopesAddBeamline").click()
+    assert warned and actions.calls == []
+
+
+def test_remove_asks_then_removes_the_selection(qtbot, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox, QPushButton
+
+    _, w, combo, actions = _tree_page(qtbot, "admin")
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    combo.setCurrentIndex(combo.findText("beamline:12.0.2"))
+    w.findChild(QPushButton, "scopesRemoveScope").click()
+    qtbot.waitUntil(lambda: bool(actions.calls), timeout=3000)
+    assert actions.calls == [("remove", "beamline:12.0.2")]

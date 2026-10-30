@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -35,6 +36,12 @@ if TYPE_CHECKING:
     from lightfall.scopes.view import ScopesView
 
 UNBOUND = "facility"
+
+
+def _default_tree_actions() -> Any:
+    from lightfall.scopes.client import ScopesClient
+
+    return ScopesClient()
 
 
 def bind_label(bind: str) -> str:
@@ -97,6 +104,10 @@ class ScopesSettingsPlugin(SettingsPlugin):
         self._bind_combo: QComboBox | None = None
         self._bind_button: QPushButton | None = None
         self._bind_hint: QLabel | None = None
+        self._tree_row: QWidget | None = None
+        self._facility_admin = False
+        self.tree_actions: Callable[[], Any] = _default_tree_actions
+        self._tree_futures: list[QThreadFuture] = []
         self._tree: tuple[TreeEntry, ...] = ()
         self._chain_table: QTableWidget | None = None
         self._keys_table: QTableWidget | None = None
@@ -181,6 +192,23 @@ class ScopesSettingsPlugin(SettingsPlugin):
         self._bind_hint.setStyleSheet("color: gray;")
         layout.addWidget(self._bind_hint)
 
+        # Facility admins manage the tree itself.
+        self._tree_row = QWidget(widget)
+        self._tree_row.setObjectName("scopesTreeRow")
+        tree_row = QHBoxLayout(self._tree_row)
+        tree_row.setContentsMargins(0, 0, 0, 0)
+        tree_row.addWidget(QLabel("Beamlines and branches:", self._tree_row))
+        for name, text, slot in (("scopesAddBeamline", "Add beamline…", self._on_add_beamline),
+                                 ("scopesAddBranch", "Add branch…", self._on_add_branch),
+                                 ("scopesRemoveScope", "Remove…", self._on_remove_scope)):
+            button = QPushButton(text, self._tree_row)
+            button.setObjectName(name)
+            button.clicked.connect(slot)
+            tree_row.addWidget(button)
+        tree_row.addStretch(1)
+        self._tree_row.hide()
+        layout.addWidget(self._tree_row)
+
         layout.addWidget(QLabel("<b>Scopes</b>", widget))
         self._chain_table = self._table(widget, "scopesChain", ["Scope", "Your role"])
         layout.addWidget(self._chain_table)
@@ -212,7 +240,7 @@ class ScopesSettingsPlugin(SettingsPlugin):
     def _on_widget_destroyed(self, *_: Any) -> None:
         self._generation += 1
         self._widget = self._status = self._bind_combo = None
-        self._bind_button = self._bind_hint = None
+        self._bind_button = self._bind_hint = self._tree_row = None
         self._chain_table = self._keys_table = self._keys_note = None
 
     def _alive(self) -> bool:
@@ -245,6 +273,69 @@ class ScopesSettingsPlugin(SettingsPlugin):
         else:
             needed = self._machine_bind if target == UNBOUND else target
             hint.setText(f"Binding needs the maintainer role on {needed}.")
+
+    # ── the tree itself (facility admins) ──────────────────────────────
+
+    def _selected_beamline(self) -> str | None:
+        target = self._current_bind()
+        if target.startswith("beamline:"):
+            return target
+        return {e.scope: e.parent for e in self._tree}.get(target)
+
+    def _ask_name(self, title: str, prompt: str) -> str | None:
+        from lightfall_settings import ScopeId
+
+        text, ok = QInputDialog.getText(self._widget, title, prompt)
+        name = text.strip()
+        if not ok or not name:
+            return None
+        try:
+            ScopeId("beamline", name)
+        except ValueError as e:
+            QMessageBox.warning(self._widget, title, str(e))
+            return None
+        return name
+
+    def _change_tree(self, job: Callable[[Any], None]) -> None:
+        actions = self.tree_actions
+        future = QThreadFuture(
+            lambda: job(actions()),
+            callback_slot=lambda _r: self._refresh(self._current_bind()),
+            except_slot=self._on_tree_error, name="scopes-tree", log_exceptions=False,
+        )
+        self._tree_futures = [f for f in self._tree_futures if f.isRunning()] + [future]
+        future.start()
+
+    def _on_tree_error(self, exc: Exception) -> None:
+        if self._alive():
+            QMessageBox.warning(self._widget, "Beamlines and branches", str(exc))
+
+    def _on_add_beamline(self) -> None:
+        name = self._ask_name("Add beamline", "Beamline name (e.g. 12.0.2):")
+        if name:
+            self._change_tree(lambda c: c.add_scope(f"beamline:{name}"))
+
+    def _on_add_branch(self) -> None:
+        parent = self._selected_beamline()
+        if parent is None:
+            QMessageBox.information(self._widget, "Add branch",
+                                    "Choose the beamline (or one of its branches) first.")
+            return
+        name = self._ask_name("Add branch", f"Branch of {parent} (e.g. 12.0.2.1):")
+        if name:
+            self._change_tree(lambda c: c.add_scope(f"branch:{name}", parent=parent))
+
+    def _on_remove_scope(self) -> None:
+        target = self._current_bind()
+        if not target.startswith(("beamline:", "branch:")):
+            QMessageBox.information(self._widget, "Remove",
+                                    "Choose the beamline or branch to remove first.")
+            return
+        answer = QMessageBox.question(
+            self._widget, "Remove",
+            f"Remove {target}? Only an empty one can go: no branches, settings or locks.")
+        if answer == QMessageBox.StandardButton.Yes:
+            self._change_tree(lambda c: c.remove_scope(target))
 
     def _on_bind_clicked(self) -> None:
         target = self._current_bind()
@@ -302,6 +393,11 @@ class ScopesSettingsPlugin(SettingsPlugin):
             self._status.setText(f"Live from {view.server}" if view.server else "Live")
         if view.tree:
             self._tree = view.tree
+        from lightfall_settings import role_at_least
+
+        self._facility_admin = role_at_least(view.roles.get("facility"), "admin")
+        if self._tree_row is not None:
+            self._tree_row.setVisible(self._facility_admin and bool(view.tree))
         self._fill_combo(view)
         self._update_bind_button()
         self._fill_chain(view)
