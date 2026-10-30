@@ -46,7 +46,7 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         self._font_spin: QSpinBox | None = None
         self._islands_check: QCheckBox | None = None
         self._original_theme: str = "system"
-        self._original_islands: bool = True
+        self._original_islands: bool = False
         self._original_font_size: int = 10
 
     @property
@@ -80,6 +80,17 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         Called for preload plugins before the main window is created.
         This ensures the correct theme is applied before any UI appears.
         """
+        self._apply_saved_appearance()
+        # Appearance keys resolve through the scope chain once a user logs in
+        # (PreferencesManager.activate_scopes). At preload no scopes are
+        # active, so values saved at user/branch scope (e.g. islands_mode)
+        # read as defaults here. Re-apply whenever the scope chain changes.
+        PreferencesManager.get_instance().scopes_changed.connect(
+            lambda _info: self._apply_saved_appearance()
+        )
+
+    def _apply_saved_appearance(self) -> None:
+        """Apply the currently-resolved islands, theme and font-size prefs."""
         prefs = PreferencesManager.get_instance()
         theme_mgr = ThemeManager.get_instance()
         # Apply the islands-layout preference before the theme so the first
