@@ -37,6 +37,8 @@ ROW_SPACING = 12
 TEXT_SPACING = 2
 LABEL_COLUMN_MIN = 220
 EDITOR_COLUMN_MIN = 240
+LABEL_STRETCH = 4  # label column : editor column
+EDITOR_STRETCH = 5
 LOCK_ICON_SIZE = 14
 
 CONFLICT_TEXT = "Changed elsewhere since you opened this"
@@ -132,6 +134,7 @@ class SettingRow(QWidget):
         title = QHBoxLayout()
         title.setSpacing(ROW_SPACING // 2)
         self._label = QLabel(label, self)
+        self._label.setWordWrap(True)  # a long label wraps rather than push the editor column
         title.addWidget(self._label)
         self._dot = _DirtyDot(self)
         self._dot.hide()
@@ -174,14 +177,29 @@ class SettingRow(QWidget):
         self._conflict.hide()
         left.addWidget(self._conflict)
 
+        # Label and editor columns split the row by stretch alone (their size
+        # hints are ignored), so every row of a form puts its editors at the
+        # same x. Free-text editors fill their column; the rest keep their
+        # natural width, left-aligned in it.
         left_box = QWidget(self)
         left_box.setLayout(left)
         left_box.setMinimumWidth(LABEL_COLUMN_MIN)
-        outer.addWidget(left_box, 1)
+        left_box.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        outer.addWidget(left_box, LABEL_STRETCH)
 
-        editor.setParent(self)
+        editor_box = QWidget(self)
+        editor_box.setMinimumWidth(EDITOR_COLUMN_MIN)
+        editor_box.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        editor_line = QHBoxLayout(editor_box)
+        editor_line.setContentsMargins(0, 0, 0, 0)
+        editor.setParent(editor_box)
         editor.setMinimumWidth(EDITOR_COLUMN_MIN)
-        outer.addWidget(editor, 0, Qt.AlignmentFlag.AlignTop)
+        if editor.fills_row:
+            editor_line.addWidget(editor)
+        else:
+            editor_line.addWidget(editor, 0, Qt.AlignmentFlag.AlignLeft)
+            editor_line.addStretch(1)
+        outer.addWidget(editor_box, EDITOR_STRETCH, Qt.AlignmentFlag.AlignTop)
 
         self.clear_action = QAction(CLEAR_TEXT, self)
         self.clear_action.setToolTip("Remove this setting at the selected scope")

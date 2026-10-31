@@ -154,6 +154,8 @@ class FieldEditor(QWidget):
     """Base class: ``value()`` is ``None`` when the setting is not set."""
 
     changed = Signal()
+    #: True for free-text editors, which widen to fill the row's editor column.
+    fills_row = False
 
     def value(self) -> Any:
         raise NotImplementedError
@@ -373,6 +375,8 @@ class TextEditor(FieldEditor):
     ``is_valid()`` is False.
     """
 
+    fills_row = True
+
     def __init__(self, placeholder: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._placeholder = placeholder or NOT_SET
@@ -428,6 +432,7 @@ class TextEditor(FieldEditor):
     def set_value(self, value: Any) -> None:
         self._value = None if value is None else str(value)
         self._edit.setText(self._value or "")
+        self._edit.setCursorPosition(0)  # show the start (a URL's scheme and host), not the tail
         self._set_valid("")
         self._refresh()
 

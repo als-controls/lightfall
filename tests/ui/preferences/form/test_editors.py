@@ -481,3 +481,10 @@ def test_url_value_is_stripped(qtbot, typed, expected):
     _type(qtbot, editor, typed)
     assert editor.value() == expected
     assert editor.is_valid()
+
+
+def test_text_editor_shows_the_start_of_a_long_value(qtbot):
+    editor = create_editor(Url(), SettingField("t.url", Url()))
+    qtbot.addWidget(editor)
+    editor.set_value("http://logbook.example.org:9000/a/rather/long/path/that/does/not/fit")
+    assert editor.findChild(QLineEdit).cursorPosition() == 0

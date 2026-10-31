@@ -454,3 +454,34 @@ def test_lock_reason_wins_over_approval_note(qtbot):
     form, _, _ = make_form(qtbot, prefs, scope=BEAMLINE)
     row = rows(form)[COUNT]
     assert row.is_read_only() and not row.approval_note_shown()
+
+
+def test_text_editors_fill_the_row_and_editors_line_up(qtbot):
+    from lightfall.ui.preferences.form.row import EDITOR_COLUMN_MIN
+    from lightfall.ui.preferences.form.schema import Choice, Secret, Url
+
+    keys = {"t.text": Text(), "t.url": Url(), "t.secret": Secret(), "t.choice": Choice([("a", "A"), ("b", "B")]),
+            "t.count": Integer(0, 9)}
+    ALLOWED.update({k: {USER} for k in keys})
+    try:
+        sections = [Section("S", [
+            SettingField(k, spec, label=k, description="A rather long description " * 4)
+            for k, spec in keys.items()
+        ])]
+        form, _model, _prefs = make_form(qtbot, sections=sections)
+        form.resize(900, 900)
+        form.show()
+        QApplication.processEvents()
+        by_key = rows(form)
+        left = {k: r.editor.mapTo(form, QPoint(0, 0)).x() for k, r in by_key.items()}
+        assert len(set(left.values())) == 1, left  # one editor column
+        for k in ("t.text", "t.url", "t.secret"):
+            editor = by_key[k].editor
+            right = editor.mapTo(form, QPoint(editor.width(), 0)).x()
+            assert editor.width() > EDITOR_COLUMN_MIN + 40, k
+            assert right >= by_key[k].mapTo(form, QPoint(by_key[k].width(), 0)).x() - 2, k
+        for k in ("t.choice", "t.count"):
+            assert by_key[k].editor.width() == max(EDITOR_COLUMN_MIN, by_key[k].editor.sizeHint().width()), k
+    finally:
+        for k in keys:
+            ALLOWED.pop(k, None)
