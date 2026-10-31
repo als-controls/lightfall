@@ -14,7 +14,7 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from lightfall_settings import ScopeId, SpecRegistry, role_at_least, spec_to_dict
+from lightfall_settings import Resolution, ScopeId, SpecRegistry, role_at_least, spec_to_dict
 from PySide6.QtCore import QTimer, Signal
 
 from lightfall.scopes.cache import SnapshotCache
@@ -23,6 +23,7 @@ from lightfall.scopes.journal import WriteJournal
 from lightfall.scopes.keys import (
     LOCAL_LAYER_KEYS,
     client_registry,
+    console_only,
     flatten_preferences,
     is_local_only,
 )
@@ -126,6 +127,7 @@ class ScopedBackend(PreferenceBackend):
         self._notify = notify or _toast
         self._store: ScopedStore | None = None
         self._roles: dict[str, str | None] = {}
+        self._facility_label = ""
         self._active = False
         self._refreshing = False
         self._migrating = False
@@ -200,6 +202,22 @@ class ScopedBackend(PreferenceBackend):
     def store(self) -> ScopedStore | None:
         return self._store
 
+    @property
+    def user_scope(self) -> str | None:
+        return self._store.user_scope if self._store is not None else None
+
+    @property
+    def roles(self) -> dict[str, str | None]:
+        return dict(self._roles)
+
+    @property
+    def facility_label(self) -> str:
+        return self._facility_label
+
+    def resolution(self, key: str) -> Resolution | None:
+        """How ``key`` resolves through the chain (origin, lock); None before the first fetch."""
+        return self._store.resolve(key) if self._store is not None else None
+
     def serves(self, identity: str, bind: str) -> bool:
         return self._active and identity == self._identity and bind == self._bind
 
@@ -217,6 +235,7 @@ class ScopedBackend(PreferenceBackend):
         self._session += 1
         self._store = None
         self._roles = {}
+        self._facility_label = ""
         self._refreshing = False
         self._migrating = False
         self._written.clear()
@@ -299,6 +318,8 @@ class ScopedBackend(PreferenceBackend):
 
     def targets(self, key: str) -> list[str]:
         """Where this caller may write ``key``, most specific first."""
+        if console_only(key):
+            return [LOCAL]
         spec = self._registry.get(key)
         store = self._store
         out: list[str] = []
@@ -528,6 +549,7 @@ class ScopedBackend(PreferenceBackend):
                 else:
                     store.put_local(scope, key, entry["value"])
         self._roles = dict(state.chain.roles)
+        self._facility_label = state.chain.facility_label
         if user_ok and not state.offline:
             watched |= self._drop_old_user_cache(store.user_settings())
 

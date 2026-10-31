@@ -534,6 +534,9 @@ class PluginLoader(QObject):
             if plugin_type_class.is_singleton:
                 logger.debug("Instantiating singleton plugin: {}", unique_id)
                 plugin_info.instance = plugin_class()
+                register = getattr(plugin_info.instance, "register_specs", None)
+                if plugin_info.type_name == "settings" and callable(register):
+                    register()
             else:
                 # For non-singletons, store the class itself
                 plugin_info.instance = plugin_class

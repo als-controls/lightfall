@@ -7,21 +7,26 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from PySide6.QtGui import QIcon
-
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFormLayout,
-    QGroupBox,
-    QSpinBox,
-    QVBoxLayout,
-    QWidget,
-)
+from lightfall_settings import SettingSpec
 
 from lightfall.plugins.settings_plugin import SettingsPlugin
-from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.ui.preferences.form.schema import (
+    Choice,
+    Integer,
+    Section,
+    SettingField,
+    Toggle,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from PySide6.QtGui import QIcon
+
+_VISUALIZATION_TYPES = ["table", "plot_1d", "heatmap", "scatter", "image_stack", "volume"]
+_COLORMAPS = ["viridis", "plasma", "inferno", "magma", "cividis", "gray", "hot", "cool"]
+
+_SCOPES = frozenset({"user", "branch", "beamline", "facility"})
 
 
 class VisualizationSettingsPlugin(SettingsPlugin):
@@ -47,113 +52,37 @@ class VisualizationSettingsPlugin(SettingsPlugin):
     def priority(self) -> int:
         return 30
 
-    def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        """Create the settings widget."""
-        widget = QWidget(parent)
-        layout = QVBoxLayout(widget)
+    def specs(self) -> Sequence[SettingSpec]:
+        return [
+            SettingSpec(key="visualization.auto_select", scopes=_SCOPES,
+                        label="Automatically select visualization type"),
+            SettingSpec(key="visualization.default_type", scopes=_SCOPES, label="Default type"),
+            SettingSpec(key="visualization.decimation_threshold", scopes=_SCOPES,
+                        label="Decimation threshold"),
+            SettingSpec(key="visualization.update_rate", scopes=_SCOPES, label="Max update rate"),
+            SettingSpec(key="visualization.colormap", scopes=_SCOPES, label="Default colormap"),
+            SettingSpec(key="visualization.show_grid", scopes=_SCOPES, label="Show grid on plots"),
+            SettingSpec(key="visualization.show_legend", scopes=_SCOPES, label="Show legend on plots"),
+        ]
 
-        # Selection settings
-        selection_group = QGroupBox("Visualization Selection")
-        selection_layout = QFormLayout(selection_group)
-
-        self._auto_select = QCheckBox("Automatically select visualization type")
-        selection_layout.addRow(self._auto_select)
-
-        self._default_viz = QComboBox()
-        self._default_viz.addItems([
-            "table", "plot_1d", "heatmap", "scatter",
-            "image_stack", "volume"
-        ])
-        selection_layout.addRow("Default type:", self._default_viz)
-
-        layout.addWidget(selection_group)
-
-        # Performance settings
-        perf_group = QGroupBox("Performance")
-        perf_layout = QFormLayout(perf_group)
-
-        self._decimation_threshold = QSpinBox()
-        self._decimation_threshold.setRange(100, 100000)
-        self._decimation_threshold.setSingleStep(1000)
-        self._decimation_threshold.setSuffix(" points")
-        perf_layout.addRow("Decimation threshold:", self._decimation_threshold)
-
-        self._update_rate = QSpinBox()
-        self._update_rate.setRange(5, 60)
-        self._update_rate.setSuffix(" Hz")
-        perf_layout.addRow("Max update rate:", self._update_rate)
-
-        layout.addWidget(perf_group)
-
-        # Appearance settings
-        appearance_group = QGroupBox("Appearance")
-        appearance_layout = QFormLayout(appearance_group)
-
-        self._default_colormap = QComboBox()
-        self._default_colormap.addItems([
-            "viridis", "plasma", "inferno", "magma",
-            "cividis", "gray", "hot", "cool"
-        ])
-        appearance_layout.addRow("Default colormap:", self._default_colormap)
-
-        self._show_grid = QCheckBox("Show grid on plots")
-        appearance_layout.addRow(self._show_grid)
-
-        self._show_legend = QCheckBox("Show legend on plots")
-        appearance_layout.addRow(self._show_legend)
-
-        layout.addWidget(appearance_group)
-
-        layout.addStretch()
-
-        return widget
-
-    def load_settings(self) -> None:
-        """Load settings from preferences."""
-        prefs = PreferencesManager.get_instance()
-
-        self._auto_select.setChecked(
-            prefs.get("visualization.auto_select", True)
-        )
-        self._default_viz.setCurrentText(
-            prefs.get("visualization.default_type", "plot_1d")
-        )
-        self._decimation_threshold.setValue(
-            prefs.get("visualization.decimation_threshold", 10000)
-        )
-        self._update_rate.setValue(
-            prefs.get("visualization.update_rate", 20)
-        )
-        self._default_colormap.setCurrentText(
-            prefs.get("visualization.colormap", "viridis")
-        )
-        self._show_grid.setChecked(
-            prefs.get("visualization.show_grid", True)
-        )
-        self._show_legend.setChecked(
-            prefs.get("visualization.show_legend", True)
-        )
-
-    def save_settings(self) -> None:
-        """Save settings to preferences."""
-        prefs = PreferencesManager.get_instance()
-
-        prefs.set("visualization.auto_select", self._auto_select.isChecked())
-        prefs.set("visualization.default_type", self._default_viz.currentText())
-        prefs.set("visualization.decimation_threshold", self._decimation_threshold.value())
-        prefs.set("visualization.update_rate", self._update_rate.value())
-        prefs.set("visualization.colormap", self._default_colormap.currentText())
-        prefs.set("visualization.show_grid", self._show_grid.isChecked())
-        prefs.set("visualization.show_legend", self._show_legend.isChecked())
-
-    def validate(self) -> list[str]:
-        """Validate settings."""
-        return []
-
-    def apply_preview(self) -> None:
-        """Apply preview of settings."""
-        pass
-
-    def revert_preview(self) -> None:
-        """Revert preview changes."""
-        pass
+    def sections(self) -> Sequence[Section]:
+        return [
+            Section("Visualization Selection", [
+                SettingField("visualization.auto_select", Toggle(),
+                             label="Automatically select visualization type"),
+                SettingField("visualization.default_type",
+                             Choice([(t, t) for t in _VISUALIZATION_TYPES]), label="Default type"),
+            ]),
+            Section("Performance", [
+                SettingField("visualization.decimation_threshold", Integer(100, 100000, step=1000),
+                             label="Decimation threshold", unit="points"),
+                SettingField("visualization.update_rate", Integer(5, 60),
+                             label="Max update rate", unit="Hz"),
+            ]),
+            Section("Appearance", [
+                SettingField("visualization.colormap", Choice([(c, c) for c in _COLORMAPS]),
+                             label="Default colormap"),
+                SettingField("visualization.show_grid", Toggle(), label="Show grid on plots"),
+                SettingField("visualization.show_legend", Toggle(), label="Show legend on plots"),
+            ]),
+        ]

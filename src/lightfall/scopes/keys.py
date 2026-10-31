@@ -7,6 +7,7 @@ uploaded (spec section 1: the scoped store never holds secrets).
 """
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -16,6 +17,7 @@ from lightfall_settings import (
     SpecRegistry,
     deployment_registry,
     spec_from_dict,
+    user_only_spec,
 )
 
 from lightfall.utils.logging import logger
@@ -46,6 +48,11 @@ def is_local_only(key: str) -> bool:
     )
 
 
+def console_only(key: str) -> bool:
+    """True if ``key`` lives only in this console's layer (never in a server scope)."""
+    return is_local_only(key)
+
+
 _BEAMLINE_AND_BELOW = frozenset({"beamline", "branch", "user"})
 
 # Keys a facility, beamline or branch may set for everyone there (users can still
@@ -71,10 +78,17 @@ CLIENT_SPECS: tuple[SettingSpec, ...] = (
 )
 
 
-def client_registry(server_specs: Iterable[Mapping[str, Any]] = ()) -> SpecRegistry:
-    """The rules this client resolves with. ``server_specs`` are the logbook's approved
-    specs (from /chain): they win over the client's own advisory ones, as the server
-    enforces them."""
+_CLIENT_REGISTERED: dict[str, SettingSpec] = {}
+# One cached registry per set of approved server specs (key: their JSON). Each entry
+# also records the keys declared before page specs were added, for base_spec().
+_REGISTRIES: dict[str, tuple[SpecRegistry, frozenset[str]]] = {}
+
+
+def _specs_key(server_specs: tuple[Mapping[str, Any], ...]) -> str:
+    return json.dumps(list(server_specs), sort_keys=True, default=str)
+
+
+def _build_registry(server_specs: Iterable[Mapping[str, Any]]) -> SpecRegistry:
     reg = deployment_registry()
     for raw in server_specs:
         try:
@@ -88,6 +102,67 @@ def client_registry(server_specs: Iterable[Mapping[str, Any]] = ()) -> SpecRegis
     # beamline identity keys and device rows (DEPLOYMENT_SPECS), which the server enforces.
     reg.register_all(spec for spec in CLIENT_SPECS if not reg.is_declared(spec.key))
     return reg
+
+
+def _base_keys(reg: SpecRegistry) -> frozenset[str]:
+    for cached, base in _REGISTRIES.values():
+        if cached is reg:
+            return base
+    return frozenset()
+
+
+def client_registry(server_specs: Iterable[Mapping[str, Any]] = ()) -> SpecRegistry:
+    """The rules this client resolves with. ``server_specs`` are the logbook's approved
+    specs (from /chain): they win over the client's own advisory ones, as the server
+    enforces them. Specs registered by settings pages (``register_client_specs``) fill in
+    keys nothing else declares.
+
+    Cached per set of approved specs, and page registrations reach every cached registry,
+    so a holder (``ScopedBackend``) sees specs registered after it captured one."""
+    specs = tuple(server_specs)
+    cache_key = _specs_key(specs)
+    entry = _REGISTRIES.get(cache_key)
+    if entry is None:
+        reg = _build_registry(specs)
+        base = frozenset(reg.keys())
+        for spec in _CLIENT_REGISTERED.values():
+            if spec.key not in base:
+                reg.register(spec, replace=True)
+        _REGISTRIES[cache_key] = entry = (reg, base)
+    return entry[0]
+
+
+def register_client_specs(specs: Iterable[SettingSpec]) -> None:
+    """Declare client-side specs (e.g. from a settings plugin) in every client registry.
+
+    Idempotent per key: a later registration replaces an earlier one. Keys the shared
+    registry, the server's approved specs or CLIENT_SPECS declare keep their spec.
+    """
+    client_registry()  # make sure the default registry exists
+    for spec in specs:
+        _CLIENT_REGISTERED[spec.key] = spec
+        for reg, base in _REGISTRIES.values():
+            if spec.key not in base:
+                reg.register(spec, replace=True)
+
+
+def base_spec(key: str, registry: SpecRegistry | None = None) -> SettingSpec:
+    """``key``'s spec without page registrations: shared/deployment, approved server specs
+    and CLIENT_SPECS only.
+
+    Specs a settings page registered describe where the page lets the key be edited, not
+    what the key is, so they are ignored here; without them such a key is user-only.
+    """
+    reg = registry or client_registry()
+    if key in _CLIENT_REGISTERED and key not in _base_keys(reg):
+        return user_only_spec(key)
+    return reg.get(key)
+
+
+def _reset_client_registry() -> None:
+    """Forget cached registries and registered specs (test isolation)."""
+    _REGISTRIES.clear()
+    _CLIENT_REGISTERED.clear()
 
 
 # Keys with a writable console layer: the console's own YAML sits between branch and user

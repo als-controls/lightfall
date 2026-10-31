@@ -432,6 +432,38 @@ class PreferencesManager(QObject):
         scoped = self._active_scoped()
         return scoped.targets(key) if scoped is not None else ["local"]
 
+    def resolution(self, key: str) -> Any:
+        """How `key` resolves through the active scope chain or scope files, else None."""
+        scoped = self._active_scoped()
+        if scoped is not None:
+            return scoped.resolution(key)
+        return self._local_scopes.resolution(key) if self._local_scopes is not None else None
+
+    def scope_choices(self) -> list[Any]:
+        from lightfall.ui.preferences import scope_api
+
+        return scope_api.scope_choices(self)
+
+    def allowed_at(self, key: str, scope: str) -> bool:
+        from lightfall.ui.preferences import scope_api
+
+        return scope_api.allowed_at(self, key, scope)
+
+    def writable_at(self, key: str, scope: str) -> bool:
+        from lightfall.ui.preferences import scope_api
+
+        return scope_api.writable_at(self, key, scope)
+
+    def lock_at(self, key: str, scope: str) -> Any:
+        from lightfall.ui.preferences import scope_api
+
+        return scope_api.lock_at(self, key, scope)
+
+    def default_scope(self) -> str:
+        from lightfall.ui.preferences import scope_api
+
+        return scope_api.default_scope(self)
+
     def item_origins(self, key: str) -> dict[str, str]:
         """For a union key: item id -> the scope it comes from ("local" = this console)."""
         scoped = self._active_scoped()
@@ -441,14 +473,21 @@ class PreferencesManager(QObject):
         return dict.fromkeys(value, "local") if isinstance(value, dict) else {}
 
     def layer_value(self, key: str, scope: str) -> Any:
-        """The value stored at one layer, or None."""
+        """The value stored at one layer, or None.
+
+        With scope files loaded, "local" is this console's own YAML value (never a
+        file value) and every other scope is that file's value.
+        """
+        from lightfall.scopes.store import MISSING
+
         scoped = self._active_scoped()
         if scoped is not None:
-            from lightfall.scopes.store import MISSING
-
             value = scoped.layer_value(key, scope)
-            return None if value is MISSING else value
-        return self.get(key, None) if scope == "local" else None
+        elif self._local_scopes is not None and (scope != "local" or self._local_scopes.owns(key)):
+            value = self._local_scopes.layer_value(key, scope)
+        else:  # no scopes, or a key no scope file mentions: the console's value
+            return self.get(key, None) if scope == "local" else None
+        return None if value is MISSING else value
 
     def _user_preferences(self) -> dict[str, Any]:
         cm = self._config_manager

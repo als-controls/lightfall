@@ -8,13 +8,17 @@ Preferences dialog.
 from __future__ import annotations
 
 from abc import abstractmethod
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from lightfall.plugins.types import PluginType
 
 if TYPE_CHECKING:
+    from lightfall_settings import SettingSpec
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QWidget
+
+    from lightfall.ui.preferences.form.schema import FormValues, Section
 
 
 class SettingsPlugin(PluginType):
@@ -23,6 +27,15 @@ class SettingsPlugin(PluginType):
     Settings plugins provide preference pages that can be discovered
     and displayed in the Preferences dialog. Each plugin creates a widget
     containing its settings controls.
+
+    A page is built one of two ways:
+
+    * Form page (preferred): override ``sections()`` (and ``specs()`` for any
+      keys not already declared). The Preferences dialog generates the widget,
+      scope handling and save logic from the schema; ``create_widget``,
+      ``load_settings`` and ``save_settings`` are not needed.
+    * Hand-built page (deprecated): override ``create_widget``,
+      ``load_settings`` and ``save_settings``.
 
     Class Attributes:
         type_name: "settings" - identifies this as a settings plugin.
@@ -69,6 +82,41 @@ class SettingsPlugin(PluginType):
 
     type_name: ClassVar[str] = "settings"
     is_singleton: ClassVar[bool] = True
+    scope_aware: ClassVar[bool] = True
+
+    def __init__(self) -> None:
+        # Many existing pages override __init__ without calling super(); the loader
+        # also registers specs after instantiation (registration is idempotent).
+        self.register_specs()
+
+    def register_specs(self) -> None:
+        """Declare this page's specs in the shared client registry."""
+        from lightfall.scopes.keys import register_client_specs
+
+        register_client_specs(self.specs())
+
+    def sections(self) -> Sequence[Section]:
+        """Schema sections for a form page; empty for hand-built pages."""
+        return ()
+
+    def specs(self) -> Sequence[SettingSpec]:
+        """Setting specs this page declares (keys not already declared elsewhere).
+
+        Called at registration time, so it must not depend on instance state set
+        after ``super().__init__()``.
+        """
+        return ()
+
+    def validate_values(self, values: FormValues) -> list[str]:
+        """Cross-field validation of a form page; return error messages."""
+        return []
+
+    def after_save(self, scope: str, changed: Mapping[str, Any]) -> None:
+        """Called after a form page saved ``changed`` values at ``scope``."""
+
+    def is_form_page(self) -> bool:
+        """True if this page is generated from ``sections()``."""
+        return bool(self.sections())
 
     @property
     def description(self) -> str:
@@ -83,7 +131,7 @@ class SettingsPlugin(PluginType):
         This should be unique within the settings type and is used to
         identify the plugin in the registry.
         """
-        ...
+        raise NotImplementedError
 
     @property
     def display_name(self) -> str:
@@ -131,7 +179,6 @@ class SettingsPlugin(PluginType):
         """
         return 100
 
-    @abstractmethod
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
         """Create the settings widget.
 
@@ -144,9 +191,8 @@ class SettingsPlugin(PluginType):
         Returns:
             A QWidget containing the settings controls.
         """
-        ...
+        raise NotImplementedError
 
-    @abstractmethod
     def load_settings(self) -> None:
         """Load current settings into the widget.
 
@@ -154,16 +200,15 @@ class SettingsPlugin(PluginType):
         Should populate the widget controls with current values from
         PreferencesManager.
         """
-        ...
+        raise NotImplementedError
 
-    @abstractmethod
     def save_settings(self) -> None:
         """Save widget values to persistent storage.
 
         Called when the user clicks OK or Apply, after validate() passes.
         Should write values from the widget controls to PreferencesManager.
         """
-        ...
+        raise NotImplementedError
 
     def validate(self) -> list[str]:
         """Validate current widget values.

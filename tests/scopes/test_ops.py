@@ -104,3 +104,12 @@ def test_replay_applies_and_reports_drops_then_stops_offline():
     assert sorted(done) == ["gone", "theme"] and [k for k, _ in dropped] == ["bad"]
     offline = FakeServer(offline_after=0)
     assert replay_journal(offline, "user:u1", {"a": {"op": "set", "value": 1}}, {}) == ([], [])
+
+
+def test_migration_ignores_page_registered_beamline_scopes():
+    """A settings page declaring beamline-capable specs does not stop user migration."""
+    from lightfall.scopes.keys import register_client_specs
+    from lightfall.ui.preferences.visualization_settings import VisualizationSettingsPlugin
+
+    register_client_specs(VisualizationSettingsPlugin().specs())
+    test_migration_uploads_eligible_keys_only()

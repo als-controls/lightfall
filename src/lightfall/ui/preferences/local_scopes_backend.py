@@ -27,6 +27,21 @@ class LocalScopesBackend(PreferenceBackend):
     def chain(self) -> tuple[str, ...]:
         return self._store.chain
 
+    def resolution(self, key: str) -> Any:
+        """How ``key`` resolves through the scope files (origin, lock)."""
+        return self._store.resolve(key)
+
+    def layer_value(self, key: str, scope: str) -> Any:
+        """One layer's own value (MISSING when unset there).
+
+        "local" is this console's YAML, where ``set``/``remove`` write; any other
+        scope is that scope file's value.
+        """
+        if scope == "local":
+            value = self._local.get(key, MISSING)
+            return MISSING if value is None else value
+        return self._store.scope_value(scope, key)
+
     def keys(self) -> set[str]:
         return set(self._keys)
 
@@ -38,7 +53,7 @@ class LocalScopesBackend(PreferenceBackend):
         if res.locked_at is not None:
             return res.value
         value = self._local.get(key, MISSING)
-        if value is not MISSING:
+        if value is not MISSING and value is not None:  # remove() stores None
             return value
         return res.value if res.origin is not None else default
 
