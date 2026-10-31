@@ -57,6 +57,7 @@ class FakePrefs(QObject):
         self.fail_on: str | None = None
         self.allowed = {k: set(v) for k, v in ALLOWED.items()}
         self.read_only_scopes: set[str] = set()
+        self.resolved: dict[str, object] = {}  # what get() returns across scopes
 
     def scope_choices(self):
         return self.choices
@@ -75,6 +76,9 @@ class FakePrefs(QObject):
 
     def layer_value(self, key, scope):
         return self.layers.get((scope, key))
+
+    def get(self, key, default=None):
+        return self.resolved.get(key, default)
 
     def set(self, key, value, *, scope=None):
         if key == self.fail_on:
@@ -653,7 +657,7 @@ def test_failed_secret_save_does_not_leak_value(qtbot, env, key):
 
 
 def test_effective_values_resolve_through_prefs_get(qtbot, env):
-    env.prefs.get = lambda key, default=None: {COUNT: 7}.get(key, default)
+    env.prefs.resolved[COUNT] = 7
     env.main._sections = [Section("General", [
         SettingField(COUNT, Integer(minimum=0, maximum=60), label="Count"),
         Info(lambda v: f"count is {v.effective(COUNT)}"),

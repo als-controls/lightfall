@@ -123,7 +123,7 @@ class PreferencesDialog(QDialog):
         self._prefs = PreferencesManager.get_instance()
         self._model = FormModel(
             read_layer=lambda key, scope: self._prefs.layer_value(key, scope),
-            resolve=getattr(self._prefs, "get", None),
+            resolve=self._prefs.get,
         )
         self._scope: str = self._prefs.default_scope()
         self._plugins: dict[str, SettingsPlugin] = {}

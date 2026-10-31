@@ -43,10 +43,17 @@ class _ScopeValues:
         return self._model.effective(self.scope, key, default)
 
 
+class NotAPageField(KeyError):
+    """An action read a key that is not a field on its page."""
+
+    def __str__(self) -> str:  # KeyError would quote the message
+        return str(self.args[0]) if self.args else ""
+
+
 class _FrozenValues:
     """FormValues copied at one moment, safe to read from a worker thread.
 
-    Holds the given keys only; any other key reads as not set (``default``).
+    Holds the given keys only; reading any other key raises KeyError.
     """
 
     def __init__(self, scope: str, pending: dict[str, Any], effective: dict[str, Any]) -> None:
@@ -54,11 +61,17 @@ class _FrozenValues:
         self._pending = pending
         self._effective = effective
 
+    def _check(self, key: str) -> None:
+        if key not in self._pending:
+            raise NotAPageField(f"{key} is not a field on this page; actions can only read their page's fields")
+
     def get(self, key: str) -> Any:
-        return self._pending.get(key)
+        self._check(key)
+        return self._pending[key]
 
     def effective(self, key: str, default: Any = None) -> Any:
-        value = self._effective.get(key)
+        self._check(key)
+        value = self._effective[key]
         return default if value is None else value
 
 
@@ -111,14 +124,32 @@ class FormModel:
         value = self.pending(scope, key)
         return default if value is None else value
 
-    def frozen_values(self, scope: str, keys: Iterable[str]) -> _FrozenValues:
-        """A snapshot of ``get`` and ``effective`` for ``keys`` at ``scope``."""
-        keys = list(keys)
-        return _FrozenValues(
-            scope,
-            {k: self.pending(scope, k) for k in keys},
-            {k: self.effective(scope, k) for k in keys},
-        )
+    def frozen_values(
+        self, scope: str, keys: Iterable[str], allowed: Callable[[str, str], bool]
+    ) -> _FrozenValues:
+        """A snapshot of ``get`` and ``effective`` for ``keys`` at ``scope``.
+
+        Never reads the store: allowed keys come from the edits and the values
+        already loaded for the shown scope; keys not allowed at ``scope`` are
+        not set there, so ``effective`` goes straight to the resolver.
+        """
+        pending: dict[str, Any] = {}
+        effective: dict[str, Any] = {}
+        for key in keys:
+            cell = (scope, key)
+            if allowed(key, scope):
+                value = self._edits[cell] if cell in self._edits else self._loaded.get(cell)
+            else:
+                value = None
+            pending[key] = value
+            edit = self._edits.get(cell)
+            if edit is not None:
+                effective[key] = edit
+            elif self._resolve is not None:
+                effective[key] = self._resolve(key, None)
+            else:
+                effective[key] = value
+        return _FrozenValues(scope, pending, effective)
 
     def edit(self, scope: str, key: str, value: Any) -> None:
         cell = (scope, key)

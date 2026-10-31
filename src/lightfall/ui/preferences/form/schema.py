@@ -91,7 +91,8 @@ class Action:
     """A button that runs ``run`` on a worker thread and shows its status text.
 
     ``run`` returns the text to show; an exception shows ``str(exc)`` as an
-    error. ``scopes`` are scope kinds ("user", "local", "beamline", ...);
+    error. ``run`` gets a snapshot of the page's own fields taken at the
+    click: ``get``/``effective`` of any other key raise KeyError. ``scopes`` are scope kinds ("user", "local", "beamline", ...);
     None shows the action at every scope. Actions write nothing, so
     read-only scopes never disable them.
     """
@@ -112,7 +113,10 @@ class Info:
 
 @dataclass(frozen=True)
 class Embed:
-    """A plain widget inside a section that is not a preference (e.g. a list with buttons)."""
+    """A plain widget inside a section that is not a preference (e.g. a list with buttons).
+
+    ``factory`` is called on every ``show_scope``, so the widget must load its own state.
+    """
 
     factory: Callable[[QWidget | None], QWidget]
     scopes: frozenset[str] | None = None

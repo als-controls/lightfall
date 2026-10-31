@@ -84,14 +84,27 @@ class ActionItem(QWidget):
 
 
 class InfoItem(QLabel):
-    """A muted, word-wrapped status line; ``update_text`` re-evaluates it."""
+    """A muted, word-wrapped status line; ``update_text`` re-evaluates it.
 
-    def __init__(self, info: Info, parent: QWidget | None = None) -> None:
+    A text callable that raises shows the exception text (still muted) and
+    is logged; it never breaks the rest of the form.
+    """
+
+    def __init__(self, info: Info, section: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.info = info
+        self._section = section
         self.setWordWrap(True)
         RoleColor(self, TEXT_ROLES, muted_color)
 
     def update_text(self, values: FormValues) -> None:
-        text = self.info.text(values) if callable(self.info.text) else self.info.text
+        if not callable(self.info.text):
+            self.setText(self.info.text)
+            return
+        try:
+            text = self.info.text(values)
+        except Exception as exc:  # noqa: BLE001 - a page bug must not break the form
+            name = getattr(self.info.text, "__qualname__", repr(self.info.text))
+            logger.warning("Info line {} in section '{}' failed: {!r}", name, self._section, exc)
+            text = str(exc)
         self.setText(text)

@@ -161,7 +161,7 @@ class SettingsForm(QWidget):
             layout.addWidget(action)
             block.actions.append(action)
         elif isinstance(item, Info):
-            info = InfoItem(item, block.box)
+            info = InfoItem(item, block.box.title(), block.box)
             layout.addWidget(info)
             block.infos.append(info)
         elif isinstance(item, Embed):
@@ -172,7 +172,7 @@ class SettingsForm(QWidget):
     def _action_values(self, scope: str):
         """Values an action's worker sees: a copy of every field key of this page."""
         keys = {f.key for s in self._plugin.sections() for f in section_fields(s)}
-        return self._model.frozen_values(scope, keys)
+        return self._model.frozen_values(scope, keys, self._prefs.allowed_at)
 
     def _section_box(self, title: str, description: str) -> QGroupBox:
         """A group box titled ``title``; the theme's QGroupBox rules style it."""

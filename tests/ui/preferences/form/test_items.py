@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 
+import pytest
 import shiboken6
 from qtpy.QtCore import QCoreApplication, QEvent
 from qtpy.QtGui import QPalette
@@ -248,3 +249,70 @@ def test_section_with_only_info_is_shown_but_page_has_no_fields(qtbot):
     form, _ = make_form(qtbot, sections, scope=LOCAL)
     assert [b.title() for b in form.findChildren(QGroupBox)] == ["About"]
     assert not form.has_fields(LOCAL)
+
+
+def test_action_reading_a_key_outside_its_page_fails_clearly(qtbot):
+    def run(values):
+        return values.get("elsewhere.key")
+
+    form, _ = make_form(qtbot, [Section("Server", [SettingField(NAME, Text()), Action("Test", run)])])
+    item = action_item(form)
+    item.findChild(QPushButton).click()
+    expected = "elsewhere.key is not a field on this page; actions can only read their page's fields"
+    qtbot.waitUntil(lambda: item.status.text() == expected, timeout=5000)
+    assert text_color(item.status) == error_color(item.status)
+    item.future.wait(5000)
+
+    snapshot = form._action_values(USER)
+    with pytest.raises(KeyError, match="elsewhere.key is not a field on this page"):
+        snapshot.effective("elsewhere.key", 1)
+
+
+def test_action_snapshot_does_not_read_the_store(qtbot):
+    reads = []
+    prefs = FakePrefs({(LOCAL, NAME): "never-read"})
+
+    def read_layer(key, scope):
+        reads.append((scope, key))
+        return prefs.layer_value(key, scope)
+
+    from lightfall.ui.preferences.form.view import SettingsForm
+
+    seen = {}
+
+    def run(values):
+        seen["get"] = values.get(NAME)
+        seen["effective"] = values.effective(NAME, "dflt")
+        return "ok"
+
+    model = FormModel(read_layer, resolve=lambda key, default: "resolved" if key == NAME else default)
+    form = SettingsForm(FakePlugin([Section("Tools", [SettingField(NAME, Text()), Action("Go", run)])]), model, prefs)
+    qtbot.addWidget(form)
+    form.show_scope(LOCAL)  # NAME is not allowed at local
+    cache_before = dict(model._loaded)
+    item = action_item(form)
+    item.findChild(QPushButton).click()
+    qtbot.waitUntil(lambda: item.status.text() == "ok", timeout=5000)
+    item.future.wait(5000)
+    assert seen == {"get": None, "effective": "resolved"}
+    assert model._loaded == cache_before
+    assert reads == []
+
+
+def test_info_that_raises_shows_error_text_and_form_keeps_working(qtbot):
+    def broken(_values):
+        raise ValueError("no binding yet")
+
+    sections = [Section("Server", [
+        SettingField(NAME, Text(), label="Name"),
+        Info(broken),
+        Action("Go", lambda v: "", enabled_when=lambda v: bool(v.get(NAME))),
+    ])]
+    form, _ = make_form(qtbot, sections)
+    info = form.findChild(InfoItem)
+    assert info.text() == "no binding yet"
+    assert text_color(info) == muted_color(info)
+    button = action_item(form).findChild(QPushButton)
+    assert not button.isEnabled()
+    type_into(qtbot, form, NAME, "a")  # predicates after the broken Info still run
+    assert button.isEnabled()
