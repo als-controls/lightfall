@@ -441,6 +441,12 @@ class UrlEditor(TextEditor):
         self._require_host = spec.require_host
         super().__init__(placeholder, parent)
 
+    def _on_edited(self, text: str) -> None:
+        super()._on_edited(text.strip())  # the value is what was validated
+
+    def set_value(self, value: Any) -> None:
+        super().set_value(None if value is None else str(value).strip())
+
     def _problem(self, text: str) -> str:
         text = text.strip()
         if not text:

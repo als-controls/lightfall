@@ -617,3 +617,35 @@ def test_secret_value_not_logged(qtbot, env):
         loguru_logger.remove(sink)
     assert ("set", "api_token", secret, LOCAL) in env.prefs.calls
     assert not any(secret in m for m in lines)
+
+
+@pytest.mark.parametrize("key", ["api_token", "weird_field"])
+def test_failed_secret_save_does_not_leak_value(qtbot, env, key):
+    from loguru import logger as loguru_logger
+    from PySide6.QtWidgets import QLineEdit
+
+    secret = "s3cr3t-T0KEN-xyz"
+    env.prefs.allowed[key] = {LOCAL}
+    env.prefs.fail_on = key
+    original_set = env.prefs.set
+
+    def failing_set(k, value, *, scope=None):
+        if k == key:
+            raise RuntimeError(f"rejected value {value!r}")
+        original_set(k, value, scope=scope)
+
+    env.prefs.set = failing_set
+    env.console._sections = [Section("Console", [SettingField(key, Secret(), label="Token")])]
+    dialog = make_dialog(qtbot, env)
+    dialog.select_scope(LOCAL)
+    lines: list[str] = []
+    sink = loguru_logger.add(lambda m: lines.append(str(m)), level="TRACE")
+    try:
+        qtbot.keyClicks(row(dialog, "console", key).editor.findChild(QLineEdit), secret)
+        assert dialog._apply() is False
+    finally:
+        loguru_logger.remove(sink)
+    assert any("Failed to save" in m and "RuntimeError" in m for m in lines)
+    assert not any(secret in m for m in lines)
+    assert not any(secret in text for _kind, text in env.boxes)
+    assert any("RuntimeError" in text for _kind, text in env.boxes)

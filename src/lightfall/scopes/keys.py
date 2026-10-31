@@ -39,13 +39,14 @@ LOCAL_ONLY_KEYS: frozenset[str] = frozenset({
 _SECRET_MARKERS = ("api_key", "token", "secret", "password", "dsn")
 
 
-def is_local_only(key: str) -> bool:
+def is_secret_key(key: str) -> bool:
+    """True if ``key`` names a credential (its value must never be logged or shown)."""
     lowered = key.lower()
-    return (
-        key in LOCAL_ONLY_KEYS
-        or key.startswith("_")
-        or any(marker in lowered for marker in _SECRET_MARKERS)
-    )
+    return any(marker in lowered for marker in _SECRET_MARKERS)
+
+
+def is_local_only(key: str) -> bool:
+    return key in LOCAL_ONLY_KEYS or key.startswith("_") or is_secret_key(key)
 
 
 def console_only(key: str) -> bool:

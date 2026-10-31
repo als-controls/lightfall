@@ -462,3 +462,11 @@ def test_secret_not_set_and_empty_distinct(qtbot):
     assert editor.value() == "" and editor.empty_hint.isVisible()
     editor.set_value(None)
     assert editor.value() is None and not editor.empty_hint.isVisible()
+
+
+@pytest.mark.parametrize(("typed", "expected"), [("https://a.b ", "https://a.b"), ("   ", "")])
+def test_url_value_is_stripped(qtbot, typed, expected):
+    editor = make_spec(qtbot, Url())
+    _type(qtbot, editor, typed)
+    assert editor.value() == expected
+    assert editor.is_valid()

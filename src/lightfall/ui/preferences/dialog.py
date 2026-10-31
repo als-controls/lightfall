@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.scopes.keys import client_registry
+from lightfall.scopes.keys import client_registry, is_secret_key
 from lightfall.ui.preferences.form.editors import muted_color
 from lightfall.ui.preferences.form.header import ScopeHeader
 from lightfall.ui.preferences.form.model import FormModel
@@ -478,11 +478,17 @@ class PreferencesDialog(QDialog):
                 else:
                     self._prefs.set(op.key, op.value, scope=op.scope)
             except Exception as e:
-                logger.error("Failed to save '{}' at {}: {}", op.key, op.scope, e)
+                field = self._fields.get(op.key)
+                if is_secret_key(op.key) or (field is not None and field.editor.kind == "secret"):
+                    # An error can echo the submitted value: never log or show it for secrets.
+                    detail = f"{type(e).__name__} (details withheld for a secret setting)"
+                else:
+                    detail = str(e)
+                logger.error("Failed to save '{}' at {}: {}", op.key, op.scope, detail)
                 QMessageBox.critical(
                     self,
                     "Error",
-                    f"Failed to save {op.key} at {op.scope}: {e}\n\nThe remaining changes were not saved.",
+                    f"Failed to save {op.key} at {op.scope}: {detail}\n\nThe remaining changes were not saved.",
                 )
                 return written, False
             self._model.commit(op.scope, op.key)
