@@ -6,7 +6,7 @@ produce write operations, so untouched settings are never written.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,12 +39,68 @@ class _ScopeValues:
     def get(self, key: str) -> Any:
         return self._model.pending(self.scope, key)
 
+    def effective(self, key: str, default: Any = None) -> Any:
+        return self._model.effective(self.scope, key, default)
+
+    def is_dirty(self, key: str) -> bool:
+        """Whether the user edited ``key`` at this scope (and has not saved it)."""
+        return self._model.is_dirty(self.scope, key)
+
+
+class NotAPageField(KeyError):
+    """An action read a key that is not a field on its page."""
+
+    def __str__(self) -> str:  # KeyError would quote the message
+        return str(self.args[0]) if self.args else ""
+
+
+class _FrozenValues:
+    """FormValues copied at one moment, safe to read from a worker thread.
+
+    Holds the given keys only; reading any other key raises KeyError.
+    ``is_dirty`` is the real dirty state at the moment of the snapshot.
+    """
+
+    def __init__(
+        self, scope: str, pending: dict[str, Any], effective: dict[str, Any], dirty: frozenset[str] = frozenset()
+    ) -> None:
+        self.scope = scope
+        self._pending = pending
+        self._effective = effective
+        self._dirty = dirty
+
+    def _check(self, key: str) -> None:
+        if key not in self._pending:
+            raise NotAPageField(f"{key} is not a field on this page; actions can only read their page's fields")
+
+    def get(self, key: str) -> Any:
+        self._check(key)
+        return self._pending[key]
+
+    def effective(self, key: str, default: Any = None) -> Any:
+        self._check(key)
+        value = self._effective[key]
+        return default if value is None else value
+
+    def is_dirty(self, key: str) -> bool:
+        self._check(key)
+        return key in self._dirty
+
 
 class FormModel:
-    """Loaded values, pending edits and conflicts, kept per (scope, key)."""
+    """Loaded values, pending edits and conflicts, kept per (scope, key).
 
-    def __init__(self, read_layer: Callable[[str, str], Any]) -> None:
+    ``resolve(key, default)`` (the dialog passes ``prefs.get``) gives the value
+    currently in effect across all scopes; it backs ``effective``.
+    """
+
+    def __init__(
+        self,
+        read_layer: Callable[[str, str], Any],
+        resolve: Callable[[str, Any], Any] | None = None,
+    ) -> None:
         self._read = read_layer
+        self._resolve = resolve
         self._loaded: dict[_Cell, Any] = {}
         self._edits: dict[_Cell, Any] = {}
         self._conflicts: set[_Cell] = set()
@@ -60,6 +116,53 @@ class FormModel:
         if cell in self._edits:
             return self._edits[cell]
         return self.loaded(scope, key)
+
+    def effective(self, scope: str, key: str, default: Any = None) -> Any:
+        """The value a predicate or action should act on for ``key`` at ``scope``.
+
+        The user's edit at ``scope`` if they made one and it is not None;
+        otherwise the currently resolved value ``resolve(key, default)``.
+        Without a resolver: the pending value at ``scope``, or ``default``.
+
+        Approximation: after a Clear at ``scope`` this returns the currently
+        resolved value (which may still be the cleared one, until saved), not
+        what the lower layers alone would give.
+        """
+        edit = self._edits.get((scope, key))
+        if edit is not None:
+            return edit
+        if self._resolve is not None:
+            return self._resolve(key, default)
+        value = self.pending(scope, key)
+        return default if value is None else value
+
+    def frozen_values(
+        self, scope: str, keys: Iterable[str], allowed: Callable[[str, str], bool]
+    ) -> _FrozenValues:
+        """A snapshot of ``get`` and ``effective`` for ``keys`` at ``scope``.
+
+        Never reads the store: allowed keys come from the edits and the values
+        already loaded for the shown scope; keys not allowed at ``scope`` are
+        not set there, so ``effective`` goes straight to the resolver.
+        """
+        pending: dict[str, Any] = {}
+        effective: dict[str, Any] = {}
+        for key in keys:
+            cell = (scope, key)
+            if allowed(key, scope):
+                value = self._edits[cell] if cell in self._edits else self._loaded.get(cell)
+            else:
+                value = None
+            pending[key] = value
+            edit = self._edits.get(cell)
+            if edit is not None:
+                effective[key] = edit
+            elif self._resolve is not None:
+                effective[key] = self._resolve(key, None)
+            else:
+                effective[key] = value
+        dirty = frozenset(key for key in pending if self.is_dirty(scope, key))
+        return _FrozenValues(scope, pending, effective, dirty)
 
     def edit(self, scope: str, key: str, value: Any) -> None:
         cell = (scope, key)
@@ -99,6 +202,12 @@ class FormModel:
         cell = (scope, key)
         if cell in self._edits:
             self._loaded[cell] = self._edits.pop(cell)
+        self._conflicts.discard(cell)
+
+    def discard_cell(self, scope: str, key: str) -> None:
+        """Drop the edit (and conflict flag) of one cell; other cells keep theirs."""
+        cell = (scope, key)
+        self._edits.pop(cell, None)
         self._conflicts.discard(cell)
 
     def discard(self) -> None:

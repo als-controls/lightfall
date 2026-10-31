@@ -114,6 +114,13 @@ class SettingsPlugin(PluginType):
     def after_save(self, scope: str, changed: Mapping[str, Any]) -> None:
         """Called after a form page saved ``changed`` values at ``scope``."""
 
+    def preview(self, values: FormValues) -> None:
+        """Live preview of a form page's pending ``values`` (at ``values.scope``).
+
+        Called after every edit on this page's form. Undo it in ``revert_preview()``,
+        which the dialog calls on Cancel. Default: no preview.
+        """
+
     def is_form_page(self) -> bool:
         """True if this page is generated from ``sections()``."""
         return bool(self.sections())

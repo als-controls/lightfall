@@ -143,3 +143,41 @@ def test_discard_keeps_loaded_cache():
     m.discard()
     assert m.ops(allow) == []
     assert m.pending(U, "k") == "a"
+
+
+def test_discard_cell_drops_only_that_cell():
+    m, store = make({(U, "k"): "a"})
+    m.edit(U, "k", "x")
+    m.edit(U, "j", "y")
+    m.edit(S, "k", "z")
+    store[(U, "k")] = "b"
+    m.reload(U, "k")
+    assert m.conflict(U, "k")
+    m.discard_cell(U, "k")
+    assert not m.is_dirty(U, "k")
+    assert not m.conflict(U, "k")
+    assert m.pending(U, "k") == "b"
+    assert m.dirty_cells() == [(S, "k"), (U, "j")]
+    m.discard_cell(U, "missing")  # no edit there: a no-op
+    assert m.dirty_cells() == [(S, "k"), (U, "j")]
+
+
+def test_values_report_dirty_fields_like_the_protocol_says():
+    from lightfall.ui.preferences.form.schema import FormValues
+
+    assert "is_dirty" in FormValues.__dict__
+    m = FormModel(read_layer=lambda key, scope: None)
+    m.edit(U, "k", 5)
+    assert m.values(U).is_dirty("k") and not m.values(U).is_dirty("j")
+
+
+def test_frozen_values_keep_the_dirty_state_of_the_snapshot():
+    m = FormModel(read_layer=lambda key, scope: None)
+    m.edit(U, "k", 5)
+    frozen = m.frozen_values(U, ["k", "j"], lambda key, scope: True)
+    m.discard_cell(U, "k")  # later changes don't reach the snapshot
+    assert frozen.is_dirty("k") and not frozen.is_dirty("j")
+    import pytest
+
+    with pytest.raises(KeyError):
+        frozen.is_dirty("other")

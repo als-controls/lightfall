@@ -29,11 +29,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.scopes.keys import client_registry
-from lightfall.ui.preferences.form.editors import _muted_color
+from lightfall.scopes.keys import client_registry, is_secret_key
+from lightfall.ui.preferences.form.editors import muted_color
 from lightfall.ui.preferences.form.header import ScopeHeader
 from lightfall.ui.preferences.form.model import FormModel
-from lightfall.ui.preferences.form.schema import SettingField, field_label
+from lightfall.ui.preferences.form.schema import SettingField, field_label, section_fields
 from lightfall.ui.preferences.form.view import SettingsForm
 from lightfall.utils.logging import logger
 
@@ -103,7 +103,7 @@ class PreferencesDialog(QDialog):
         ...     # Preferences were applied
 
     The dialog supports:
-    - Live preview via apply_preview()
+    - Live preview via preview(values) (form pages) / apply_preview() (hand-built)
     - Validation before save via validate() / validate_values()
     - Revert on cancel via revert_preview()
     """
@@ -121,7 +121,10 @@ class PreferencesDialog(QDialog):
         from lightfall.ui.preferences.manager import PreferencesManager
 
         self._prefs = PreferencesManager.get_instance()
-        self._model = FormModel(read_layer=lambda key, scope: self._prefs.layer_value(key, scope))
+        self._model = FormModel(
+            read_layer=lambda key, scope: self._prefs.layer_value(key, scope),
+            resolve=self._prefs.get,
+        )
         self._scope: str = self._prefs.default_scope()
         self._plugins: dict[str, SettingsPlugin] = {}
         self._plugin_widgets: dict[str, QWidget] = {}
@@ -265,11 +268,12 @@ class PreferencesDialog(QDialog):
     def _build_form_page(self, plugin: SettingsPlugin) -> _FormPage:
         form = SettingsForm(plugin, self._model, self._prefs)
         form.edited.connect(self._on_form_edited)
+        form.edited.connect(lambda: self._preview(plugin, form))
         form.show_scope(self._scope)
         page = _FormPage(form)
         self._form_pages[plugin.name] = page
         for section in plugin.sections():
-            for field in section.items:
+            for field in section_fields(section):
                 self._key_owner[field.key] = plugin.name
                 self._fields[field.key] = field
         return page
@@ -307,6 +311,7 @@ class PreferencesDialog(QDialog):
         for page in self._form_pages.values():
             page.form.show_scope(selected)
         self._refresh_pages()
+        self._refresh_header_approval()
 
     # Scope selection --------------------------------------------------------
     def current_scope(self) -> str:
@@ -331,6 +336,7 @@ class PreferencesDialog(QDialog):
         for page in self._form_pages.values():
             page.form.show_scope(scope)
         self._refresh_pages()
+        self._refresh_header_approval()
 
     def _scope_label(self, scope: str) -> str:
         choice = next((c for c in self._prefs.scope_choices() if c.scope == scope), None)
@@ -339,7 +345,7 @@ class PreferencesDialog(QDialog):
     def _refresh_pages(self) -> None:
         """Dim form pages with nothing at the scope and show their 'nothing here' note."""
         choices = self._prefs.scope_choices()
-        dim = _muted_color(self)
+        dim = muted_color(self)
         label = self._scope_label(self._scope)
         for row, name in enumerate(self._page_names):
             page = self._form_pages.get(name)
@@ -360,6 +366,18 @@ class PreferencesDialog(QDialog):
 
     def _on_form_edited(self) -> None:
         self._header.set_dirty_scopes(self._model.dirty_scopes())
+
+    def _preview(self, plugin: SettingsPlugin, form: SettingsForm) -> None:
+        scope = form.scope
+        if scope is None:
+            return
+        preview = getattr(plugin, "preview", None)
+        if preview is None:
+            return
+        try:
+            preview(self._model.values(scope))
+        except Exception as e:
+            logger.error("Preview failed for '{}': {}", plugin.name, e)
 
     def _invalid_labels(self) -> list[str]:
         labels: list[str] = []
@@ -383,6 +401,14 @@ class PreferencesDialog(QDialog):
             plugin = self._plugins[self._page_names[row]]
             aware = _is_form_page(plugin) and getattr(plugin, "scope_aware", True)
             self._header.set_page_scope_aware(bool(aware))
+        self._refresh_header_approval()
+
+    def _refresh_header_approval(self) -> None:
+        """The header notes approval when every field of the current page needs it at the scope."""
+        row = self._stack.currentIndex()
+        name = self._page_names[row] if 0 <= row < len(self._page_names) else None
+        page = self._form_pages.get(name) if name is not None else None
+        self._header.set_approval_for_all(page is not None and page.form.approval_for_all())
 
     def select_page(self, plugin_name: str) -> bool:
         """Select a settings page by plugin name.
@@ -439,13 +465,31 @@ class PreferencesDialog(QDialog):
                 errors.append(f"{plugin.display_name} ({label}): Validation error - {e}")
         return errors
 
-    def _unwritable_edits(self) -> list[str]:
-        """Labels (with scope) of unsaved edits that can no longer be written."""
-        return [
-            f"{self._label(key)} ({self._scope_label(scope)})"
-            for scope, key in self._model.dirty_cells()
-            if not self._prefs.writable_at(key, scope)
-        ]
+    def _unwritable_edits(self) -> list[tuple[str, str]]:
+        """(scope, key) of unsaved edits that can no longer be written."""
+        return [(scope, key) for scope, key in self._model.dirty_cells() if not self._prefs.writable_at(key, scope)]
+
+    def _discard_unwritable(self, blocked: list[tuple[str, str]]) -> bool:
+        """Ask whether to drop the ``blocked`` edits; True if they were dropped."""
+        lines = [f"{self._label(key)} ({self._scope_label(scope)})" for scope, key in blocked]
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Can't save")
+        box.setText(
+            "You can no longer change these where you edited them:\n\n"
+            + "\n".join(lines)
+            + "\n\nDiscard these edits and save the rest, or cancel to go back."
+        )
+        discard = box.addButton("Discard these edits", QMessageBox.ButtonRole.DestructiveRole)
+        cancel = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(cancel)  # Enter never discards
+        box.setEscapeButton(cancel)
+        box.exec()
+        if box.clickedButton() is not discard:
+            return False
+        for scope, key in blocked:
+            self._model.discard_cell(scope, key)
+        return True
 
     def _write_ops(self) -> tuple[list[tuple[str, str, Any]], bool]:
         """Write every dirty, writable edit; stop at the first failure.
@@ -460,11 +504,17 @@ class PreferencesDialog(QDialog):
                 else:
                     self._prefs.set(op.key, op.value, scope=op.scope)
             except Exception as e:
-                logger.error("Failed to save '{}' at {}: {}", op.key, op.scope, e)
+                field = self._fields.get(op.key)
+                if is_secret_key(op.key) or (field is not None and field.editor.kind == "secret"):
+                    # An error can echo the submitted value: never log or show it for secrets.
+                    detail = f"{type(e).__name__} (details withheld for a secret setting)"
+                else:
+                    detail = str(e)
+                logger.error("Failed to save '{}' at {}: {}", op.key, op.scope, detail)
                 QMessageBox.critical(
                     self,
                     "Error",
-                    f"Failed to save {op.key} at {op.scope}: {e}\n\nThe remaining changes were not saved.",
+                    f"Failed to save {op.key} at {op.scope}: {detail}\n\nThe remaining changes were not saved.",
                 )
                 return written, False
             self._model.commit(op.scope, op.key)
@@ -516,14 +566,7 @@ class PreferencesDialog(QDialog):
             return False
 
         blocked = self._unwritable_edits()
-        if blocked:
-            QMessageBox.warning(
-                self,
-                "Can't save",
-                "You can no longer change these where you edited them, so nothing was saved:\n\n"
-                + "\n".join(blocked)
-                + "\n\nCancel to discard your changes.",
-            )
+        if blocked and not self._discard_unwritable(blocked):
             return False
 
         written, ok = self._write_ops()

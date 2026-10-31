@@ -5,8 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtWidgets import QAbstractButton, QLineEdit
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QComboBox, QLineEdit
 
 from lightfall.ui.preferences.dialog import PreferencesDialog
 from lightfall.ui.preferences.form.row import SettingRow
@@ -100,8 +100,8 @@ def _row(dialog, name, key) -> SettingRow:
 
 
 def _toggle(qtbot, row, text):
-    buttons = {b.text(): b for b in row.editor.findChildren(QAbstractButton)}
-    qtbot.mouseClick(buttons[text], Qt.LeftButton)
+    combo = row.editor.findChild(QComboBox)
+    combo.setCurrentIndex(combo.findText(text))  # emits like a user pick
 
 
 def _type(qtbot, row, text):

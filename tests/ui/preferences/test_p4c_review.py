@@ -91,44 +91,35 @@ def test_event_during_inflight_refresh_is_not_lost(qapp, tmp_path):
 
 # I-4 -----------------------------------------------------------------------
 
-def test_saving_the_derived_value_stores_nothing(bound):
-    manager, _ = bound
-    manager.set_unless_derived("ipc_topic_prefix", "als.7011")
-    assert manager.explicit("ipc_topic_prefix") is None
-    assert manager.get("ipc_topic_prefix", "x") == "als.7011"
-    manager.set_unless_derived("ipc_topic_prefix", "")
-    assert manager.explicit("ipc_topic_prefix") is None
-    manager.set_unless_derived("ipc_topic_prefix", "dev.me")
-    assert manager.explicit("ipc_topic_prefix") == "dev.me"
-
-
-def test_ipc_page_shows_the_derived_prefix_read_only(bound, qtbot):
+def test_ipc_page_shows_the_derived_prefix_read_only(bound):
     # One place to set a console's beamline (the Scopes page): the prefix follows it.
+    from types import SimpleNamespace
+
     from lightfall.ui.preferences.ipc_settings import IPCSettingsPlugin
 
     manager, _ = bound
     plugin = IPCSettingsPlugin()
-    widget = plugin.create_widget()
-    qtbot.addWidget(widget)
-    plugin.load_settings()
-    assert plugin._prefix_edit.text() == "als.7011"
-    assert plugin._prefix_edit.isReadOnly()
-    plugin.save_settings()
-    assert manager.explicit("ipc_topic_prefix") is None
+    local = SimpleNamespace(scope="local")
+    assert manager.console_bound()
+    assert not plugin._prefix_unbound(local)  # the console's field is hidden
+    assert not manager.writable_at("ipc_topic_prefix", "local")
+    assert plugin._prefix_binding(local) == "Topic Prefix \u2014 from this console's binding: als.7011"
+    assert plugin._prefix_unbound(SimpleNamespace(scope="branch:7.0.1.1"))
 
 
-def test_tiled_page_shows_the_bound_beamline_read_only(bound, qtbot):
-    from lightfall.ui.preferences.tiled_settings import TiledSettingsPlugin
+def test_tiled_page_shows_the_bound_beamline_read_only(bound):
+    # Like the IPC prefix: a bound console shows its beamline, nothing to edit or save.
+    from types import SimpleNamespace
+
+    from lightfall.ui.preferences import tiled_settings
 
     manager, _ = bound
-    plugin = TiledSettingsPlugin()
-    widget = plugin.create_widget()
-    qtbot.addWidget(widget)
-    plugin.load_settings()
-    assert plugin._beamline_edit.text() == "7.0.1.1"
-    assert plugin._beamline_edit.isReadOnly()
-    plugin.save_settings()
-    assert manager.explicit("tiled_beamline") is None
+    field, binding = tiled_settings._BEAMLINE_FIELD, tiled_settings._BEAMLINE_BINDING
+    local = SimpleNamespace(scope="local")
+    assert not field.visible_when(local)
+    assert not manager.writable_at("tiled_beamline", "local")
+    assert binding.text(local) == "Beamline \u2014 from this console's binding: 7.0.1.1"
+    assert field.visible_when(SimpleNamespace(scope="branch:7.0.1.1"))
 
 
 # I-5 / I-6 -----------------------------------------------------------------

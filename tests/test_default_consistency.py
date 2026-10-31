@@ -39,19 +39,29 @@ def empty_prefs(monkeypatch):
 
 
 def test_tiled_defaults_are_off_and_shared(qapp, empty_prefs):
+    from types import SimpleNamespace
+
     from lightfall.services.tiled_service import DEFAULT_TILED_URL, TILED_DEFAULTS
-    from lightfall.ui.preferences.tiled_settings import TiledSettingsPlugin
+    from lightfall.ui.preferences import tiled_settings
+    from lightfall.ui.preferences.form.schema import section_fields
 
     assert TILED_DEFAULTS == {"tiled_enabled": False, "tiled_url": "", "tiled_auth_mode": ""}
-    page = TiledSettingsPlugin()
-    page.create_widget()
-    page.load_settings()
-    assert page._enabled_check.isChecked() is False
-    assert page._url_edit.text() == ""
-    assert page._url_edit.placeholderText() == DEFAULT_TILED_URL
-    assert page._auth_mode_combo.currentData() == ""
+    fields = {f.key: f for s in tiled_settings.TiledSettingsPlugin().sections() for f in section_fields(s)}
+    assert fields["tiled_url"].placeholder == DEFAULT_TILED_URL
+    # The page's predicates and Test Connection fall back to the same defaults.
+    asked: dict[str, object] = {}
+
+    def effective(key, default=None):
+        asked[key] = default
+        return default
+
+    values = SimpleNamespace(scope="local", effective=effective, get=lambda key: None, is_dirty=lambda key: False)
+    assert fields["tiled_url"].enabled_when(values) is False
+    assert fields["tiled_api_key"].visible_when(values) is False
+    with pytest.raises(RuntimeError, match="Enter a URL first"):
+        tiled_settings._test_connection(values)
     for key, value in TILED_DEFAULTS.items():
-        assert empty_prefs.asked[key] == value
+        assert asked[key] == value
 
 
 def test_tiled_startup_uses_the_same_defaults(qapp, empty_prefs):
@@ -70,18 +80,39 @@ def test_tiled_startup_uses_the_same_defaults(qapp, empty_prefs):
         TiledService.reset()
 
 
-def test_logbook_page_and_client_share_the_default(qapp, empty_prefs):
+def test_logbook_page_and_client_share_the_default(qapp):
     from lightfall.logbook.url import DEFAULT_LOGBOOK_URL, get_logbook_base_url
-    from lightfall.ui.preferences.logbook_settings import LogbookSettingsPlugin
+    from lightfall.ui.preferences.form.schema import SettingField
+    from lightfall.ui.preferences.logbook_settings import (
+        LogbookSettingsPlugin,
+        _test_connection,
+    )
 
     assert DEFAULT_LOGBOOK_URL == "http://bcglucidlogbook.dhcp.lbl.gov:8000"
-    page = LogbookSettingsPlugin()
-    page.create_widget()
-    page.load_settings()
-    assert empty_prefs.asked["logbook_url"] == DEFAULT_LOGBOOK_URL
-    assert page._url_edit.text() == DEFAULT_LOGBOOK_URL
-    assert page._url_edit.placeholderText() == DEFAULT_LOGBOOK_URL
+    fields = {
+        item.key: item
+        for section in LogbookSettingsPlugin().sections()
+        for item in section.items
+        if isinstance(item, SettingField)
+    }
+    assert fields["logbook_url"].placeholder == DEFAULT_LOGBOOK_URL
     assert get_logbook_base_url() == DEFAULT_LOGBOOK_URL
+
+    asked: dict[str, object] = {}
+
+    class _Values:
+        def effective(self, key, default=None):
+            asked[key] = default
+            return default
+
+    from unittest.mock import patch
+
+    import httpx
+
+    with patch.object(httpx, "Client", side_effect=RuntimeError("stop")):
+        with pytest.raises(RuntimeError):
+            _test_connection(_Values())
+    assert asked["logbook_url"] == DEFAULT_LOGBOOK_URL
 
 
 def test_ipc_page_and_startup_share_the_defaults(qapp, empty_prefs):
@@ -90,11 +121,11 @@ def test_ipc_page_and_startup_share_the_defaults(qapp, empty_prefs):
     from lightfall.ui.preferences.ipc_settings import IPCSettingsPlugin
 
     assert DEFAULT_IPC_TOPIC_PREFIX == "als.7011"
-    page = IPCSettingsPlugin()
-    page.create_widget()
-    page.load_settings()
-    assert page._prefix_edit.text() == DEFAULT_IPC_TOPIC_PREFIX
-    assert page._url_edit.text() == DEFAULT_IPC_NATS_URL
+    from lightfall.ui.preferences.form.schema import section_fields
+
+    fields = {f.key: f for s in IPCSettingsPlugin().sections() for f in section_fields(s)}
+    assert fields["ipc_topic_prefix"].placeholder == DEFAULT_IPC_TOPIC_PREFIX
+    assert fields["ipc_nats_url"].placeholder == DEFAULT_IPC_NATS_URL
 
     app = LFApplication.__new__(LFApplication)
     svc = app._create_ipc_service(MagicMock())

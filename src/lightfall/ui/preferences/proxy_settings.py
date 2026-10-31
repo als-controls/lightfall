@@ -15,27 +15,25 @@ import socket
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QSpinBox,
-    QVBoxLayout,
-    QWidget,
-)
-
 from lightfall.plugins.settings_plugin import SettingsPlugin
 from lightfall.setup.facilities import as_domain_list
+from lightfall.ui.preferences.form.schema import (
+    Action,
+    Choice,
+    FormValues,
+    Info,
+    Integer,
+    Section,
+    SettingField,
+    Text,
+    Toggle,
+)
 from lightfall.ui.preferences.manager import PreferencesManager
-from lightfall.ui.theme import scaled_pt
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from PySide6.QtGui import QIcon
 
 
@@ -53,6 +51,49 @@ DEFAULT_PROXY_PORT = 1080
 # Auto-detect proxies these hosts; a facility bootstrap replaces the list
 # (preference proxy_auto_detect_domains).
 DEFAULT_PROXY_DOMAINS: tuple[str, ...] = ("*.lbl.gov",)
+
+
+# Every key on this page is console-only, so everything is shown at "This console".
+CONSOLE = frozenset({"local"})
+
+INFO_TEXT = (
+    "When to use a proxy: if you need to access LBNL internal services (*.lbl.gov) "
+    "from outside the network, you can use an SSH tunnel as a SOCKS5 proxy "
+    "(ssh -D 1080 -N username@remote.lbl.gov creates one on localhost:1080). "
+    "The proxy setting affects Keycloak authentication, ALS beam status, and embedded "
+    "browser (WebEngine) connections; WebEngine reads it only at startup, so changes "
+    "need a restart."
+)
+
+
+def _connection_enabled(values: FormValues) -> bool:
+    """Connection fields and Test Connection apply when the proxy or auto-detect is on."""
+    return (
+        values.effective("proxy_enabled", False) is True
+        or values.effective("proxy_auto_detect", False) is True
+    )
+
+
+def _test_connection(values: FormValues) -> str:
+    """TCP connect to the proxy (worker thread); raise to show the failure."""
+    host = (values.effective("proxy_host", DEFAULT_PROXY_HOST) or "").strip() or DEFAULT_PROXY_HOST
+    port = values.effective("proxy_port", DEFAULT_PROXY_PORT)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(5.0)
+        result = sock.connect_ex((host, port))
+    except TimeoutError:
+        raise RuntimeError("Connection timeout") from None
+    except socket.gaierror as e:
+        raise RuntimeError(f"DNS error: {e}") from e
+    except Exception as e:
+        logger.error("Proxy test connection error: {}", e)
+        raise RuntimeError(f"Error: {e}") from e
+    finally:
+        sock.close()
+    if result != 0:
+        raise RuntimeError(f"Connection refused (error {result})")
+    return "Connected!"
 
 
 class ProxySettingsProvider:
@@ -265,18 +306,6 @@ class ProxySettingsPlugin(SettingsPlugin):
     any QWebEngineView is created.
     """
 
-    def __init__(self) -> None:
-        """Initialize the proxy settings plugin."""
-        self._widget: QWidget | None = None
-        # Proxy Configuration
-        self._enabled_checkbox: QCheckBox | None = None
-        self._type_combo: QComboBox | None = None
-        self._host_edit: QLineEdit | None = None
-        self._port_spin: QSpinBox | None = None
-        self._auto_detect_checkbox: QCheckBox | None = None
-        self._test_button: QPushButton | None = None
-        self._status_label: QLabel | None = None
-
     @property
     def name(self) -> str:
         """Return unique identifier for this settings plugin."""
@@ -311,271 +340,70 @@ class ProxySettingsPlugin(SettingsPlugin):
         ProxySettingsProvider.configure_webengine()
         logger.debug("ProxySettingsPlugin loaded, WebEngine configured")
 
-    def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        """Create the settings widget.
+    def sections(self) -> Sequence[Section]:
+        return [
+            Section(
+                "Proxy Configuration",
+                [
+                    SettingField(
+                        "proxy_enabled",
+                        Toggle(),
+                        label="Enable proxy for all connections",
+                        description=(
+                            "When enabled, all network connections will use the configured "
+                            "proxy. This is disabled by default."
+                        ),
+                        restart_required=True,
+                    ),
+                    SettingField(
+                        "proxy_type",
+                        Choice(list(PROXY_TYPES.items())),
+                        label="Proxy Type",
+                        description="Protocol type for the proxy connection",
+                        enabled_when=_connection_enabled,
+                        restart_required=True,
+                    ),
+                    SettingField(
+                        "proxy_host",
+                        Text(),
+                        label="Host",
+                        description="Proxy server hostname or IP address",
+                        placeholder=DEFAULT_PROXY_HOST,
+                        enabled_when=_connection_enabled,
+                        restart_required=True,
+                    ),
+                    SettingField(
+                        "proxy_port",
+                        Integer(1, 65535),
+                        label="Port",
+                        description="Proxy server port number",
+                        enabled_when=_connection_enabled,
+                        restart_required=True,
+                    ),
+                    SettingField(
+                        "proxy_auto_detect",
+                        Toggle(),
+                        label="Auto-enable proxy for *.lbl.gov URLs",
+                        description=(
+                            "When enabled, the proxy will be automatically used for URLs "
+                            "ending in .lbl.gov, even if the main proxy toggle is off. "
+                            "Useful for accessing LBNL internal services via SSH tunnel."
+                        ),
+                    ),
+                    Action(
+                        "Test Connection",
+                        _test_connection,
+                        enabled_when=_connection_enabled,
+                        scopes=CONSOLE,
+                    ),
+                ],
+            ),
+            Section("Information", [Info(INFO_TEXT, scopes=CONSOLE)]),
+        ]
 
-        Args:
-            parent: Parent widget (the dialog).
-
-        Returns:
-            A QWidget containing the proxy settings controls.
-        """
-        widget = QWidget(parent)
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        # Proxy Configuration group
-        proxy_group = self._create_proxy_group()
-        layout.addWidget(proxy_group)
-
-        # Info section
-        info_group = self._create_info_group()
-        layout.addWidget(info_group)
-
-        layout.addStretch()
-
-        self._widget = widget
-        self._update_enabled_state()
-        return widget
-
-    def _create_proxy_group(self) -> QGroupBox:
-        """Create the Proxy Configuration group box.
-
-        Returns:
-            The configured QGroupBox.
-        """
-        group = QGroupBox("Proxy Configuration")
-        layout = QFormLayout(group)
-
-        # Enable checkbox (master toggle)
-        self._enabled_checkbox = QCheckBox("Enable proxy for all connections")
-        self._enabled_checkbox.setToolTip(
-            "When enabled, all network connections will use the configured proxy.\n"
-            "This is disabled by default."
-        )
-        self._enabled_checkbox.stateChanged.connect(self._update_enabled_state)
-        layout.addRow(self._enabled_checkbox)
-
-        # Proxy type selector
-        self._type_combo = QComboBox()
-        for key, label in PROXY_TYPES.items():
-            self._type_combo.addItem(label, key)
-        self._type_combo.setToolTip("Protocol type for the proxy connection")
-        layout.addRow("Proxy Type:", self._type_combo)
-
-        # Host field
-        self._host_edit = QLineEdit()
-        self._host_edit.setPlaceholderText(DEFAULT_PROXY_HOST)
-        self._host_edit.setToolTip("Proxy server hostname or IP address")
-        layout.addRow("Host:", self._host_edit)
-
-        # Port spinner
-        self._port_spin = QSpinBox()
-        self._port_spin.setRange(1, 65535)
-        self._port_spin.setValue(DEFAULT_PROXY_PORT)
-        self._port_spin.setToolTip("Proxy server port number")
-        layout.addRow("Port:", self._port_spin)
-
-        # Auto-detect checkbox
-        self._auto_detect_checkbox = QCheckBox("Auto-enable proxy for *.lbl.gov URLs")
-        self._auto_detect_checkbox.setToolTip(
-            "When enabled, the proxy will be automatically used for URLs\n"
-            "ending in .lbl.gov, even if the main proxy toggle is off.\n"
-            "Useful for accessing LBNL internal services via SSH tunnel."
-        )
-        layout.addRow(self._auto_detect_checkbox)
-
-        # Test connection button and status
-        test_layout = QHBoxLayout()
-        self._test_button = QPushButton("Test Connection")
-        self._test_button.clicked.connect(self._on_test_connection)
-        test_layout.addWidget(self._test_button)
-
-        self._status_label = QLabel()
-        test_layout.addWidget(self._status_label)
-        test_layout.addStretch()
-
-        layout.addRow(test_layout)
-
-        return group
-
-    def _create_info_group(self) -> QGroupBox:
-        """Create the information group box.
-
-        Returns:
-            The configured QGroupBox.
-        """
-        group = QGroupBox("Information")
-        layout = QVBoxLayout(group)
-
-        info_text = QLabel(
-            "<b>When to use a proxy:</b><br>"
-            "If you need to access LBNL internal services (*.lbl.gov) from outside "
-            "the network, you can use an SSH tunnel as a SOCKS5 proxy.<br><br>"
-            "<b>Setting up an SSH tunnel:</b><br>"
-            "<code>ssh -D 1080 -N username@remote.lbl.gov</code><br><br>"
-            "This creates a SOCKS5 proxy on localhost:1080 that tunnels through "
-            "the remote server.<br><br>"
-            "<b>Note:</b> The proxy setting affects Keycloak authentication, "
-            "ALS beam status, and embedded browser (WebEngine) connections."
-        )
-        info_text.setWordWrap(True)
-        info_text.setOpenExternalLinks(True)
-        info_text.setStyleSheet(f"color: #666; font-size: {scaled_pt(9)}pt;")
-        layout.addWidget(info_text)
-
-        return group
-
-    def _update_enabled_state(self) -> None:
-        """Update the enabled state of proxy configuration fields."""
-        if not self._enabled_checkbox:
-            return
-
-        enabled = self._enabled_checkbox.isChecked()
-        auto_detect = self._auto_detect_checkbox.isChecked() if self._auto_detect_checkbox else False
-
-        # Fields are enabled if main toggle is on OR auto-detect is on
-        fields_enabled = enabled or auto_detect
-
-        if self._type_combo:
-            self._type_combo.setEnabled(fields_enabled)
-        if self._host_edit:
-            self._host_edit.setEnabled(fields_enabled)
-        if self._port_spin:
-            self._port_spin.setEnabled(fields_enabled)
-        if self._test_button:
-            self._test_button.setEnabled(fields_enabled)
-
-    def _on_test_connection(self) -> None:
-        """Handle test connection button click."""
-        if not self._status_label:
-            return
-
-        # Get current settings from UI
-        host = self._host_edit.text().strip() if self._host_edit else DEFAULT_PROXY_HOST
-        port = self._port_spin.value() if self._port_spin else DEFAULT_PROXY_PORT
-
-        if not host:
-            host = DEFAULT_PROXY_HOST
-
-        self._status_label.setText("Testing...")
-        self._status_label.setStyleSheet("color: gray;")
-
-        # Force UI update
-        from PySide6.QtCore import QCoreApplication
-        QCoreApplication.processEvents()
-
-        # Test basic TCP connection to proxy
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(5.0)
-            result = sock.connect_ex((host, port))
-            sock.close()
-
-            if result == 0:
-                self._status_label.setText("Connected!")
-                self._status_label.setStyleSheet("color: green;")
-            else:
-                self._status_label.setText(f"Connection refused (error {result})")
-                self._status_label.setStyleSheet("color: red;")
-
-        except TimeoutError:
-            self._status_label.setText("Connection timeout")
-            self._status_label.setStyleSheet("color: red;")
-        except socket.gaierror as e:
-            self._status_label.setText(f"DNS error: {e}")
-            self._status_label.setStyleSheet("color: red;")
-        except Exception as e:
-            self._status_label.setText(f"Error: {e}")
-            self._status_label.setStyleSheet("color: red;")
-            logger.error("Proxy test connection error: {}", e)
-
-    def load_settings(self) -> None:
-        """Load current settings into the widget.
-
-        Populates the controls with current values from PreferencesManager.
-        """
-        prefs = PreferencesManager.get_instance()
-
-        # Load enabled state
-        if self._enabled_checkbox:
-            self._enabled_checkbox.setChecked(prefs.get("proxy_enabled", False))
-
-        # Load proxy type
-        if self._type_combo:
-            proxy_type = prefs.get("proxy_type", "socks5")
-            index = self._type_combo.findData(proxy_type)
-            if index >= 0:
-                self._type_combo.setCurrentIndex(index)
-
-        # Load host
-        if self._host_edit:
-            self._host_edit.setText(prefs.get("proxy_host", DEFAULT_PROXY_HOST))
-
-        # Load port
-        if self._port_spin:
-            self._port_spin.setValue(prefs.get("proxy_port", DEFAULT_PROXY_PORT))
-
-        # Load auto-detect
-        if self._auto_detect_checkbox:
-            self._auto_detect_checkbox.setChecked(prefs.get("proxy_auto_detect", False))
-
-        # Update status label
-        if self._status_label:
-            self._status_label.setText("")
-
-        self._update_enabled_state()
-
-    def save_settings(self) -> None:
-        """Save widget values to persistent storage.
-
-        Writes the current control values to PreferencesManager.
-        """
-        prefs = PreferencesManager.get_instance()
-
-        # Save enabled state
-        if self._enabled_checkbox:
-            prefs.set("proxy_enabled", self._enabled_checkbox.isChecked())
-
-        # Save proxy type
-        if self._type_combo:
-            prefs.set("proxy_type", self._type_combo.currentData())
-
-        # Save host
-        if self._host_edit:
-            host = self._host_edit.text().strip()
-            prefs.set("proxy_host", host if host else DEFAULT_PROXY_HOST)
-
-        # Save port
-        if self._port_spin:
-            prefs.set("proxy_port", self._port_spin.value())
-
-        # Save auto-detect
-        if self._auto_detect_checkbox:
-            prefs.set("proxy_auto_detect", self._auto_detect_checkbox.isChecked())
-
-        logger.info("Proxy settings saved")
-
-        # Note: WebEngine proxy can only be set at startup. If user changed
-        # proxy settings, they'll need to restart for WebEngine changes.
-
-    def validate(self) -> list[str]:
-        """Validate current widget values.
-
-        Returns:
-            List of error messages, or empty list if valid.
-        """
-        errors = []
-
-        # Validate host if proxy is enabled
-        enabled = self._enabled_checkbox.isChecked() if self._enabled_checkbox else False
-        auto_detect = self._auto_detect_checkbox.isChecked() if self._auto_detect_checkbox else False
-
-        if enabled or auto_detect:
-            if self._host_edit:
-                host = self._host_edit.text().strip()
-                if not host:
-                    # Empty is OK - defaults to localhost
-                    pass
-
-        return errors
+    def validate_values(self, values: FormValues) -> list[str]:
+        if _connection_enabled(values):
+            host = values.effective("proxy_host", DEFAULT_PROXY_HOST)
+            if not (host or "").strip():
+                return ["Proxy host is required when the proxy or auto-detect is enabled"]
+        return []

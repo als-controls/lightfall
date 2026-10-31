@@ -154,6 +154,11 @@ class ScopedBackend(PreferenceBackend):
     # ── state ───────────────────────────────────────────────────────────
 
     @property
+    def registry(self) -> Any:
+        """The rules this backend resolves with (rebuilt when approved specs change)."""
+        return self._registry
+
+    @property
     def active(self) -> bool:
         return self._active
 

@@ -5,14 +5,24 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from qtpy.QtCore import Signal
-from qtpy.QtGui import QFont
-from qtpy.QtWidgets import QLabel, QVBoxLayout, QWidget
+from qtpy.QtWidgets import QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from lightfall.scopes.keys import client_registry
 from lightfall.ui.preferences.form.editors import create_editor
+from lightfall.ui.preferences.form.items import ActionItem, InfoItem
 from lightfall.ui.preferences.form.model import FormModel
 from lightfall.ui.preferences.form.row import SettingRow, set_muted
-from lightfall.ui.preferences.form.schema import SettingField, field_label, fields_at
+from lightfall.ui.preferences.form.schema import (
+    Action,
+    Embed,
+    Info,
+    Section,
+    SettingField,
+    field_label,
+    fields_at,
+    item_shown_at,
+    section_fields,
+)
 
 if TYPE_CHECKING:
     from lightfall.plugins.settings_plugin import SettingsPlugin
@@ -22,18 +32,21 @@ GENERIC_READ_ONLY = "You can't change this here"
 
 
 class _SectionBlock:
-    """A rendered section: its header widgets and its rows."""
+    """A rendered section: its group box, the rows and the other items inside it."""
 
-    def __init__(self, header: list[QWidget], rows: list[SettingRow]) -> None:
-        self.header = header
-        self.rows = rows
+    def __init__(self, box: QGroupBox) -> None:
+        self.box = box
+        self.rows: list[SettingRow] = []
+        self.actions: list[ActionItem] = []
+        self.infos: list[InfoItem] = []
+        self.has_items = False  # any Action / Info / Embed shown at this scope
 
 
 class SettingsForm(QWidget):
     """Renders a form page's ``sections()`` for the scope chosen in the dialog.
 
     ``prefs`` is duck-typed: only ``allowed_at``, ``writable_at``, ``lock_at``
-    and ``scope_choices`` are used. Values come from and go to ``model``.
+    and ``scope_choices`` are used (``needs_approval`` too when present). Values come from and go to ``model``.
     """
 
     edited = Signal()
@@ -46,6 +59,8 @@ class SettingsForm(QWidget):
         self._scope: str | None = None
         self._fields: dict[str, SettingField] = {}
         self._rows: dict[str, SettingRow] = {}
+        self._needs_approval: dict[str, bool] = {}
+        self._approval_for_all = False
         self._blocks: list[_SectionBlock] = []
         self._content: QWidget | None = None
         self._layout = QVBoxLayout(self)
@@ -57,6 +72,7 @@ class SettingsForm(QWidget):
         return self._scope
 
     def has_fields(self, scope: str) -> bool:
+        """Whether any field may be set at ``scope`` (Actions, Info and Embeds don't count)."""
         return bool(fields_at(self._plugin.sections(), scope, self._prefs.allowed_at))
 
     def show_scope(self, scope: str) -> None:
@@ -71,6 +87,7 @@ class SettingsForm(QWidget):
             self._model.reload(scope, field.key)
         self._rows.clear()
         self._fields.clear()
+        self._needs_approval.clear()
         self._blocks.clear()
         if self._content is not None:
             self._layout.removeWidget(self._content)
@@ -83,27 +100,39 @@ class SettingsForm(QWidget):
         content_layout.setSpacing(0)
         read_only_reason = self._scope_read_only_reason(scope)
         for section in self._plugin.sections():
-            fields = fields_at([section], scope, self._prefs.allowed_at)
-            if not fields:
+            shown = self._items_at(section, scope)
+            if not shown:
                 continue
-            header = self._section_header(section.title, section.description)
+            box = self._section_box(section.title, section.description)
             if self._blocks:
                 content_layout.addSpacing(SECTION_SPACING)
-            for widget in header:
-                content_layout.addWidget(widget)
-            rows = [self._build_row(f, scope, read_only_reason) for f in fields]
-            for row in rows:
-                content_layout.addWidget(row)
-            self._blocks.append(_SectionBlock(header, rows))
+            content_layout.addWidget(box)
+            block = _SectionBlock(box)
+            for item in shown:
+                self._add_item(block, item, scope, read_only_reason)
+            self._blocks.append(block)
         content_layout.addStretch(1)
         self._layout.addWidget(self._content)
+        self._place_approval_notes()
         self._apply_predicates()
 
+    def approval_for_all(self) -> bool:
+        """Every editable field at the shown scope needs approval: the scope header says so once."""
+        return self._approval_for_all
+
     def invalid_fields(self, scope: str) -> list[str]:
-        """Keys at ``scope`` whose editor currently holds unparsable or out-of-range input."""
+        """Keys at ``scope`` whose editor holds unparsable or out-of-range input.
+
+        Rows hidden or disabled by their predicates don't count: the user can't
+        see or fix them, and their (unchanged) model value is what gets saved.
+        """
         if scope != self._scope:
             return []
-        return [key for key, row in self._rows.items() if row.is_marked_invalid()]
+        return [
+            key
+            for key, row in self._rows.items()
+            if row.is_marked_invalid() and row.isVisibleTo(self) and row.editor.isEnabled()
+        ]
 
     def refresh_from_store(self) -> None:
         """Reload shown keys; clean fields take the new value, dirty ones keep the edit."""
@@ -119,21 +148,53 @@ class SettingsForm(QWidget):
         self._apply_predicates()
 
     # Building -------------------------------------------------------------
-    def _section_header(self, title: str, description: str) -> list[QWidget]:
-        label = QLabel(title, self._content)
-        label.setObjectName("sectionTitle")
-        font = QFont(label.font())
-        font.setBold(True)
-        label.setFont(font)
-        widgets: list[QWidget] = [label]
+    def _items_at(self, section: Section, scope: str) -> list:
+        """Items of ``section`` that belong at ``scope``, in order."""
+        return [
+            item
+            for item in section.items
+            if (self._prefs.allowed_at(item.key, scope) if isinstance(item, SettingField) else item_shown_at(item, scope))
+        ]
+
+    def _add_item(self, block: _SectionBlock, item: object, scope: str, read_only_reason: str) -> None:
+        layout = block.box.layout()
+        if isinstance(item, SettingField):
+            row = self._build_row(item, scope, read_only_reason, block.box)
+            layout.addWidget(row)
+            block.rows.append(row)
+            return
+        block.has_items = True
+        if isinstance(item, Action):
+            action = ActionItem(item, lambda: self._action_values(scope), block.box)
+            layout.addWidget(action)
+            block.actions.append(action)
+        elif isinstance(item, Info):
+            info = InfoItem(item, block.box.title(), block.box)
+            layout.addWidget(info)
+            block.infos.append(info)
+        elif isinstance(item, Embed):
+            layout.addWidget(item.factory(block.box))
+        else:  # pragma: no cover - a page bug
+            raise TypeError(f"Unknown section item: {item!r}")
+
+    def _action_values(self, scope: str):
+        """Values an action's worker sees: a copy of every field key of this page."""
+        keys = {f.key for s in self._plugin.sections() for f in section_fields(s)}
+        return self._model.frozen_values(scope, keys, self._prefs.allowed_at)
+
+    def _section_box(self, title: str, description: str) -> QGroupBox:
+        """A group box titled ``title``; the theme's QGroupBox rules style it."""
+        box = QGroupBox(title, self._content)
+        layout = QVBoxLayout(box)
+        layout.setSpacing(0)
         if description:
-            desc = QLabel(description, self._content)
+            desc = QLabel(description, box)
             desc.setWordWrap(True)
             set_muted(desc)
-            widgets.append(desc)
-        return widgets
+            layout.addWidget(desc)
+        return box
 
-    def _build_row(self, field: SettingField, scope: str, scope_reason: str) -> SettingRow:
+    def _build_row(self, field: SettingField, scope: str, scope_reason: str, parent: QWidget) -> SettingRow:
         spec = client_registry().get(field.key)
         editor = create_editor(field.editor, field)
         row = SettingRow(
@@ -142,12 +203,14 @@ class SettingsForm(QWidget):
             field.description,
             editor,
             restart_required=field.restart_required or spec.restart_required,
-            parent=self._content,
+            parent=parent,
         )
         editor.set_value(self._model.pending(scope, field.key))
         reason = self._read_only_reason(field.key, scope, scope_reason)
         # The header already states the scope's reason; repeat only the lock glyph.
         row.set_read_only(reason, inline=reason != scope_reason)
+        needs_approval = getattr(self._prefs, "needs_approval", None)
+        self._needs_approval[field.key] = bool(needs_approval and needs_approval(field.key, scope))
         key = field.key
         editor.changed.connect(lambda: self._on_editor_changed(key))
         row.clear_requested.connect(lambda: self._on_clear(key))
@@ -155,6 +218,13 @@ class SettingsForm(QWidget):
         self._rows[key] = row
         self._refresh_markers(key)
         return row
+
+    def _place_approval_notes(self) -> None:
+        """Note approval on the rows that need it, or nowhere when every editable row does."""
+        editable = [key for key, row in self._rows.items() if not row.is_read_only()]
+        self._approval_for_all = bool(editable) and all(self._needs_approval[key] for key in editable)
+        for key, row in self._rows.items():
+            row.set_needs_approval(self._needs_approval[key] and not self._approval_for_all)
 
     def _scope_read_only_reason(self, scope: str) -> str:
         choice = next((c for c in self._prefs.scope_choices() if c.scope == scope), None)
@@ -214,7 +284,12 @@ class SettingsForm(QWidget):
             return
         values = self._model.values(self._scope)
         for block in self._blocks:
-            any_visible = False
+            any_visible = block.has_items
+            for info in block.infos:
+                info.update_text(values)
+            for action in block.actions:
+                when = action.action.enabled_when
+                action.set_predicate_enabled(bool(when(values)) if when else True)
             for row in block.rows:
                 field = self._fields[row.key]
                 visible = field.visible_when(values) if field.visible_when else True
@@ -222,5 +297,4 @@ class SettingsForm(QWidget):
                 row.setVisible(bool(visible))
                 row.editor.setEnabled(bool(enabled))
                 any_visible = any_visible or bool(visible)
-            for widget in block.header:
-                widget.setVisible(any_visible)
+            block.box.setVisible(any_visible)

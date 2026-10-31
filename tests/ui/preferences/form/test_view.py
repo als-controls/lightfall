@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import pytest
-from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QAbstractButton, QLabel, QLineEdit
+from qtpy.QtCore import QPoint
+from qtpy.QtGui import QContextMenuEvent
+from qtpy.QtWidgets import QApplication, QComboBox, QGroupBox, QLineEdit, QMenu, QToolButton
 
 from lightfall.ui.preferences.form.model import FormModel
 from lightfall.ui.preferences.form.row import SettingRow
@@ -85,8 +86,32 @@ def rows(form):
 
 
 def click_toggle(qtbot, row, text):
-    buttons = {b.text(): b for b in row.editor.findChildren(QAbstractButton)}
-    qtbot.mouseClick(buttons[text], Qt.LeftButton)
+    combo = row.editor.findChild(QComboBox)
+    combo.setCurrentIndex(combo.findText(text))  # emits like a user pick
+
+
+@pytest.fixture
+def menus(monkeypatch):
+    """Capture context menus instead of showing them; returns the shown menus."""
+    shown: list[QMenu] = []
+    monkeypatch.setattr(SettingRow, "_popup", staticmethod(lambda menu, _pos: shown.append(menu)))
+    return shown
+
+
+def right_click(widget):
+    """Deliver a mouse context-menu event to ``widget``; unhandled, it travels up to the row."""
+    pos = QPoint(2, 2)
+    QApplication.sendEvent(widget, QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, widget.mapToGlobal(pos)))
+
+
+def clear_via_menu(qtbot, row, menus, target=None):
+    """Right-click ``target`` (the row's label by default) and pick "Clear (not set)"."""
+    menus.clear()
+    right_click(target or row._label)
+    assert menus, "no context menu shown"
+    action = next(a for a in menus[-1].actions() if a.text() == "Clear (not set)")
+    action.trigger()
+    return action
 
 
 def type_into(qtbot, row, text):
@@ -106,8 +131,20 @@ def test_only_fields_allowed_at_scope_render(qtbot):
 
 def test_sections_without_visible_fields_are_omitted(qtbot):
     form, _, _ = make_form(qtbot, scope=LOCAL)
-    titles = [lbl.text() for lbl in form.findChildren(QLabel) if lbl.objectName() == "sectionTitle"]
-    assert titles == ["Console"]
+    assert [box.title() for box in form.findChildren(QGroupBox)] == ["Console"]
+
+
+def test_sections_are_group_boxes(qtbot):
+    sections = default_sections()
+    sections[0] = Section("General", sections[0].items, description="General things")
+    form, _, _ = make_form(qtbot, sections=sections)
+    boxes = form.findChildren(QGroupBox)
+    assert [box.title() for box in boxes] == ["General"]
+    box = boxes[0]
+    assert box.styleSheet() == ""  # the app theme's QGroupBox rules apply
+    assert {r.key for r in box.findChildren(type(rows(form)[FLAG]))} == {FLAG, COUNT}
+    first = box.layout().itemAt(0).widget()
+    assert first.text() == "General things"
 
 
 def test_unset_field_has_no_accent_and_not_set_editor(qtbot):
@@ -131,12 +168,68 @@ def test_edit_pushes_into_model_and_emits_edited(qtbot):
     assert [(o.scope, o.key, o.value) for o in model.ops(prefs.writable_at)] == [(USER, FLAG, True)]
 
 
-def test_clear_action_marks_dirty_and_none(qtbot):
-    prefs = FakePrefs(layers={(USER, COUNT): 5})
+def test_row_has_no_menu_button(qtbot):
+    form, _, _ = make_form(qtbot)
+    for row in rows(form).values():
+        assert row.findChildren(QToolButton) == []
+
+
+def test_context_menu_clear_sets_not_set(qtbot, menus):
+    prefs = FakePrefs(layers={(USER, COUNT): 5, (USER, FLAG): True})
+    form, model, _ = make_form(qtbot, prefs)
+    row = rows(form)[COUNT]
+    assert row.clear_action.text() == "Clear (not set)"
+    with qtbot.waitSignal(form.edited):
+        clear_via_menu(qtbot, row, menus)
+    assert model.pending(USER, COUNT) is None
+    assert row.editor.value() is None
+    # Once not set, the action is disabled; right-clicking the editor area shows it too.
+    flag = rows(form)[FLAG]
+    clear_via_menu(qtbot, flag, menus, target=flag.editor.findChild(QComboBox))
+    assert model.pending(USER, FLAG) is None
+    menus.clear()
+    right_click(flag._label)
+    assert [a.isEnabled() for a in menus[-1].actions() if a.text() == "Clear (not set)"] == [False]
+
+
+def test_context_menu_on_line_edit_keeps_standard_actions_and_adds_clear(qtbot, menus):
+    form, model, _ = make_form(qtbot, FakePrefs(layers={(LOCAL, CONSOLE): "abc"}), scope=LOCAL)
+    row = rows(form)[CONSOLE]
+    menus.clear()
+    right_click(row.editor.findChild(QLineEdit))
+    texts = [a.text() for a in menus[-1].actions()]
+    assert "Clear (not set)" in texts and len(texts) > 2  # the line edit's own Copy/Paste survive
+    next(a for a in menus[-1].actions() if a.text() == "Clear (not set)").trigger()
+    assert model.pending(LOCAL, CONSOLE) is None
+
+
+def test_context_menu_clear_disabled_when_editor_disabled(qtbot, menus):
+    prefs = FakePrefs(layers={(USER, COUNT): 5})  # Count holds a value but Flag is not On
+    form, _, _ = make_form(qtbot, prefs)
+    row = rows(form)[COUNT]
+    assert not row.editor.isEnabled()
+    right_click(row._label)
+    assert [a.isEnabled() for a in menus[-1].actions() if a.text() == "Clear (not set)"] == [False]
+    click_toggle(qtbot, rows(form)[FLAG], "On")  # enabled_when now holds
+    menus.clear()
+    right_click(row._label)
+    assert [a.isEnabled() for a in menus[-1].actions() if a.text() == "Clear (not set)"] == [True]
+
+
+def test_context_menu_clear_disabled_when_read_only(qtbot, menus):
+    prefs = FakePrefs(layers={(BEAMLINE, COUNT): 7})
+    form, _, _ = make_form(qtbot, prefs, scope=BEAMLINE)
+    row = rows(form)[COUNT]
+    right_click(row._label)
+    assert [a.isEnabled() for a in menus[-1].actions() if a.text() == "Clear (not set)"] == [False]
+
+
+def test_clear_action_marks_dirty_and_none(qtbot, menus):
+    prefs = FakePrefs(layers={(USER, COUNT): 5, (USER, FLAG): True})  # Flag On enables Count
     form, model, _ = make_form(qtbot, prefs)
     row = rows(form)[COUNT]
     with qtbot.waitSignal(form.edited):
-        row.clear_action.trigger()
+        clear_via_menu(qtbot, row, menus)
     assert model.pending(USER, COUNT) is None
     assert model.is_dirty(USER, COUNT)
     assert row.editor.value() is None
@@ -144,7 +237,7 @@ def test_clear_action_marks_dirty_and_none(qtbot):
     assert not row.is_marked_set()
 
 
-def test_invalid_input_keeps_model_and_reports_invalid_field(qtbot):
+def test_invalid_input_keeps_model_and_reports_invalid_field(qtbot, menus):
     prefs = FakePrefs(layers={(USER, COUNT): 5, (USER, FLAG): True})
     form, model, _ = make_form(qtbot, prefs)
     row = rows(form)[COUNT]
@@ -154,7 +247,29 @@ def test_invalid_input_keeps_model_and_reports_invalid_field(qtbot):
     assert not model.is_dirty(USER, COUNT)
     assert form.invalid_fields(USER) == [COUNT]
     assert row.is_marked_invalid()
-    row.clear_action.trigger()
+    clear_via_menu(qtbot, row, menus)
+    assert form.invalid_fields(USER) == []
+
+
+def test_hidden_invalid_row_does_not_block(qtbot):
+    sections = [Section("S", [
+        SettingField(FLAG, Toggle()),
+        SettingField(COUNT, Integer(minimum=0, maximum=60), visible_when=lambda v: v.get(FLAG) is True),
+    ])]
+    form, _, _ = make_form(qtbot, sections=sections)
+    click_toggle(qtbot, rows(form)[FLAG], "On")
+    type_into(qtbot, rows(form)[COUNT], "999")
+    assert form.invalid_fields(USER) == [COUNT]
+    click_toggle(qtbot, rows(form)[FLAG], "Off")  # Count is hidden now
+    assert form.invalid_fields(USER) == []
+
+
+def test_disabled_invalid_row_does_not_block(qtbot):
+    form, _, _ = make_form(qtbot)  # Count is enabled only while Flag is On
+    click_toggle(qtbot, rows(form)[FLAG], "On")
+    type_into(qtbot, rows(form)[COUNT], "999")
+    assert form.invalid_fields(USER) == [COUNT]
+    click_toggle(qtbot, rows(form)[FLAG], "Off")
     assert form.invalid_fields(USER) == []
 
 
@@ -164,7 +279,6 @@ def test_read_only_scope_disables_editors_and_shows_reason(qtbot):
     row = rows(form)[COUNT]
     assert row.is_read_only()
     assert row.reason_text() == "Read-only: you are a viewer here"
-    assert not row.clear_action.isEnabled()
     line = row.editor.findChild(QLineEdit)
     line.setFocus()
     qtbot.keyClicks(line, "3")
@@ -319,3 +433,111 @@ def test_lock_and_generic_reasons_still_show_inline(qtbot):
     r = rows(form)
     assert r[COUNT].reason_shown_inline()
     assert r[FLAG].reason_shown_inline()  # generic text: the User header has no reason
+
+
+def _approval_sections():
+    other = "test.other"  # a second beamline-capable field
+    ALLOWED[other] = {USER, BEAMLINE}
+    return other, [Section("General", [
+        SettingField(COUNT, Integer(minimum=0, maximum=60), label="Count"),
+        SettingField(other, Integer(minimum=0, maximum=9), label="Other"),
+    ])]
+
+
+def test_row_shows_approval_note_only_where_needed(qtbot):
+    other, sections = _approval_sections()
+    try:
+        prefs = FakePrefs(writable={USER, LOCAL, BEAMLINE})
+        prefs.needs_approval = lambda key, scope: key == COUNT and scope == BEAMLINE
+        form, _, _ = make_form(qtbot, prefs, sections=sections, scope=BEAMLINE)
+        r = rows(form)
+        assert r[COUNT].approval_note_shown() and not r[other].approval_note_shown()
+        assert not r[COUNT].is_read_only()
+        assert r[COUNT]._approval.text() == "Saving here asks a facility admin to approve this setting"
+        assert not form.approval_for_all()
+        form.show_scope(USER)
+        assert not any(row.approval_note_shown() for row in rows(form).values())
+        assert not form.approval_for_all()
+    finally:
+        ALLOWED.pop(other)
+
+
+def test_approval_note_moves_off_rows_when_every_field_needs_it(qtbot):
+    other, sections = _approval_sections()
+    try:
+        prefs = FakePrefs(writable={USER, LOCAL, BEAMLINE})
+        prefs.needs_approval = lambda key, scope: scope == BEAMLINE
+        form, _, _ = make_form(qtbot, prefs, sections=sections, scope=BEAMLINE)
+        assert form.approval_for_all()  # the scope header says it once
+        assert not any(row.approval_note_shown() for row in rows(form).values())
+        prefs.writable = {USER, LOCAL}  # read-only scope: nothing to approve
+        form.show_scope(BEAMLINE)
+        assert not form.approval_for_all()
+    finally:
+        ALLOWED.pop(other)
+
+
+def test_lock_reason_wins_over_approval_note(qtbot):
+    lock = LockInfo("facility", "admin", "")
+    prefs = FakePrefs(writable={USER, LOCAL, BEAMLINE}, locks={(BEAMLINE, COUNT): lock})
+    prefs.needs_approval = lambda key, scope: True
+    form, _, _ = make_form(qtbot, prefs, scope=BEAMLINE)
+    row = rows(form)[COUNT]
+    assert row.is_read_only() and not row.approval_note_shown()
+
+
+def test_text_editors_fill_the_row_and_editors_line_up(qtbot):
+    from lightfall.ui.preferences.form.row import EDITOR_COLUMN_MIN
+    from lightfall.ui.preferences.form.schema import Choice, Secret, Url
+
+    keys = {"t.text": Text(), "t.url": Url(), "t.secret": Secret(), "t.choice": Choice([("a", "A"), ("b", "B")]),
+            "t.count": Integer(0, 9)}
+    ALLOWED.update({k: {USER} for k in keys})
+    try:
+        sections = [Section("S", [
+            SettingField(k, spec, label=k, description="A rather long description " * 4)
+            for k, spec in keys.items()
+        ])]
+        form, _model, _prefs = make_form(qtbot, sections=sections)
+        form.resize(900, 900)
+        form.show()
+        QApplication.processEvents()
+        by_key = rows(form)
+        left = {k: r.editor.mapTo(form, QPoint(0, 0)).x() for k, r in by_key.items()}
+        assert len(set(left.values())) == 1, left  # one editor column
+        for k in ("t.text", "t.url", "t.secret"):
+            editor = by_key[k].editor
+            right = editor.mapTo(form, QPoint(editor.width(), 0)).x()
+            assert editor.width() > EDITOR_COLUMN_MIN + 40, k
+            assert right >= by_key[k].mapTo(form, QPoint(by_key[k].width(), 0)).x() - 2, k
+        for k in ("t.choice", "t.count"):
+            assert by_key[k].editor.width() == max(EDITOR_COLUMN_MIN, by_key[k].editor.sizeHint().width()), k
+    finally:
+        for k in keys:
+            ALLOWED.pop(k, None)
+
+
+def test_field_info_lines_up_with_the_field_labels(qtbot):
+    from lightfall.ui.preferences.form.items import InfoItem
+    from lightfall.ui.preferences.form.schema import Info
+
+    sections = [Section("S", [
+        SettingField(CONSOLE, Text(), label="Console text"),
+        Info("About the console text", field=CONSOLE),
+        Info("About the section"),
+    ], description="A section description")]
+    form, _model, _prefs = make_form(qtbot, sections=sections, scope=LOCAL)
+    form.resize(800, 600)
+    form.show()
+    QApplication.processEvents()
+    label = rows(form)[CONSOLE]._label
+    field_info, plain_info = sorted(form.findChildren(InfoItem), key=lambda i: i.info.field is None)
+    label_x = label.mapTo(form, QPoint(0, 0)).x()
+
+    def text_x(info):
+        indent = max(info.indent(), 0)  # -1 = none for a plain-text label
+        return info.mapTo(form, info.contentsRect().topLeft()).x() + info.margin() + indent
+
+    assert text_x(field_info) == label_x
+    assert text_x(plain_info) < label_x
+    assert field_info.margin() > 0  # spaced from the section description

@@ -7,12 +7,20 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QAbstractButton, QLabel, QMessageBox, QPushButton, QWidget
+from PySide6.QtWidgets import QComboBox, QLabel, QMessageBox, QPushButton, QWidget
 
 from lightfall.ui.preferences.dialog import PreferencesDialog
-from lightfall.ui.preferences.form.header import LEGACY_TEXT, ScopeHeader
+from lightfall.ui.preferences.form.header import APPROVAL_SCOPE_TEXT, LEGACY_TEXT, ScopeHeader
 from lightfall.ui.preferences.form.row import SettingRow
-from lightfall.ui.preferences.form.schema import Integer, Section, SettingField, Text, Toggle
+from lightfall.ui.preferences.form.schema import (
+    Info,
+    Integer,
+    Secret,
+    Section,
+    SettingField,
+    Text,
+    Toggle,
+)
 from lightfall.ui.preferences.form.view import SettingsForm
 from lightfall.ui.preferences.scope_api import ScopeChoice
 
@@ -49,6 +57,7 @@ class FakePrefs(QObject):
         self.fail_on: str | None = None
         self.allowed = {k: set(v) for k, v in ALLOWED.items()}
         self.read_only_scopes: set[str] = set()
+        self.resolved: dict[str, object] = {}  # what get() returns across scopes
 
     def scope_choices(self):
         return self.choices
@@ -67,6 +76,9 @@ class FakePrefs(QObject):
 
     def layer_value(self, key, scope):
         return self.layers.get((scope, key))
+
+    def get(self, key, default=None):
+        return self.resolved.get(key, default)
 
     def set(self, key, value, *, scope=None):
         if key == self.fail_on:
@@ -195,7 +207,22 @@ def env(monkeypatch):
 
     monkeypatch.setattr(QMessageBox, "warning", record("warning"))
     monkeypatch.setattr(QMessageBox, "critical", record("critical"))
-    return SimpleNamespace(prefs=prefs, main=main, console=console, legacy=legacy, restarts=restarts, boxes=boxes)
+    ns = SimpleNamespace(
+        prefs=prefs, main=main, console=console, legacy=legacy, restarts=restarts, boxes=boxes, box_choice=None,
+        default_buttons=[],
+    )
+
+    def fake_exec(box):
+        """Record a modal box and click the button named ``ns.box_choice`` (or none)."""
+        boxes.append(("box", box.text()))
+        ns.default_buttons.append(box.defaultButton().text() if box.defaultButton() else None)
+        chosen = next((b for b in box.buttons() if b.text() == ns.box_choice), None)
+        if chosen is not None:
+            chosen.click()
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    return ns
 
 
 def make_dialog(qtbot, env):
@@ -217,8 +244,8 @@ def row(dialog, name, key) -> SettingRow:
 
 
 def click_toggle(qtbot, r, text):
-    buttons = {b.text(): b for b in r.editor.findChildren(QAbstractButton)}
-    qtbot.mouseClick(buttons[text], Qt.LeftButton)
+    combo = r.editor.findChild(QComboBox)
+    combo.setCurrentIndex(combo.findText(text))  # emits like a user pick
 
 
 def type_number(qtbot, r, text):
@@ -287,7 +314,9 @@ def test_clear_issues_remove_with_scope(qtbot, env):
     env.prefs.layers[(BEAMLINE, FLAG)] = True
     dialog = make_dialog(qtbot, env)
     dialog.select_scope(BEAMLINE)
-    row(dialog, "main", FLAG).clear_action.trigger()
+    r = row(dialog, "main", FLAG)
+    assert r.clear_action.isEnabled()
+    r.clear_action.trigger()  # what "Clear (not set)" in the row's context menu does
     dialog.accept()
     assert env.prefs.calls == [("remove", FLAG, BEAMLINE)]
     assert env.main.after_save_calls == [(BEAMLINE, {FLAG: None})]
@@ -520,23 +549,41 @@ def test_switching_back_shows_remote_change_made_while_away(qtbot, env):
     assert row(dialog, "main", COUNT).editor.value() == 8
 
 
-def test_edit_that_became_unwritable_blocks_save_with_warning(qtbot, env):
+def test_edit_that_became_unwritable_blocks_save_with_warning_cancel_keeps_edits(qtbot, env):
     dialog = make_dialog(qtbot, env)
     click_toggle(qtbot, row(dialog, "main", FLAG), "On")
     dialog.select_scope(BEAMLINE)
     type_number(qtbot, row(dialog, "main", COUNT), "5")
     env.prefs.read_only_scopes.add(USER)
     env.prefs.scopes_changed.emit(None)
-    assert dialog._apply() is False
+    assert dialog._apply() is False  # the user closes the warning without discarding
     assert env.prefs.calls == []
     assert env.legacy.saved == 0
-    warnings = [text for kind, text in env.boxes if kind == "warning"]
+    warnings = [text for kind, text in env.boxes if kind == "box"]
     assert len(warnings) == 1
     assert "Flag (User — u1)" in warnings[0]
     assert "Count" not in warnings[0]
     assert dialog._model.is_dirty(USER, FLAG) and dialog._model.is_dirty(BEAMLINE, COUNT)
     dialog.accept()
     assert dialog.result() != dialog.DialogCode.Accepted
+
+
+def test_discard_blocked_edits_then_save_continues(qtbot, env):
+    dialog = make_dialog(qtbot, env)
+    click_toggle(qtbot, row(dialog, "main", FLAG), "On")
+    dialog.select_scope(BEAMLINE)
+    type_number(qtbot, row(dialog, "main", COUNT), "5")
+    env.prefs.read_only_scopes.add(BEAMLINE)
+    env.prefs.scopes_changed.emit(None)
+    env.box_choice = "Discard these edits"
+    dialog.accept()
+    assert [text for kind, text in env.boxes if kind == "box"] and "Count (Beamline 7.0.1)" in env.boxes[0][1]
+    assert env.default_buttons == ["Cancel"]  # Enter never discards
+    assert env.prefs.calls == [("set", FLAG, True, USER)]
+    assert not dialog._model.is_dirty(BEAMLINE, COUNT)
+    assert dialog._model.dirty_cells() == []
+    assert env.legacy.saved == 1
+    assert dialog.result() == dialog.DialogCode.Accepted
 
 
 def test_header_combo_stays_put_when_state_text_hides(qtbot):
@@ -554,3 +601,92 @@ def test_header_combo_stays_put_when_state_text_hides(qtbot):
     assert not h._state.isVisible()
     assert h._combo.x() == with_state.x()
     assert h._combo.width() == with_state.width()
+
+
+def test_secret_value_not_logged(qtbot, env):
+    from loguru import logger as loguru_logger
+    from PySide6.QtWidgets import QLineEdit
+
+    secret = "s3cr3t-T0KEN-xyz"
+    env.prefs.allowed["api_token"] = {LOCAL}
+    env.console._sections = [Section("Console", [SettingField("api_token", Secret(), label="Token")])]
+    dialog = make_dialog(qtbot, env)
+    dialog.select_scope(LOCAL)
+    lines: list[str] = []
+    sink = loguru_logger.add(lambda m: lines.append(str(m)), level="TRACE")
+    try:
+        line = row(dialog, "console", "api_token").editor.findChild(QLineEdit)
+        qtbot.keyClicks(line, secret)
+        assert dialog._apply() is True
+    finally:
+        loguru_logger.remove(sink)
+    assert ("set", "api_token", secret, LOCAL) in env.prefs.calls
+    assert not any(secret in m for m in lines)
+
+
+@pytest.mark.parametrize("key", ["api_token", "weird_field"])
+def test_failed_secret_save_does_not_leak_value(qtbot, env, key):
+    from loguru import logger as loguru_logger
+    from PySide6.QtWidgets import QLineEdit
+
+    secret = "s3cr3t-T0KEN-xyz"
+    env.prefs.allowed[key] = {LOCAL}
+    env.prefs.fail_on = key
+    original_set = env.prefs.set
+
+    def failing_set(k, value, *, scope=None):
+        if k == key:
+            raise RuntimeError(f"rejected value {value!r}")
+        original_set(k, value, scope=scope)
+
+    env.prefs.set = failing_set
+    env.console._sections = [Section("Console", [SettingField(key, Secret(), label="Token")])]
+    dialog = make_dialog(qtbot, env)
+    dialog.select_scope(LOCAL)
+    lines: list[str] = []
+    sink = loguru_logger.add(lambda m: lines.append(str(m)), level="TRACE")
+    try:
+        qtbot.keyClicks(row(dialog, "console", key).editor.findChild(QLineEdit), secret)
+        assert dialog._apply() is False
+    finally:
+        loguru_logger.remove(sink)
+    assert any("Failed to save" in m and "RuntimeError" in m for m in lines)
+    assert not any(secret in m for m in lines)
+    assert not any(secret in text for _kind, text in env.boxes)
+    assert any("RuntimeError" in text for _kind, text in env.boxes)
+
+
+def test_effective_values_resolve_through_prefs_get(qtbot, env):
+    env.prefs.resolved[COUNT] = 7
+    env.main._sections = [Section("General", [
+        SettingField(COUNT, Integer(minimum=0, maximum=60), label="Count"),
+        Info(lambda v: f"count is {v.effective(COUNT)}"),
+    ])]
+    dialog = make_dialog(qtbot, env)
+    info = next(lbl for lbl in form_of(dialog, "main").findChildren(QLabel) if lbl.text().startswith("count is"))
+    assert info.text() == "count is 7"
+
+
+def test_header_states_approval_once_when_every_field_needs_it(qtbot, env):
+    env.prefs.needs_approval = lambda key, scope: scope == BEAMLINE
+    dialog = make_dialog(qtbot, env)
+    h = header(dialog)
+    assert h._state.text() == ""
+    dialog.select_scope(BEAMLINE)
+    assert h._state.text() == APPROVAL_SCOPE_TEXT
+    assert not any(r.approval_note_shown() for r in form_of(dialog, "main").findChildren(SettingRow))
+    dialog._sidebar.setCurrentRow(page_index(dialog, "legacy"))
+    assert h._state.text() == LEGACY_TEXT
+    dialog._sidebar.setCurrentRow(page_index(dialog, "main"))
+    assert h._state.text() == APPROVAL_SCOPE_TEXT
+    dialog.select_scope(USER)
+    assert h._state.text() == ""
+
+
+def test_header_has_no_approval_text_when_only_some_fields_need_it(qtbot, env):
+    env.prefs.needs_approval = lambda key, scope: key == COUNT and scope == BEAMLINE
+    dialog = make_dialog(qtbot, env)
+    dialog.select_scope(BEAMLINE)
+    assert header(dialog)._state.text() == ""
+    assert row(dialog, "main", COUNT).approval_note_shown()
+    assert not row(dialog, "main", FLAG).approval_note_shown()

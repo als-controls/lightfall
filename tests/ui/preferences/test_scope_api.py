@@ -177,3 +177,99 @@ def test_off_mode_layer_value_is_the_console_yaml(qapp, tmp_path, monkeypatch):
         assert m.layer_value("theme", "facility") is None
     finally:
         PreferencesManager.reset()
+
+
+def test_needs_approval_only_for_page_declared_scopes(pm):  # noqa: F811
+    from lightfall_settings import SettingSpec
+
+    from lightfall.scopes.keys import register_client_specs
+
+    register_client_specs([SettingSpec(
+        key="approval.demo", scopes=frozenset({"user", "branch", "beamline"}),
+        operator_writable=True)])
+    manager, _ = pm
+    assert not manager.needs_approval("approval.demo", "beamline:7.0.1")  # not logged in
+    _login(manager)
+    assert manager.needs_approval("approval.demo", "beamline:7.0.1")
+    assert manager.needs_approval("approval.demo", "branch:7.0.1.1")
+    assert not manager.needs_approval("approval.demo", "user:u1")
+    assert not manager.needs_approval("approval.demo", "local")
+    assert not manager.needs_approval("approval.demo", "facility")  # not allowed there
+    assert not manager.needs_approval("theme", "beamline:7.0.1")    # base spec allows it
+    approved = ({"key": "approval.demo", "type": "str", "scopes": ["beamline", "user"],
+                 "operator_writable": True},)
+    tsb.CHAIN = tsb.ChainInfo(**{**tsb.CHAIN.__dict__, "specs": approved})
+    manager.scoped_backend.refresh()
+    assert manager.scoped_backend.registry.get("approval.demo").allows("beamline")
+    assert not manager.needs_approval("approval.demo", "beamline:7.0.1")
+
+
+def test_needs_approval_false_in_local_file_mode(local_pm):
+    assert not local_pm.needs_approval("tiled_url", "facility")
+    assert not local_pm.needs_approval("theme", "local")
+
+
+# Task 5: identity keys follow the console's binding ---------------------------
+
+_IDENTITY = ("ipc_topic_prefix", "tiled_beamline")
+
+
+def qapp_process():
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.processEvents()
+
+
+def _login_unbound(manager):
+    tsb.CHAIN = tsb.ChainInfo(chain=("facility", "user:u1"),
+                              roles={"facility": None, "user:u1": "owner"},
+                              entitled=(), facility_label="ALS")
+    assert manager.activate_scopes("u1", "facility")
+
+
+def test_identity_keys_writable_at_local_only_when_unbound(pm):  # noqa: F811
+    manager, _ = pm
+    cm = FakeCM("facility")
+    manager.set_config_manager(cm)
+    for key in _IDENTITY:  # off mode
+        assert manager.allowed_at(key, "local") and manager.writable_at(key, "local")
+    _login_unbound(manager)
+    for key in _IDENTITY:
+        assert manager.allowed_at(key, "local"), key
+        assert manager.writable_at(key, "local"), key
+        assert not manager.writable_at(key, "user:u1"), key
+    manager.set("ipc_topic_prefix", "dev.me", scope="local")
+    assert cm.data["preferences.ipc_topic_prefix"] == "dev.me"
+    assert manager.get("ipc_topic_prefix", "x") == "dev.me"
+    assert manager.layer_value("ipc_topic_prefix", "local") == "dev.me"
+    manager.remove("ipc_topic_prefix", scope="local")
+    assert manager.get("ipc_topic_prefix", "x") == "x"
+    manager.deactivate_scopes()
+
+    cm.model.site.bind = "branch:7.0.1.1"
+    _login(manager, role="maintainer")
+    for key in _IDENTITY:
+        assert manager.allowed_at(key, "local"), key
+        assert not manager.writable_at(key, "local"), key
+        assert manager.allowed_at(key, "branch:7.0.1.1"), key
+        assert manager.writable_at(key, "branch:7.0.1.1"), key
+    with pytest.raises(ValueError, match="binding"):
+        manager.set("ipc_topic_prefix", "dev.me", scope="local")
+
+
+def test_server_bound_console_prefers_scope_value_over_derived(pm):  # noqa: F811
+    manager, server = pm
+    manager.set_config_manager(FakeCM("branch:7.0.1.1", ipc_topic_prefix="dev.me"))
+    _login(manager)
+    assert manager.get("ipc_topic_prefix", "x") == "als.7011"  # console value ignored
+    assert manager.get("tiled_beamline") == "7.0.1.1"
+    seen = []
+    manager.subscribe("ipc_topic_prefix", seen.append)
+    server.rows[("branch:7.0.1.1", "ipc_topic_prefix")] = ("als.custom", 1)
+    manager.scoped_backend.refresh()
+    assert manager.get("ipc_topic_prefix", "x") == "als.custom"
+    del server.rows[("branch:7.0.1.1", "ipc_topic_prefix")]
+    manager.scoped_backend.refresh()
+    assert manager.get("ipc_topic_prefix", "x") == "als.7011"
+    qapp_process()
+    assert seen == ["als.custom", "als.7011"]  # subscribers see the resolved value

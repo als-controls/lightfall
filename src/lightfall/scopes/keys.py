@@ -20,6 +20,7 @@ from lightfall_settings import (
     user_only_spec,
 )
 
+from lightfall.scopes.identity import DERIVED_KEYS
 from lightfall.utils.logging import logger
 
 LOCAL_ONLY_KEYS: frozenset[str] = frozenset({
@@ -39,13 +40,14 @@ LOCAL_ONLY_KEYS: frozenset[str] = frozenset({
 _SECRET_MARKERS = ("api_key", "token", "secret", "password", "dsn")
 
 
-def is_local_only(key: str) -> bool:
+def is_secret_key(key: str) -> bool:
+    """True if ``key`` names a credential (its value must never be logged or shown)."""
     lowered = key.lower()
-    return (
-        key in LOCAL_ONLY_KEYS
-        or key.startswith("_")
-        or any(marker in lowered for marker in _SECRET_MARKERS)
-    )
+    return any(marker in lowered for marker in _SECRET_MARKERS)
+
+
+def is_local_only(key: str) -> bool:
+    return key in LOCAL_ONLY_KEYS or key.startswith("_") or is_secret_key(key)
 
 
 def console_only(key: str) -> bool:
@@ -171,6 +173,13 @@ def _reset_client_registry() -> None:
 LOCAL_LAYER_KEYS: frozenset[str] = frozenset({
     "device_backends", "device_backends_exclusive_restore",
 })
+
+
+# Identity keys (Ron, 2026-10-31): on a console bound to a beamline or branch they come
+# from that binding (a value set at the bound scope, else the derived default) and this
+# console's YAML is ignored; on an unbound console they live in this console's layer.
+# Not LOCAL_LAYER_KEYS: there the console layer sits above branch scope.
+CONSOLE_WHEN_UNBOUND_KEYS: frozenset[str] = DERIVED_KEYS
 
 
 def beamline_capable(spec: SettingSpec) -> bool:

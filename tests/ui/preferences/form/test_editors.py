@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QAbstractButton, QComboBox, QLabel, QLineEdit
+from qtpy.QtWidgets import QComboBox, QLabel, QLineEdit, QToolButton
 
 from lightfall.ui.preferences.form.editors import create_editor
 from lightfall.ui.preferences.form.schema import (
@@ -11,9 +11,11 @@ from lightfall.ui.preferences.form.schema import (
     EditorSpec,
     Integer,
     Number,
+    Secret,
     SettingField,
     Text,
     Toggle,
+    Url,
 )
 
 OPTIONS = [("a", "Alpha"), ("", "Blank"), ("b", "Beta")]
@@ -37,12 +39,9 @@ def make(qtbot, kind):
 
 def user_edit(qtbot, editor, kind):
     """Perform one real user edit that yields a value."""
-    if kind == "toggle":
-        buttons = {b.text(): b for b in editor.findChildren(QAbstractButton)}
-        qtbot.mouseClick(buttons["On"], Qt.LeftButton)
-    elif kind == "choice":
+    if kind in ("toggle", "choice"):
         combo = editor.findChild(QComboBox)
-        combo.setCurrentIndex(3)  # emits like a user pick
+        combo.setCurrentIndex(combo.count() - 1)  # emits like a user pick
     else:
         line = editor.findChild(QLineEdit)
         line.setFocus()
@@ -173,15 +172,33 @@ def test_text_default_placeholder(qtbot):
     assert editor.findChild(QLineEdit).placeholderText() == "Not set"
 
 
-def test_toggle_three_states(qtbot):
+@pytest.mark.parametrize("kind", ["integer", "number"])
+def test_number_placeholder(qtbot, kind):
+    spec = CASES[kind][0]
+    editor = create_editor(spec, SettingField("k", spec, placeholder="4222"))
+    qtbot.addWidget(editor)
+    line = editor.findChild(QLineEdit)
+    assert line.placeholderText() == "4222"
+    assert editor.value() is None  # a placeholder is not a value
+    assert make(qtbot, kind).findChild(QLineEdit).placeholderText() == "Not set"
+
+
+def test_toggle_is_combo_with_three_entries(qtbot):
+    from lightfall.ui.preferences.form.editors import muted_color
+
     editor = make(qtbot, "toggle")
-    buttons = {b.text(): b for b in editor.findChildren(QAbstractButton)}
-    assert set(buttons) == {"Not set", "Off", "On"}
-    assert editor.value() is None and buttons["Not set"].isChecked()
+    combo = editor.findChild(QComboBox)
+    assert [combo.itemText(i) for i in range(combo.count())] == ["Not set", "Off", "On"]
+    assert editor.value() is None and combo.currentIndex() == 0
+    for index, value in ((1, False), (2, True), (0, None)):
+        combo.setCurrentIndex(index)
+        assert editor.value() is value
     editor.set_value(False)
-    assert buttons["Off"].isChecked() and editor.value() is False
+    assert combo.currentText() == "Off" and editor.value() is False
     editor.set_value(True)
-    assert buttons["On"].isChecked() and editor.value() is True
+    assert combo.currentText() == "On" and editor.value() is True
+    # "Not set" is muted like Choice's
+    assert combo.itemData(0, Qt.ItemDataRole.ForegroundRole) == muted_color(combo)
 
 
 def test_choice_not_set_entry_is_distinct_from_blank_option(qtbot):
@@ -217,10 +234,7 @@ def test_read_only_blocks_input(qtbot, kind):
     editor.show()
     editor.set_read_only(True)
     before = editor.value()
-    if kind == "toggle":
-        buttons = {b.text(): b for b in editor.findChildren(QAbstractButton)}
-        qtbot.mouseClick(buttons["On"], Qt.LeftButton)
-    elif kind == "choice":
+    if kind in ("toggle", "choice"):
         combo = editor.findChild(QComboBox)
         qtbot.keyClick(combo, Qt.Key_Down)
     else:
@@ -245,67 +259,50 @@ def _normal_text(widget):
     return widget.palette().color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
 
 
-def _segments(qtbot, editor):
-    editor.resize(320, 32)
-    editor.show()
-    qtbot.waitExposed(editor)
-    return {b.text(): b for b in editor.findChildren(QAbstractButton)}
-
-
-def _fill(button):
-    """Colour just inside the segment's border, composited over the window."""
-    window = button.window()
-    pos = button.mapTo(window, button.rect().topLeft())
-    img = window.grab().toImage()
-    return img.pixelColor(pos.x() + 3, pos.y() + button.height() // 2)
-
-
-def _distance(c1, c2):
-    return sum(abs(x - y) for x, y in zip(c1.getRgb()[:3], c2.getRgb()[:3], strict=True))
-
-
-def test_checked_toggle_segment_is_unmistakable(qtbot):
-    """Holds under the real theme (run after a themed test) and the default palette."""
-    from lightfall.ui.preferences.form.editors import _muted_color, _SegmentStyle, _theme_color
-
-    editor = make(qtbot, "toggle")
-    segs = _segments(qtbot, editor)
-    accent = _theme_color("primary") or editor.palette().color(editor.palette().ColorRole.Highlight)
-    for value, label in ((None, "Not set"), (False, "Off"), (True, "On")):
-        editor.set_value(value)
-        for text, btn in segs.items():
-            if text == label:
-                assert _distance(_fill(btn), accent) < 30, text
-            else:
-                assert _distance(_fill(btn), accent) > 90, text
-    # "Not set" text is muted; the theme's muted colour differs from normal text
-    muted = _muted_color(editor)
-    assert muted != _normal_text(editor)
-    assert _SegmentStyle._rgba(muted) in editor.styleSheet()
-
-
-def test_read_only_toggle_still_shows_its_state(qtbot):
-    editor = make(qtbot, "toggle")
-    segs = _segments(qtbot, editor)
-    editor.set_value(False)
-    editor.set_read_only(True)
-    assert not any(b.isEnabled() for b in segs.values())
-    checked, unchecked = _fill(segs["Off"]), _fill(segs["On"])
-    assert _distance(checked, unchecked) > 30  # a read-only Off still reads as Off
-    editor.set_read_only(False)
-    assert _distance(_fill(segs["Off"]), checked) > 30  # and looks different from editable
-
-
-def test_read_only_choice_is_muted(qtbot):
+@pytest.mark.parametrize("kind", ["choice", "toggle"])
+def test_closed_combo_text_is_muted_only_while_not_set(qtbot, kind):
+    """The closed combo shows "Not set" muted; real options stay in normal colour."""
     from qtpy.QtGui import QPalette
 
-    from lightfall.ui.preferences.form.editors import _muted_color
+    from lightfall.ui.preferences.form.editors import muted_color
 
-    editor = make(qtbot, "choice")
+    editor = make(qtbot, kind)
+    combo = editor.findChild(QComboBox)
+    muted = muted_color(combo)
+
+    def shown_muted():
+        """Per group (Active, Inactive): is the closed label (QComboBox paints it with Text) muted?"""
+        groups = (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive)
+        return [combo.palette().color(g, QPalette.ColorRole.Text) == muted for g in groups]
+
+    assert combo.currentIndex() == 0 and all(shown_muted())
+    combo.setCurrentIndex(combo.count() - 1)  # a user picks a value
+    assert not any(shown_muted())
+    editor.set_value(None)
+    assert all(shown_muted())
+    editor.set_value(CASES[kind][2])
+    assert not any(shown_muted())
+    # Drop-down items: "Not set" muted, real options explicitly not muted.
+    editor.set_value(None)
+    fg = [combo.itemData(i, Qt.ItemDataRole.ForegroundRole) for i in range(combo.count())]
+    assert fg[0] == muted and all(c is not None and c != muted for c in fg[1:])
+    # A palette change (theme switch) re-applies it.
+    editor.set_value(None)
+    editor.setPalette(QPalette())
+    assert all(shown_muted())
+
+
+@pytest.mark.parametrize("kind", ["choice", "toggle"])
+def test_read_only_combo_is_muted(qtbot, kind):
+    from qtpy.QtGui import QPalette
+
+    from lightfall.ui.preferences.form.editors import muted_color
+
+    editor = make(qtbot, kind)
     combo = editor.findChild(QComboBox)
     editor.set_read_only(True)
     assert not combo.isEnabled()
-    muted = _muted_color(combo)
+    muted = muted_color(combo)
     assert muted != _normal_text(editor)
     for role in (QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
         assert combo.palette().color(QPalette.ColorGroup.Disabled, role) == muted
@@ -314,7 +311,7 @@ def test_read_only_choice_is_muted(qtbot):
 def test_muted_falls_back_to_palette_without_a_theme(qtbot, monkeypatch):
     from qtpy.QtGui import QPalette
 
-    from lightfall.ui.preferences.form.editors import _muted_color
+    from lightfall.ui.preferences.form.editors import muted_color
     from lightfall.ui.theme import ThemeManager
 
     def no_theme():
@@ -322,12 +319,12 @@ def test_muted_falls_back_to_palette_without_a_theme(qtbot, monkeypatch):
 
     monkeypatch.setattr(ThemeManager, "get_instance", no_theme)
     editor = make(qtbot, "toggle")
-    assert _muted_color(editor) == editor.palette().color(QPalette.ColorRole.PlaceholderText)
+    assert muted_color(editor) == editor.palette().color(QPalette.ColorRole.PlaceholderText)
 
 
 @pytest.mark.parametrize("kind", ["integer", "number", "text"])
 def test_read_only_line_edit_looks_different_but_stays_selectable(qtbot, kind):
-    from lightfall.ui.preferences.form.editors import _muted_color
+    from lightfall.ui.preferences.form.editors import muted_color
 
     editor = make(qtbot, kind)
     editor.set_value(CASES[kind][2])
@@ -337,7 +334,7 @@ def test_read_only_line_edit_looks_different_but_stays_selectable(qtbot, kind):
     normal = _normal_text(line)
     editor.set_read_only(True)
     assert line.isReadOnly() and line.isEnabled()  # text can still be selected and copied
-    muted = _muted_color(line)
+    muted = muted_color(line)
     assert muted != normal
     assert muted.name() in line.styleSheet() and "transparent" in line.styleSheet()
     assert line.grab().toImage() != editable  # it actually renders differently
@@ -395,3 +392,99 @@ def test_arrow_keys_do_nothing_when_read_only_or_without_step(qtbot):
     other.set_value(4.0)
     qtbot.keyClick(other.findChild(QLineEdit), Qt.Key_Up)
     assert other.value() == 4.0
+
+
+def _hint_text(editor):
+    return next(
+        (lb.text() for lb in editor.findChildren(QLabel) if lb.text() and not lb.isHidden() and lb is not editor.empty_hint),
+        "",
+    )
+
+
+def _type(qtbot, editor, text):
+    """Replace the line's text with real key events (so ``textEdited`` fires)."""
+    line = editor.findChild(QLineEdit)
+    line.setFocus()
+    qtbot.keyClicks(line, "x")  # guarantees a real edit even when ``text`` is empty
+    line.selectAll()
+    qtbot.keyClick(line, Qt.Key.Key_Delete)
+    qtbot.keyClicks(line, text)
+
+
+def make_spec(qtbot, spec):
+    editor = create_editor(spec, SettingField("k", spec))
+    qtbot.addWidget(editor)
+    editor.show()
+    return editor
+
+
+@pytest.mark.parametrize(
+    ("text", "valid", "hint"),
+    [
+        ("https://a.b", True, ""),
+        ("ftp://a", False, "Must start with http:// or https://"),
+        ("http://", False, "Missing host"),
+        ("", True, ""),
+    ],
+)
+def test_url_valid_and_invalid(qtbot, text, valid, hint):
+    editor = make_spec(qtbot, Url())
+    assert editor.value() is None and editor.is_valid()
+    _type(qtbot, editor, text)
+    assert editor.is_valid() is valid
+    assert _hint_text(editor) == hint
+    assert editor.value() == text  # "" is a value, not "not set"
+
+
+def test_url_not_set_and_empty_behave_like_text(qtbot):
+    editor = make_spec(qtbot, Url())
+    editor.set_value("")
+    assert editor.value() == "" and editor.empty_hint.isVisible()
+    editor.set_value(None)
+    assert editor.value() is None and not editor.empty_hint.isVisible()
+
+
+def test_url_custom_scheme(qtbot):
+    editor = make_spec(qtbot, Url(schemes=("nats",)))
+    _type(qtbot, editor, "nats://h:4222")
+    assert editor.is_valid()
+    _type(qtbot, editor, "http://h")
+    assert not editor.is_valid()
+    assert _hint_text(editor) == "Must start with nats://"
+
+
+def test_secret_masks_and_toggles(qtbot):
+    editor = make_spec(qtbot, Secret())
+    line = editor.findChild(QLineEdit)
+    button = editor.findChild(QToolButton)
+    assert line.echoMode() == QLineEdit.EchoMode.Password
+    _type(qtbot, editor, "hunter2")
+    assert editor.value() == "hunter2"
+    button.click()
+    assert line.echoMode() == QLineEdit.EchoMode.Normal and button.text() == "Hide"
+    button.click()
+    assert line.echoMode() == QLineEdit.EchoMode.Password and button.text() == "Show"
+
+
+def test_secret_not_set_and_empty_distinct(qtbot):
+    editor = make_spec(qtbot, Secret())
+    assert editor.value() is None
+    editor.set_value("")
+    assert editor.value() == "" and editor.empty_hint.isVisible()
+    editor.set_value(None)
+    assert editor.value() is None and not editor.empty_hint.isVisible()
+
+
+@pytest.mark.parametrize(("typed", "expected"), [("https://a.b ", "https://a.b"), ("   ", "")])
+def test_url_value_is_stripped(qtbot, typed, expected):
+    editor = make_spec(qtbot, Url())
+    _type(qtbot, editor, typed)
+    assert editor.value() == expected
+    assert editor.is_valid()
+
+
+def test_text_editor_shows_the_start_of_a_long_value(qtbot):
+    editor = create_editor(Url(), SettingField("t.url", Url()))
+    qtbot.addWidget(editor)
+    editor.set_value("http://logbook.example.org:9000/a/rather/long/path/that/does/not/fit")
+    assert editor.findChild(QLineEdit).cursorPosition() == 0

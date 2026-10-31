@@ -10,7 +10,13 @@ from typing import TYPE_CHECKING, Any
 from lightfall_settings import ScopeId, role_at_least
 from lightfall_settings.scopes import KIND_RANK
 
-from lightfall.scopes.keys import LOCAL_LAYER_KEYS, client_registry, console_only
+from lightfall.scopes.keys import (
+    CONSOLE_WHEN_UNBOUND_KEYS,
+    LOCAL_LAYER_KEYS,
+    base_spec,
+    client_registry,
+    console_only,
+)
 
 if TYPE_CHECKING:
     from lightfall.ui.preferences.manager import PreferencesManager
@@ -86,15 +92,35 @@ def allowed_at(prefs: PreferencesManager, key: str, scope: str) -> bool:
     if console_only(key):
         return scope == LOCAL
     if scope == LOCAL:
-        return key in LOCAL_LAYER_KEYS if prefs.scope_info.mode == "server" else True
+        if key in LOCAL_LAYER_KEYS or key in CONSOLE_WHEN_UNBOUND_KEYS:
+            return True
+        return prefs.scope_info.mode != "server"
     return client_registry().get(key).allows(ScopeId.parse(scope).kind)
 
 
 def writable_at(prefs: PreferencesManager, key: str, scope: str) -> bool:
     """Whether the caller can write ``key`` at ``scope`` right now."""
+    if scope == LOCAL and key in CONSOLE_WHEN_UNBOUND_KEYS:
+        return not prefs.console_bound()  # bound: the binding supplies the value
     if console_only(key) or prefs.scope_info.mode == "local":
         return scope == LOCAL
     return scope in prefs.write_targets(key)
+
+
+def needs_approval(prefs: PreferencesManager, key: str, scope: str) -> bool:
+    """Whether saving ``key`` at ``scope`` will wait for a facility admin.
+
+    True when only the page's own spec lets the key live at that scope kind (the
+    server has not approved it), so the server answers ``key_pending``. Always False
+    for this console and when scopes are off or file-based.
+    """
+    scoped = prefs._active_scoped()
+    if prefs.scope_info.mode != "server" or scoped is None or scope == LOCAL:
+        return False
+    kind = ScopeId.parse(scope).kind
+    if kind == "user" or not writable_at(prefs, key, scope):
+        return False
+    return not base_spec(key, scoped.registry).allows(kind)
 
 
 def lock_at(prefs: PreferencesManager, key: str, scope: str) -> LockInfo | None:
