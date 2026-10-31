@@ -128,7 +128,7 @@ def _info_text(form) -> str:
 
 
 def _values(**kw):
-    return SimpleNamespace(effective=lambda key, default=None: kw.get(key, default))
+    return SimpleNamespace(effective=lambda key, default=None: kw.get(key, default), is_dirty=lambda key: False)
 
 
 def test_external_tools_writes_same_keys(qtbot, env):

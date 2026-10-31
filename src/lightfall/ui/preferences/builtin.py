@@ -167,8 +167,7 @@ class AppearanceSettingsPlugin(SettingsPlugin):
         theme_mgr.set_islands_mode(bool(values.effective("islands_mode", False)))
         theme_mgr.set_theme_by_name(str(values.effective("theme", "system")))
         self._apply_font_size(int(values.effective("font_size", 10)))
-        is_dirty = getattr(values, "is_dirty", None)
-        if is_dirty is not None and not any(is_dirty(key) for key in _PREVIEW_KEYS):
+        if not any(values.is_dirty(key) for key in _PREVIEW_KEYS):
             # Every preview edit was undone: the app shows the saved values again,
             # so there is nothing left for Cancel to restore.
             self._original = None

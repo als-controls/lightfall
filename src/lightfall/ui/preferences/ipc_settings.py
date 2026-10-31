@@ -189,8 +189,7 @@ class IPCSettingsPlugin(SettingsPlugin):
     def _turned_on_now(values: FormValues) -> bool:
         """The user switched the local server on in this edit (a stale stored "on"
         doesn't count: startup copes with a missing binary)."""
-        is_dirty = getattr(values, "is_dirty", None)
-        return values.get("ipc_use_local_nats") is True and bool(is_dirty and is_dirty("ipc_use_local_nats"))
+        return values.get("ipc_use_local_nats") is True and values.is_dirty("ipc_use_local_nats")
 
     def _trusted_apps(self, parent: QWidget | None) -> QWidget:
         trust = self._trust_override if self._trust_override is not None else _trust_manager()

@@ -55,7 +55,7 @@ def test_tiled_defaults_are_off_and_shared(qapp, empty_prefs):
         asked[key] = default
         return default
 
-    values = SimpleNamespace(scope="local", effective=effective, get=lambda key: None)
+    values = SimpleNamespace(scope="local", effective=effective, get=lambda key: None, is_dirty=lambda key: False)
     assert fields["tiled_url"].enabled_when(values) is False
     assert fields["tiled_api_key"].visible_when(values) is False
     with pytest.raises(RuntimeError, match="Enter a URL first"):

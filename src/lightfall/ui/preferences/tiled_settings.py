@@ -280,8 +280,7 @@ class TiledSettingsPlugin(SettingsPlugin):
     def validate_values(self, values: FormValues) -> list[str]:
         # Only an edit at this scope to the enable switch or the URL can make the pair
         # invalid here; another scope's state never blocks this save.
-        is_dirty = getattr(values, "is_dirty", None)
-        if not is_dirty or not (is_dirty("tiled_enabled") or is_dirty("tiled_url")):
+        if not (values.is_dirty("tiled_enabled") or values.is_dirty("tiled_url")):
             return []
         if not _enabled(values):
             return []

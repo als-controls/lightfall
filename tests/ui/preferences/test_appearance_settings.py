@@ -57,6 +57,9 @@ class _Values:
         value = self._edits.get(key)
         return value if value is not None else self._prefs.get(key, default)
 
+    def is_dirty(self, key: str) -> bool:
+        return key in self._edits
+
 
 @pytest.fixture
 def fake_prefs(monkeypatch):

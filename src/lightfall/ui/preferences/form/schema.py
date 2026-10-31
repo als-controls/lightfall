@@ -25,6 +25,10 @@ class FormValues(Protocol):
         """Value that would apply: the edit at this scope if any, else the resolved value."""
         ...
 
+    def is_dirty(self, key: str) -> bool:
+        """Whether the user has an unsaved edit to ``key`` at this scope."""
+        ...
+
 
 Predicate = Callable[["FormValues"], bool]
 

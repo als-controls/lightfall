@@ -121,7 +121,7 @@ def _type(qtbot, row, text):
 
 
 def _values(**kw):
-    return SimpleNamespace(effective=lambda key, default=None: kw.get(key, default))
+    return SimpleNamespace(effective=lambda key, default=None: kw.get(key, default), is_dirty=lambda key: False)
 
 
 def _fill(qtbot, dialog):

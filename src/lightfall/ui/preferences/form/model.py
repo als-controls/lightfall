@@ -58,12 +58,16 @@ class _FrozenValues:
     """FormValues copied at one moment, safe to read from a worker thread.
 
     Holds the given keys only; reading any other key raises KeyError.
+    ``is_dirty`` is the real dirty state at the moment of the snapshot.
     """
 
-    def __init__(self, scope: str, pending: dict[str, Any], effective: dict[str, Any]) -> None:
+    def __init__(
+        self, scope: str, pending: dict[str, Any], effective: dict[str, Any], dirty: frozenset[str] = frozenset()
+    ) -> None:
         self.scope = scope
         self._pending = pending
         self._effective = effective
+        self._dirty = dirty
 
     def _check(self, key: str) -> None:
         if key not in self._pending:
@@ -77,6 +81,10 @@ class _FrozenValues:
         self._check(key)
         value = self._effective[key]
         return default if value is None else value
+
+    def is_dirty(self, key: str) -> bool:
+        self._check(key)
+        return key in self._dirty
 
 
 class FormModel:
@@ -153,7 +161,8 @@ class FormModel:
                 effective[key] = self._resolve(key, None)
             else:
                 effective[key] = value
-        return _FrozenValues(scope, pending, effective)
+        dirty = frozenset(key for key in pending if self.is_dirty(scope, key))
+        return _FrozenValues(scope, pending, effective, dirty)
 
     def edit(self, scope: str, key: str, value: Any) -> None:
         cell = (scope, key)
