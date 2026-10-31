@@ -81,8 +81,11 @@ class SimEnvironment:
             os.environ["LIGHTFALL_SIM_SEED"] = str(self.seed)
         self.app = _qapp()
         self._sign_in()
-        self._start_devices()
+        # Engine before devices, as in the app: device connection checks run on worker
+        # threads and import lightfall.acquire.engine; a first import of lightfall.acquire
+        # on this thread at the same time deadlocks the import system.
         self._start_engine()
+        self._start_devices()
         self._start_tiled()
         return self
 
