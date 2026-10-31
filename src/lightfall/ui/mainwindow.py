@@ -90,6 +90,7 @@ class LFMainWindow(QMainWindow):
         self._theme_manager = ThemeManager.get_instance()
         self._prefs_manager = PreferencesManager.get_instance()
         self._panel_registry = PanelRegistry.get_instance()
+        self._content_sync = self._build_content_sync()
 
         # Setup UI
         self._setup_window()
@@ -718,10 +719,35 @@ class LFMainWindow(QMainWindow):
         if (not logged_in or not prefs.get("logbook_enabled", True)
                 or prefs.get("logbook_offline_only", False)):
             prefs.deactivate_scopes()
+            if self._content_sync is not None:
+                self._content_sync.stop()
             return
         from lightfall.scopes.site import get_site_bind
 
         prefs.activate_scopes(user.username, get_site_bind())
+        # Same user again keeps the chain, so scopes_changed won't fire: sync at login anyway.
+        if self._content_sync is not None and prefs.scope_info.mode == "server":
+            self._content_sync.refresh()
+
+    def _build_content_sync(self) -> Any:
+        """This machine's copy of scoped content, kept current while scopes are live."""
+        import os
+
+        if os.environ.get("LIGHTFALL_SCOPES_DISABLED") == "1":
+            return None
+        try:
+            from lightfall.content.service import ContentSync
+            from lightfall.content.store import ContentStore, default_content_dir
+            from lightfall.scopes.client import ScopesClient
+            from lightfall.scopes.site import get_site_bind
+
+            sync = ContentSync(client=ScopesClient(), store=ContentStore(default_content_dir()),
+                               bind=get_site_bind)
+            self._prefs_manager.scopes_changed.connect(sync.follow)
+        except Exception as e:
+            logger.warning("Scoped content sync unavailable: {}", e)
+            return None
+        return sync
 
     def _show_login_notification(self, user: Any) -> None:
         """Show toast with session expiry info.
