@@ -6,7 +6,7 @@ produce write operations, so untouched settings are never written.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,12 +39,43 @@ class _ScopeValues:
     def get(self, key: str) -> Any:
         return self._model.pending(self.scope, key)
 
+    def effective(self, key: str, default: Any = None) -> Any:
+        return self._model.effective(self.scope, key, default)
+
+
+class _FrozenValues:
+    """FormValues copied at one moment, safe to read from a worker thread.
+
+    Holds the given keys only; any other key reads as not set (``default``).
+    """
+
+    def __init__(self, scope: str, pending: dict[str, Any], effective: dict[str, Any]) -> None:
+        self.scope = scope
+        self._pending = pending
+        self._effective = effective
+
+    def get(self, key: str) -> Any:
+        return self._pending.get(key)
+
+    def effective(self, key: str, default: Any = None) -> Any:
+        value = self._effective.get(key)
+        return default if value is None else value
+
 
 class FormModel:
-    """Loaded values, pending edits and conflicts, kept per (scope, key)."""
+    """Loaded values, pending edits and conflicts, kept per (scope, key).
 
-    def __init__(self, read_layer: Callable[[str, str], Any]) -> None:
+    ``resolve(key, default)`` (the dialog passes ``prefs.get``) gives the value
+    currently in effect across all scopes; it backs ``effective``.
+    """
+
+    def __init__(
+        self,
+        read_layer: Callable[[str, str], Any],
+        resolve: Callable[[str, Any], Any] | None = None,
+    ) -> None:
         self._read = read_layer
+        self._resolve = resolve
         self._loaded: dict[_Cell, Any] = {}
         self._edits: dict[_Cell, Any] = {}
         self._conflicts: set[_Cell] = set()
@@ -60,6 +91,34 @@ class FormModel:
         if cell in self._edits:
             return self._edits[cell]
         return self.loaded(scope, key)
+
+    def effective(self, scope: str, key: str, default: Any = None) -> Any:
+        """The value a predicate or action should act on for ``key`` at ``scope``.
+
+        The user's edit at ``scope`` if they made one and it is not None;
+        otherwise the currently resolved value ``resolve(key, default)``.
+        Without a resolver: the pending value at ``scope``, or ``default``.
+
+        Approximation: after a Clear at ``scope`` this returns the currently
+        resolved value (which may still be the cleared one, until saved), not
+        what the lower layers alone would give.
+        """
+        edit = self._edits.get((scope, key))
+        if edit is not None:
+            return edit
+        if self._resolve is not None:
+            return self._resolve(key, default)
+        value = self.pending(scope, key)
+        return default if value is None else value
+
+    def frozen_values(self, scope: str, keys: Iterable[str]) -> _FrozenValues:
+        """A snapshot of ``get`` and ``effective`` for ``keys`` at ``scope``."""
+        keys = list(keys)
+        return _FrozenValues(
+            scope,
+            {k: self.pending(scope, k) for k in keys},
+            {k: self.effective(scope, k) for k in keys},
+        )
 
     def edit(self, scope: str, key: str, value: Any) -> None:
         cell = (scope, key)

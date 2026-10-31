@@ -33,7 +33,7 @@ from lightfall.scopes.keys import client_registry, is_secret_key
 from lightfall.ui.preferences.form.editors import muted_color
 from lightfall.ui.preferences.form.header import ScopeHeader
 from lightfall.ui.preferences.form.model import FormModel
-from lightfall.ui.preferences.form.schema import SettingField, field_label
+from lightfall.ui.preferences.form.schema import SettingField, field_label, section_fields
 from lightfall.ui.preferences.form.view import SettingsForm
 from lightfall.utils.logging import logger
 
@@ -121,7 +121,10 @@ class PreferencesDialog(QDialog):
         from lightfall.ui.preferences.manager import PreferencesManager
 
         self._prefs = PreferencesManager.get_instance()
-        self._model = FormModel(read_layer=lambda key, scope: self._prefs.layer_value(key, scope))
+        self._model = FormModel(
+            read_layer=lambda key, scope: self._prefs.layer_value(key, scope),
+            resolve=getattr(self._prefs, "get", None),
+        )
         self._scope: str = self._prefs.default_scope()
         self._plugins: dict[str, SettingsPlugin] = {}
         self._plugin_widgets: dict[str, QWidget] = {}
@@ -269,7 +272,7 @@ class PreferencesDialog(QDialog):
         page = _FormPage(form)
         self._form_pages[plugin.name] = page
         for section in plugin.sections():
-            for field in section.items:
+            for field in section_fields(section):
                 self._key_owner[field.key] = plugin.name
                 self._fields[field.key] = field
         return page

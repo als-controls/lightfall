@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from lightfall_settings import SettingSpec
+
+if TYPE_CHECKING:
+    from qtpy.QtWidgets import QWidget
 
 
 class FormValues(Protocol):
@@ -16,6 +19,10 @@ class FormValues(Protocol):
 
     def get(self, key: str) -> Any:
         """Pending value at the selected scope; None means not set."""
+        ...
+
+    def effective(self, key: str, default: Any = None) -> Any:
+        """Value that would apply: the edit at this scope if any, else the resolved value."""
         ...
 
 
@@ -80,12 +87,62 @@ class SettingField:
 
 
 @dataclass(frozen=True)
+class Action:
+    """A button that runs ``run`` on a worker thread and shows its status text.
+
+    ``run`` returns the text to show; an exception shows ``str(exc)`` as an
+    error. ``scopes`` are scope kinds ("user", "local", "beamline", ...);
+    None shows the action at every scope. Actions write nothing, so
+    read-only scopes never disable them.
+    """
+
+    label: str
+    run: Callable[[FormValues], str]
+    enabled_when: Predicate | None = None
+    scopes: frozenset[str] | None = None
+
+
+@dataclass(frozen=True)
+class Info:
+    """A muted status line; a callable is re-evaluated after every edit (GUI thread)."""
+
+    text: Callable[[FormValues], str] | str
+    scopes: frozenset[str] | None = None
+
+
+@dataclass(frozen=True)
+class Embed:
+    """A plain widget inside a section that is not a preference (e.g. a list with buttons)."""
+
+    factory: Callable[[QWidget | None], QWidget]
+    scopes: frozenset[str] | None = None
+
+
+Item = SettingField | Action | Info | Embed
+
+
+@dataclass(frozen=True)
 class Section:
-    """A titled group of fields."""
+    """A titled group of fields and non-preference items, shown in order."""
 
     title: str
-    items: Sequence[SettingField]
+    items: Sequence[Item]
     description: str = ""
+
+
+def scope_kind(scope: str) -> str:
+    """Kind of a scope id: "user:u1" -> "user", "local" -> "local"."""
+    return scope.split(":", 1)[0]
+
+
+def item_shown_at(item: Action | Info | Embed, scope: str) -> bool:
+    """Whether a non-field item belongs at ``scope`` (by its ``scopes`` kinds)."""
+    return item.scopes is None or scope_kind(scope) in item.scopes
+
+
+def section_fields(section: Section) -> list[SettingField]:
+    """The SettingFields of a section, in order (other items skipped)."""
+    return [f for f in section.items if isinstance(f, SettingField)]
 
 
 def field_label(field: SettingField, spec: SettingSpec) -> str:
@@ -97,4 +154,4 @@ def fields_at(
     sections: Sequence[Section], scope: str, allowed: Callable[[str, str], bool]
 ) -> list[SettingField]:
     """Fields of all sections, in order, whose key may be set at ``scope``."""
-    return [f for s in sections for f in s.items if allowed(f.key, scope)]
+    return [f for s in sections for f in section_fields(s) if allowed(f.key, scope)]

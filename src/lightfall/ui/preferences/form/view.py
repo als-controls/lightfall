@@ -9,9 +9,20 @@ from qtpy.QtWidgets import QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from lightfall.scopes.keys import client_registry
 from lightfall.ui.preferences.form.editors import create_editor
+from lightfall.ui.preferences.form.items import ActionItem, InfoItem
 from lightfall.ui.preferences.form.model import FormModel
 from lightfall.ui.preferences.form.row import SettingRow, set_muted
-from lightfall.ui.preferences.form.schema import SettingField, field_label, fields_at
+from lightfall.ui.preferences.form.schema import (
+    Action,
+    Embed,
+    Info,
+    Section,
+    SettingField,
+    field_label,
+    fields_at,
+    item_shown_at,
+    section_fields,
+)
 
 if TYPE_CHECKING:
     from lightfall.plugins.settings_plugin import SettingsPlugin
@@ -21,11 +32,14 @@ GENERIC_READ_ONLY = "You can't change this here"
 
 
 class _SectionBlock:
-    """A rendered section: its group box and the rows inside it."""
+    """A rendered section: its group box, the rows and the other items inside it."""
 
-    def __init__(self, box: QGroupBox, rows: list[SettingRow]) -> None:
+    def __init__(self, box: QGroupBox) -> None:
         self.box = box
-        self.rows = rows
+        self.rows: list[SettingRow] = []
+        self.actions: list[ActionItem] = []
+        self.infos: list[InfoItem] = []
+        self.has_items = False  # any Action / Info / Embed shown at this scope
 
 
 class SettingsForm(QWidget):
@@ -56,6 +70,7 @@ class SettingsForm(QWidget):
         return self._scope
 
     def has_fields(self, scope: str) -> bool:
+        """Whether any field may be set at ``scope`` (Actions, Info and Embeds don't count)."""
         return bool(fields_at(self._plugin.sections(), scope, self._prefs.allowed_at))
 
     def show_scope(self, scope: str) -> None:
@@ -82,17 +97,17 @@ class SettingsForm(QWidget):
         content_layout.setSpacing(0)
         read_only_reason = self._scope_read_only_reason(scope)
         for section in self._plugin.sections():
-            fields = fields_at([section], scope, self._prefs.allowed_at)
-            if not fields:
+            shown = self._items_at(section, scope)
+            if not shown:
                 continue
             box = self._section_box(section.title, section.description)
             if self._blocks:
                 content_layout.addSpacing(SECTION_SPACING)
             content_layout.addWidget(box)
-            rows = [self._build_row(f, scope, read_only_reason, box) for f in fields]
-            for row in rows:
-                box.layout().addWidget(row)
-            self._blocks.append(_SectionBlock(box, rows))
+            block = _SectionBlock(box)
+            for item in shown:
+                self._add_item(block, item, scope, read_only_reason)
+            self._blocks.append(block)
         content_layout.addStretch(1)
         self._layout.addWidget(self._content)
         self._apply_predicates()
@@ -125,6 +140,40 @@ class SettingsForm(QWidget):
         self._apply_predicates()
 
     # Building -------------------------------------------------------------
+    def _items_at(self, section: Section, scope: str) -> list:
+        """Items of ``section`` that belong at ``scope``, in order."""
+        return [
+            item
+            for item in section.items
+            if (self._prefs.allowed_at(item.key, scope) if isinstance(item, SettingField) else item_shown_at(item, scope))
+        ]
+
+    def _add_item(self, block: _SectionBlock, item: object, scope: str, read_only_reason: str) -> None:
+        layout = block.box.layout()
+        if isinstance(item, SettingField):
+            row = self._build_row(item, scope, read_only_reason, block.box)
+            layout.addWidget(row)
+            block.rows.append(row)
+            return
+        block.has_items = True
+        if isinstance(item, Action):
+            action = ActionItem(item, lambda: self._action_values(scope), block.box)
+            layout.addWidget(action)
+            block.actions.append(action)
+        elif isinstance(item, Info):
+            info = InfoItem(item, block.box)
+            layout.addWidget(info)
+            block.infos.append(info)
+        elif isinstance(item, Embed):
+            layout.addWidget(item.factory(block.box))
+        else:  # pragma: no cover - a page bug
+            raise TypeError(f"Unknown section item: {item!r}")
+
+    def _action_values(self, scope: str):
+        """Values an action's worker sees: a copy of every field key of this page."""
+        keys = {f.key for s in self._plugin.sections() for f in section_fields(s)}
+        return self._model.frozen_values(scope, keys)
+
     def _section_box(self, title: str, description: str) -> QGroupBox:
         """A group box titled ``title``; the theme's QGroupBox rules style it."""
         box = QGroupBox(title, self._content)
@@ -218,7 +267,12 @@ class SettingsForm(QWidget):
             return
         values = self._model.values(self._scope)
         for block in self._blocks:
-            any_visible = False
+            any_visible = block.has_items
+            for info in block.infos:
+                info.update_text(values)
+            for action in block.actions:
+                when = action.action.enabled_when
+                action.set_predicate_enabled(bool(when(values)) if when else True)
             for row in block.rows:
                 field = self._fields[row.key]
                 visible = field.visible_when(values) if field.visible_when else True

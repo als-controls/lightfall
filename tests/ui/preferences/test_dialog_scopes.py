@@ -13,6 +13,7 @@ from lightfall.ui.preferences.dialog import PreferencesDialog
 from lightfall.ui.preferences.form.header import LEGACY_TEXT, ScopeHeader
 from lightfall.ui.preferences.form.row import SettingRow
 from lightfall.ui.preferences.form.schema import (
+    Info,
     Integer,
     Secret,
     Section,
@@ -649,3 +650,14 @@ def test_failed_secret_save_does_not_leak_value(qtbot, env, key):
     assert not any(secret in m for m in lines)
     assert not any(secret in text for _kind, text in env.boxes)
     assert any("RuntimeError" in text for _kind, text in env.boxes)
+
+
+def test_effective_values_resolve_through_prefs_get(qtbot, env):
+    env.prefs.get = lambda key, default=None: {COUNT: 7}.get(key, default)
+    env.main._sections = [Section("General", [
+        SettingField(COUNT, Integer(minimum=0, maximum=60), label="Count"),
+        Info(lambda v: f"count is {v.effective(COUNT)}"),
+    ])]
+    dialog = make_dialog(qtbot, env)
+    info = next(lbl for lbl in form_of(dialog, "main").findChildren(QLabel) if lbl.text().startswith("count is"))
+    assert info.text() == "count is 7"
