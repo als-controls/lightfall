@@ -10,7 +10,7 @@ from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QComboBox, QLabel, QMessageBox, QPushButton, QWidget
 
 from lightfall.ui.preferences.dialog import PreferencesDialog
-from lightfall.ui.preferences.form.header import LEGACY_TEXT, ScopeHeader
+from lightfall.ui.preferences.form.header import APPROVAL_SCOPE_TEXT, LEGACY_TEXT, ScopeHeader
 from lightfall.ui.preferences.form.row import SettingRow
 from lightfall.ui.preferences.form.schema import (
     Info,
@@ -665,3 +665,28 @@ def test_effective_values_resolve_through_prefs_get(qtbot, env):
     dialog = make_dialog(qtbot, env)
     info = next(lbl for lbl in form_of(dialog, "main").findChildren(QLabel) if lbl.text().startswith("count is"))
     assert info.text() == "count is 7"
+
+
+def test_header_states_approval_once_when_every_field_needs_it(qtbot, env):
+    env.prefs.needs_approval = lambda key, scope: scope == BEAMLINE
+    dialog = make_dialog(qtbot, env)
+    h = header(dialog)
+    assert h._state.text() == ""
+    dialog.select_scope(BEAMLINE)
+    assert h._state.text() == APPROVAL_SCOPE_TEXT
+    assert not any(r.approval_note_shown() for r in form_of(dialog, "main").findChildren(SettingRow))
+    dialog._sidebar.setCurrentRow(page_index(dialog, "legacy"))
+    assert h._state.text() == LEGACY_TEXT
+    dialog._sidebar.setCurrentRow(page_index(dialog, "main"))
+    assert h._state.text() == APPROVAL_SCOPE_TEXT
+    dialog.select_scope(USER)
+    assert h._state.text() == ""
+
+
+def test_header_has_no_approval_text_when_only_some_fields_need_it(qtbot, env):
+    env.prefs.needs_approval = lambda key, scope: key == COUNT and scope == BEAMLINE
+    dialog = make_dialog(qtbot, env)
+    dialog.select_scope(BEAMLINE)
+    assert header(dialog)._state.text() == ""
+    assert row(dialog, "main", COUNT).approval_note_shown()
+    assert not row(dialog, "main", FLAG).approval_note_shown()

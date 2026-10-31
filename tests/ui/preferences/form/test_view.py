@@ -435,16 +435,46 @@ def test_lock_and_generic_reasons_still_show_inline(qtbot):
     assert r[FLAG].reason_shown_inline()  # generic text: the User header has no reason
 
 
-def test_row_shows_approval_note(qtbot):
-    prefs = FakePrefs(writable={USER, LOCAL, BEAMLINE})
-    prefs.needs_approval = lambda key, scope: key == COUNT and scope == BEAMLINE
-    form, _, _ = make_form(qtbot, prefs, scope=BEAMLINE)
-    r = rows(form)
-    assert r[COUNT].approval_note_shown()
-    assert not r[COUNT].is_read_only()
-    assert r[COUNT]._approval.text() == "Saving here asks a facility admin to approve this setting"
-    form.show_scope(USER)
-    assert not any(row.approval_note_shown() for row in rows(form).values())
+def _approval_sections():
+    other = "test.other"  # a second beamline-capable field
+    ALLOWED[other] = {USER, BEAMLINE}
+    return other, [Section("General", [
+        SettingField(COUNT, Integer(minimum=0, maximum=60), label="Count"),
+        SettingField(other, Integer(minimum=0, maximum=9), label="Other"),
+    ])]
+
+
+def test_row_shows_approval_note_only_where_needed(qtbot):
+    other, sections = _approval_sections()
+    try:
+        prefs = FakePrefs(writable={USER, LOCAL, BEAMLINE})
+        prefs.needs_approval = lambda key, scope: key == COUNT and scope == BEAMLINE
+        form, _, _ = make_form(qtbot, prefs, sections=sections, scope=BEAMLINE)
+        r = rows(form)
+        assert r[COUNT].approval_note_shown() and not r[other].approval_note_shown()
+        assert not r[COUNT].is_read_only()
+        assert r[COUNT]._approval.text() == "Saving here asks a facility admin to approve this setting"
+        assert not form.approval_for_all()
+        form.show_scope(USER)
+        assert not any(row.approval_note_shown() for row in rows(form).values())
+        assert not form.approval_for_all()
+    finally:
+        ALLOWED.pop(other)
+
+
+def test_approval_note_moves_off_rows_when_every_field_needs_it(qtbot):
+    other, sections = _approval_sections()
+    try:
+        prefs = FakePrefs(writable={USER, LOCAL, BEAMLINE})
+        prefs.needs_approval = lambda key, scope: scope == BEAMLINE
+        form, _, _ = make_form(qtbot, prefs, sections=sections, scope=BEAMLINE)
+        assert form.approval_for_all()  # the scope header says it once
+        assert not any(row.approval_note_shown() for row in rows(form).values())
+        prefs.writable = {USER, LOCAL}  # read-only scope: nothing to approve
+        form.show_scope(BEAMLINE)
+        assert not form.approval_for_all()
+    finally:
+        ALLOWED.pop(other)
 
 
 def test_lock_reason_wins_over_approval_note(qtbot):

@@ -9,6 +9,7 @@ from lightfall.ui.preferences.form.row import set_muted
 from lightfall.ui.preferences.scope_api import ScopeChoice
 
 LEGACY_TEXT = "This page saves to your user settings only"
+APPROVAL_SCOPE_TEXT = "Saving here asks a facility admin to approve these settings"
 DIRTY_MARK = " •"
 
 
@@ -26,6 +27,7 @@ class ScopeHeader(QWidget):
         self._choices: list[ScopeChoice] = []
         self._dirty: set[str] = set()
         self._aware = True
+        self._approval = False
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(QLabel("Scope:", self))
@@ -73,6 +75,11 @@ class ScopeHeader(QWidget):
         self._aware = aware
         self._refresh_state()
 
+    def set_approval_for_all(self, needed: bool) -> None:
+        """Say once that saving at the selected scope needs approval (every field on the page does)."""
+        self._approval = needed
+        self._refresh_state()
+
     def selected(self) -> str:
         return self._combo.currentData() or ""
 
@@ -94,5 +101,7 @@ class ScopeHeader(QWidget):
         else:
             choice = next((c for c in self._choices if c.scope == self.selected()), None)
             text = choice.read_only_reason if choice is not None else ""
+            if not text and self._approval:
+                text = APPROVAL_SCOPE_TEXT
         self._state.setText(text)
         self._state.setVisible(bool(text))

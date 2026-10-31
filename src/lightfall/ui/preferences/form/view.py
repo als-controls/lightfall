@@ -59,6 +59,8 @@ class SettingsForm(QWidget):
         self._scope: str | None = None
         self._fields: dict[str, SettingField] = {}
         self._rows: dict[str, SettingRow] = {}
+        self._needs_approval: dict[str, bool] = {}
+        self._approval_for_all = False
         self._blocks: list[_SectionBlock] = []
         self._content: QWidget | None = None
         self._layout = QVBoxLayout(self)
@@ -85,6 +87,7 @@ class SettingsForm(QWidget):
             self._model.reload(scope, field.key)
         self._rows.clear()
         self._fields.clear()
+        self._needs_approval.clear()
         self._blocks.clear()
         if self._content is not None:
             self._layout.removeWidget(self._content)
@@ -110,7 +113,12 @@ class SettingsForm(QWidget):
             self._blocks.append(block)
         content_layout.addStretch(1)
         self._layout.addWidget(self._content)
+        self._place_approval_notes()
         self._apply_predicates()
+
+    def approval_for_all(self) -> bool:
+        """Every editable field at the shown scope needs approval: the scope header says so once."""
+        return self._approval_for_all
 
     def invalid_fields(self, scope: str) -> list[str]:
         """Keys at ``scope`` whose editor holds unparsable or out-of-range input.
@@ -202,7 +210,7 @@ class SettingsForm(QWidget):
         # The header already states the scope's reason; repeat only the lock glyph.
         row.set_read_only(reason, inline=reason != scope_reason)
         needs_approval = getattr(self._prefs, "needs_approval", None)
-        row.set_needs_approval(bool(needs_approval and needs_approval(field.key, scope)))
+        self._needs_approval[field.key] = bool(needs_approval and needs_approval(field.key, scope))
         key = field.key
         editor.changed.connect(lambda: self._on_editor_changed(key))
         row.clear_requested.connect(lambda: self._on_clear(key))
@@ -210,6 +218,13 @@ class SettingsForm(QWidget):
         self._rows[key] = row
         self._refresh_markers(key)
         return row
+
+    def _place_approval_notes(self) -> None:
+        """Note approval on the rows that need it, or nowhere when every editable row does."""
+        editable = [key for key, row in self._rows.items() if not row.is_read_only()]
+        self._approval_for_all = bool(editable) and all(self._needs_approval[key] for key in editable)
+        for key, row in self._rows.items():
+            row.set_needs_approval(self._needs_approval[key] and not self._approval_for_all)
 
     def _scope_read_only_reason(self, scope: str) -> str:
         choice = next((c for c in self._prefs.scope_choices() if c.scope == scope), None)

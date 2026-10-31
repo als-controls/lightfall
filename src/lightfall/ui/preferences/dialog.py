@@ -311,6 +311,7 @@ class PreferencesDialog(QDialog):
         for page in self._form_pages.values():
             page.form.show_scope(selected)
         self._refresh_pages()
+        self._refresh_header_approval()
 
     # Scope selection --------------------------------------------------------
     def current_scope(self) -> str:
@@ -335,6 +336,7 @@ class PreferencesDialog(QDialog):
         for page in self._form_pages.values():
             page.form.show_scope(scope)
         self._refresh_pages()
+        self._refresh_header_approval()
 
     def _scope_label(self, scope: str) -> str:
         choice = next((c for c in self._prefs.scope_choices() if c.scope == scope), None)
@@ -399,6 +401,14 @@ class PreferencesDialog(QDialog):
             plugin = self._plugins[self._page_names[row]]
             aware = _is_form_page(plugin) and getattr(plugin, "scope_aware", True)
             self._header.set_page_scope_aware(bool(aware))
+        self._refresh_header_approval()
+
+    def _refresh_header_approval(self) -> None:
+        """The header notes approval when every field of the current page needs it at the scope."""
+        row = self._stack.currentIndex()
+        name = self._page_names[row] if 0 <= row < len(self._page_names) else None
+        page = self._form_pages.get(name) if name is not None else None
+        self._header.set_approval_for_all(page is not None and page.form.approval_for_all())
 
     def select_page(self, plugin_name: str) -> bool:
         """Select a settings page by plugin name.
