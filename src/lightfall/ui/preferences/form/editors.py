@@ -12,7 +12,7 @@ from typing import Any
 
 from qtpy.QtCore import QEvent, QObject, Qt, Signal
 from qtpy.QtGui import QColor, QPalette
-from qtpy.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QWidget
+from qtpy.QtWidgets import QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit, QWidget
 
 from lightfall.ui.preferences.form.schema import EditorSpec, SettingField
 
@@ -26,7 +26,6 @@ TEXT_ROLES = (QPalette.ColorRole.ButtonText, QPalette.ColorRole.WindowText, QPal
 
 
 _ACTIVE_GROUPS = (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive)
-_DISABLED_GROUP = (QPalette.ColorGroup.Disabled,)
 
 
 def _theme_color(name: str) -> QColor | None:
@@ -163,7 +162,15 @@ class FieldEditor(QWidget):
 
 
 class ChoiceEditor(FieldEditor):
-    """Combo box whose first entry is a muted "Not set"."""
+    """Combo box whose first entry is a muted "Not set".
+
+    "Not set" is muted both in the drop-down list and, while it is the
+    current entry, in the closed combo (QComboBox paints its label with the
+    Text role). The drop-down may inherit the combo's palette, so the real
+    options carry an explicit normal text colour and stay unmuted. Disabled
+    (read-only) text is always muted. All of it is re-applied on palette
+    changes, which is how a theme switch reaches widgets.
+    """
 
     def __init__(self, spec: EditorSpec, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -174,23 +181,36 @@ class ChoiceEditor(FieldEditor):
         options = spec.options() if callable(spec.options) else spec.options
         self._values: list[Any] = [None]
         self._loading = False
-        RoleColor(self._combo, TEXT_ROLES, muted_color, _DISABLED_GROUP)
         self._combo.addItem(NOT_SET)
-        self._mute_not_set_entry()
         for val, label in options:
             self._values.append(val)
             self._combo.addItem(label)
+        self._mute_not_set()
         self._combo.currentIndexChanged.connect(self._on_index)
 
-    def _mute_not_set_entry(self) -> None:
-        self._combo.setItemData(0, muted_color(self._combo), Qt.ItemDataRole.ForegroundRole)
+    def _mute_not_set(self) -> None:
+        """Mute the "Not set" list entry, the closed combo while it shows it, and disabled text."""
+        muted = muted_color(self._combo)
+        normal = _theme_color("text") or QApplication.palette().color(QPalette.ColorRole.Text)
+        self._combo.setItemData(0, muted, Qt.ItemDataRole.ForegroundRole)
+        for index in range(1, self._combo.count()):
+            self._combo.setItemData(index, normal, Qt.ItemDataRole.ForegroundRole)
+        pal = QPalette()  # fresh: everything else keeps inheriting from the theme
+        for role in TEXT_ROLES:
+            pal.setColor(QPalette.ColorGroup.Disabled, role, muted)
+        if self._combo.currentIndex() == 0:  # the label only; the arrow keeps its colour
+            for group in _ACTIVE_GROUPS:
+                pal.setColor(group, QPalette.ColorRole.Text, muted)
+        self._combo.setPalette(pal)
 
     def changeEvent(self, event: QEvent) -> None:  # noqa: N802
+        # A theme switch reaches widgets as a palette change on the editor.
         if event.type() == QEvent.Type.PaletteChange and hasattr(self, "_combo"):
-            self._mute_not_set_entry()
+            self._mute_not_set()
         super().changeEvent(event)
 
     def _on_index(self, _index: int) -> None:
+        self._mute_not_set()
         if not self._loading:
             self.changed.emit()
 
@@ -209,6 +229,7 @@ class ChoiceEditor(FieldEditor):
                     self._combo.addItem(str(value))
                     index = len(self._values) - 1
             self._combo.setCurrentIndex(index)
+            self._mute_not_set()
         finally:
             self._loading = False
 

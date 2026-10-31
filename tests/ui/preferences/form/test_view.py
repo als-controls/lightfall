@@ -98,7 +98,7 @@ def menus(monkeypatch):
     return shown
 
 
-def right_click(qtbot, widget):
+def right_click(widget):
     """Deliver a mouse context-menu event to ``widget``; unhandled, it travels up to the row."""
     pos = QPoint(2, 2)
     QApplication.sendEvent(widget, QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, widget.mapToGlobal(pos)))
@@ -107,7 +107,7 @@ def right_click(qtbot, widget):
 def clear_via_menu(qtbot, row, menus, target=None):
     """Right-click ``target`` (the row's label by default) and pick "Clear (not set)"."""
     menus.clear()
-    right_click(qtbot, target or row._label)
+    right_click(target or row._label)
     assert menus, "no context menu shown"
     action = next(a for a in menus[-1].actions() if a.text() == "Clear (not set)")
     action.trigger()
@@ -188,7 +188,7 @@ def test_context_menu_clear_sets_not_set(qtbot, menus):
     clear_via_menu(qtbot, flag, menus, target=flag.editor.findChild(QComboBox))
     assert model.pending(USER, FLAG) is None
     menus.clear()
-    right_click(qtbot, flag._label)
+    right_click(flag._label)
     assert [a.isEnabled() for a in menus[-1].actions() if a.text() == "Clear (not set)"] == [False]
 
 
@@ -196,23 +196,36 @@ def test_context_menu_on_line_edit_keeps_standard_actions_and_adds_clear(qtbot, 
     form, model, _ = make_form(qtbot, FakePrefs(layers={(LOCAL, CONSOLE): "abc"}), scope=LOCAL)
     row = rows(form)[CONSOLE]
     menus.clear()
-    right_click(qtbot, row.editor.findChild(QLineEdit))
+    right_click(row.editor.findChild(QLineEdit))
     texts = [a.text() for a in menus[-1].actions()]
     assert "Clear (not set)" in texts and len(texts) > 2  # the line edit's own Copy/Paste survive
     next(a for a in menus[-1].actions() if a.text() == "Clear (not set)").trigger()
     assert model.pending(LOCAL, CONSOLE) is None
 
 
+def test_context_menu_clear_disabled_when_editor_disabled(qtbot, menus):
+    prefs = FakePrefs(layers={(USER, COUNT): 5})  # Count holds a value but Flag is not On
+    form, _, _ = make_form(qtbot, prefs)
+    row = rows(form)[COUNT]
+    assert not row.editor.isEnabled()
+    right_click(row._label)
+    assert [a.isEnabled() for a in menus[-1].actions() if a.text() == "Clear (not set)"] == [False]
+    click_toggle(qtbot, rows(form)[FLAG], "On")  # enabled_when now holds
+    menus.clear()
+    right_click(row._label)
+    assert [a.isEnabled() for a in menus[-1].actions() if a.text() == "Clear (not set)"] == [True]
+
+
 def test_context_menu_clear_disabled_when_read_only(qtbot, menus):
     prefs = FakePrefs(layers={(BEAMLINE, COUNT): 7})
     form, _, _ = make_form(qtbot, prefs, scope=BEAMLINE)
     row = rows(form)[COUNT]
-    right_click(qtbot, row._label)
+    right_click(row._label)
     assert [a.isEnabled() for a in menus[-1].actions() if a.text() == "Clear (not set)"] == [False]
 
 
 def test_clear_action_marks_dirty_and_none(qtbot, menus):
-    prefs = FakePrefs(layers={(USER, COUNT): 5})
+    prefs = FakePrefs(layers={(USER, COUNT): 5, (USER, FLAG): True})  # Flag On enables Count
     form, model, _ = make_form(qtbot, prefs)
     row = rows(form)[COUNT]
     with qtbot.waitSignal(form.edited):

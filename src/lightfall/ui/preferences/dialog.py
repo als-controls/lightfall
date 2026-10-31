@@ -455,7 +455,9 @@ class PreferencesDialog(QDialog):
             + "\n\nDiscard these edits and save the rest, or cancel to go back."
         )
         discard = box.addButton("Discard these edits", QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton(QMessageBox.StandardButton.Cancel)
+        cancel = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(cancel)  # Enter never discards
+        box.setEscapeButton(cancel)
         box.exec()
         if box.clickedButton() is not discard:
             return False

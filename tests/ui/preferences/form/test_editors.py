@@ -247,6 +247,39 @@ def _normal_text(widget):
 
 
 @pytest.mark.parametrize("kind", ["choice", "toggle"])
+def test_closed_combo_text_is_muted_only_while_not_set(qtbot, kind):
+    """The closed combo shows "Not set" muted; real options stay in normal colour."""
+    from qtpy.QtGui import QPalette
+
+    from lightfall.ui.preferences.form.editors import muted_color
+
+    editor = make(qtbot, kind)
+    combo = editor.findChild(QComboBox)
+    muted = muted_color(combo)
+
+    def shown_muted():
+        """Per group (Active, Inactive): is the closed label (QComboBox paints it with Text) muted?"""
+        groups = (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive)
+        return [combo.palette().color(g, QPalette.ColorRole.Text) == muted for g in groups]
+
+    assert combo.currentIndex() == 0 and all(shown_muted())
+    combo.setCurrentIndex(combo.count() - 1)  # a user picks a value
+    assert not any(shown_muted())
+    editor.set_value(None)
+    assert all(shown_muted())
+    editor.set_value(CASES[kind][2])
+    assert not any(shown_muted())
+    # Drop-down items: "Not set" muted, real options explicitly not muted.
+    editor.set_value(None)
+    fg = [combo.itemData(i, Qt.ItemDataRole.ForegroundRole) for i in range(combo.count())]
+    assert fg[0] == muted and all(c is not None and c != muted for c in fg[1:])
+    # A palette change (theme switch) re-applies it.
+    editor.set_value(None)
+    editor.setPalette(QPalette())
+    assert all(shown_muted())
+
+
+@pytest.mark.parametrize("kind", ["choice", "toggle"])
 def test_read_only_combo_is_muted(qtbot, kind):
     from qtpy.QtGui import QPalette
 

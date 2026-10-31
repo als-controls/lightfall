@@ -196,12 +196,14 @@ def env(monkeypatch):
     monkeypatch.setattr(QMessageBox, "warning", record("warning"))
     monkeypatch.setattr(QMessageBox, "critical", record("critical"))
     ns = SimpleNamespace(
-        prefs=prefs, main=main, console=console, legacy=legacy, restarts=restarts, boxes=boxes, box_choice=None
+        prefs=prefs, main=main, console=console, legacy=legacy, restarts=restarts, boxes=boxes, box_choice=None,
+        default_buttons=[],
     )
 
     def fake_exec(box):
         """Record a modal box and click the button named ``ns.box_choice`` (or none)."""
         boxes.append(("box", box.text()))
+        ns.default_buttons.append(box.defaultButton().text() if box.defaultButton() else None)
         chosen = next((b for b in box.buttons() if b.text() == ns.box_choice), None)
         if chosen is not None:
             chosen.click()
@@ -535,7 +537,7 @@ def test_switching_back_shows_remote_change_made_while_away(qtbot, env):
     assert row(dialog, "main", COUNT).editor.value() == 8
 
 
-def test_edit_that_became_unwritable_blocks_save_with_warning(qtbot, env):
+def test_edit_that_became_unwritable_blocks_save_with_warning_cancel_keeps_edits(qtbot, env):
     dialog = make_dialog(qtbot, env)
     click_toggle(qtbot, row(dialog, "main", FLAG), "On")
     dialog.select_scope(BEAMLINE)
@@ -564,6 +566,7 @@ def test_discard_blocked_edits_then_save_continues(qtbot, env):
     env.box_choice = "Discard these edits"
     dialog.accept()
     assert [text for kind, text in env.boxes if kind == "box"] and "Count (Beamline 7.0.1)" in env.boxes[0][1]
+    assert env.default_buttons == ["Cancel"]  # Enter never discards
     assert env.prefs.calls == [("set", FLAG, True, USER)]
     assert not dialog._model.is_dirty(BEAMLINE, COUNT)
     assert dialog._model.dirty_cells() == []

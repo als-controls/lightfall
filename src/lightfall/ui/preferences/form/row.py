@@ -117,6 +117,7 @@ class SettingRow(QWidget):
         self.editor = editor
         self._read_only = False
         self._invalid = False
+        self._is_set = False
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, ROW_MARGIN_V, 0, ROW_MARGIN_V)
@@ -185,6 +186,7 @@ class SettingRow(QWidget):
 
     # Right-click offers "Clear (not set)".
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
+        self._update_clear_action()
         menu = QMenu(self)
         menu.addAction(self.clear_action)
         self._popup(menu, event.globalPos())
@@ -197,6 +199,7 @@ class SettingRow(QWidget):
             self.contextMenuEvent(event)
             return True
         if isinstance(obj, QLineEdit):
+            self._update_clear_action()
             menu = obj.createStandardContextMenu()
             menu.addSeparator()
             menu.addAction(self.clear_action)
@@ -213,7 +216,17 @@ class SettingRow(QWidget):
         self._accent.set_active(is_set)
         self._dot.setVisible(dirty)
         self._conflict.setVisible(conflict)
-        self.clear_action.setEnabled(not self._read_only and (is_set or self._invalid))
+        self._is_set = is_set
+        self._update_clear_action()
+
+    def _update_clear_action(self) -> None:
+        """Clear is offered only for an editable, enabled field that holds a value (or bad input).
+
+        Called again when a menu opens: ``enabled_when`` can disable the editor
+        without the row hearing about it.
+        """
+        editable = not self._read_only and self.editor.isEnabled()
+        self.clear_action.setEnabled(editable and (self._is_set or self._invalid))
 
     def set_read_only(self, reason: str | None, inline: bool = True) -> None:
         """Make the row read-only for ``reason``; None makes it editable.
@@ -227,8 +240,7 @@ class SettingRow(QWidget):
         self._lock.setToolTip(reason or "")
         self._lock.setVisible(self._read_only)
         self._reason.setVisible(self._read_only and inline)
-        if self._read_only:
-            self.clear_action.setEnabled(False)
+        self._update_clear_action()
 
     def set_invalid(self, invalid: bool) -> None:
         self._invalid = invalid
