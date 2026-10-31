@@ -454,6 +454,11 @@ class PreferencesManager(QObject):
 
         return scope_api.writable_at(self, key, scope)
 
+    def needs_approval(self, key: str, scope: str) -> bool:
+        from lightfall.ui.preferences import scope_api
+
+        return scope_api.needs_approval(self, key, scope)
+
     def lock_at(self, key: str, scope: str) -> Any:
         from lightfall.ui.preferences import scope_api
 

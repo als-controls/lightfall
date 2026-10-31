@@ -177,3 +177,33 @@ def test_off_mode_layer_value_is_the_console_yaml(qapp, tmp_path, monkeypatch):
         assert m.layer_value("theme", "facility") is None
     finally:
         PreferencesManager.reset()
+
+
+def test_needs_approval_only_for_page_declared_scopes(pm):  # noqa: F811
+    from lightfall_settings import SettingSpec
+
+    from lightfall.scopes.keys import register_client_specs
+
+    register_client_specs([SettingSpec(
+        key="approval.demo", scopes=frozenset({"user", "branch", "beamline"}),
+        operator_writable=True)])
+    manager, _ = pm
+    assert not manager.needs_approval("approval.demo", "beamline:7.0.1")  # not logged in
+    _login(manager)
+    assert manager.needs_approval("approval.demo", "beamline:7.0.1")
+    assert manager.needs_approval("approval.demo", "branch:7.0.1.1")
+    assert not manager.needs_approval("approval.demo", "user:u1")
+    assert not manager.needs_approval("approval.demo", "local")
+    assert not manager.needs_approval("approval.demo", "facility")  # not allowed there
+    assert not manager.needs_approval("theme", "beamline:7.0.1")    # base spec allows it
+    approved = ({"key": "approval.demo", "type": "str", "scopes": ["beamline", "user"],
+                 "operator_writable": True},)
+    tsb.CHAIN = tsb.ChainInfo(**{**tsb.CHAIN.__dict__, "specs": approved})
+    manager.scoped_backend.refresh()
+    assert manager.scoped_backend.registry.get("approval.demo").allows("beamline")
+    assert not manager.needs_approval("approval.demo", "beamline:7.0.1")
+
+
+def test_needs_approval_false_in_local_file_mode(local_pm):
+    assert not local_pm.needs_approval("tiled_url", "facility")
+    assert not local_pm.needs_approval("theme", "local")

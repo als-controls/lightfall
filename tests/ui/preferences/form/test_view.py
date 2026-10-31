@@ -433,3 +433,24 @@ def test_lock_and_generic_reasons_still_show_inline(qtbot):
     r = rows(form)
     assert r[COUNT].reason_shown_inline()
     assert r[FLAG].reason_shown_inline()  # generic text: the User header has no reason
+
+
+def test_row_shows_approval_note(qtbot):
+    prefs = FakePrefs(writable={USER, LOCAL, BEAMLINE})
+    prefs.needs_approval = lambda key, scope: key == COUNT and scope == BEAMLINE
+    form, _, _ = make_form(qtbot, prefs, scope=BEAMLINE)
+    r = rows(form)
+    assert r[COUNT].approval_note_shown()
+    assert not r[COUNT].is_read_only()
+    assert r[COUNT]._approval.text() == "Saving here asks a facility admin to approve this setting"
+    form.show_scope(USER)
+    assert not any(row.approval_note_shown() for row in rows(form).values())
+
+
+def test_lock_reason_wins_over_approval_note(qtbot):
+    lock = LockInfo("facility", "admin", "")
+    prefs = FakePrefs(writable={USER, LOCAL, BEAMLINE}, locks={(BEAMLINE, COUNT): lock})
+    prefs.needs_approval = lambda key, scope: True
+    form, _, _ = make_form(qtbot, prefs, scope=BEAMLINE)
+    row = rows(form)[COUNT]
+    assert row.is_read_only() and not row.approval_note_shown()

@@ -40,6 +40,7 @@ EDITOR_COLUMN_MIN = 240
 LOCK_ICON_SIZE = 14
 
 CONFLICT_TEXT = "Changed elsewhere since you opened this"
+APPROVAL_TEXT = "Saving here asks a facility admin to approve this setting"
 RESTART_TEXT = "restart"
 CLEAR_TEXT = "Clear (not set)"
 LOCK_GLYPH = "\U0001f512"
@@ -118,6 +119,7 @@ class SettingRow(QWidget):
         self._read_only = False
         self._invalid = False
         self._is_set = False
+        self._needs_approval = False
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, ROW_MARGIN_V, 0, ROW_MARGIN_V)
@@ -159,6 +161,12 @@ class SettingRow(QWidget):
         left.addLayout(lock_line)
         self._lock.hide()
         self._reason.hide()
+
+        self._approval = QLabel(APPROVAL_TEXT, self)
+        self._approval.setWordWrap(True)
+        set_muted(self._approval)
+        self._approval.hide()
+        left.addWidget(self._approval)
 
         self._conflict = QLabel(CONFLICT_TEXT, self)
         self._conflict.setWordWrap(True)
@@ -240,7 +248,16 @@ class SettingRow(QWidget):
         self._lock.setToolTip(reason or "")
         self._lock.setVisible(self._read_only)
         self._reason.setVisible(self._read_only and inline)
+        self._show_approval()
         self._update_clear_action()
+
+    def set_needs_approval(self, needs: bool) -> None:
+        """Show the muted "asks a facility admin" note (never on a read-only row)."""
+        self._needs_approval = needs
+        self._show_approval()
+
+    def _show_approval(self) -> None:
+        self._approval.setVisible(self._needs_approval and not self._read_only)
 
     def set_invalid(self, invalid: bool) -> None:
         self._invalid = invalid
@@ -263,6 +280,9 @@ class SettingRow(QWidget):
 
     def has_restart_tag(self) -> bool:
         return not self._restart.isHidden()
+
+    def approval_note_shown(self) -> bool:
+        return not self._approval.isHidden()
 
     def reason_text(self) -> str:
         return self._reason.text() if self._read_only else ""

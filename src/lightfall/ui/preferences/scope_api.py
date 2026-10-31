@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from lightfall_settings import ScopeId, role_at_least
 from lightfall_settings.scopes import KIND_RANK
 
-from lightfall.scopes.keys import LOCAL_LAYER_KEYS, client_registry, console_only
+from lightfall.scopes.keys import LOCAL_LAYER_KEYS, base_spec, client_registry, console_only
 
 if TYPE_CHECKING:
     from lightfall.ui.preferences.manager import PreferencesManager
@@ -95,6 +95,22 @@ def writable_at(prefs: PreferencesManager, key: str, scope: str) -> bool:
     if console_only(key) or prefs.scope_info.mode == "local":
         return scope == LOCAL
     return scope in prefs.write_targets(key)
+
+
+def needs_approval(prefs: PreferencesManager, key: str, scope: str) -> bool:
+    """Whether saving ``key`` at ``scope`` will wait for a facility admin.
+
+    True when only the page's own spec lets the key live at that scope kind (the
+    server has not approved it), so the server answers ``key_pending``. Always False
+    for this console and when scopes are off or file-based.
+    """
+    scoped = prefs._active_scoped()
+    if prefs.scope_info.mode != "server" or scoped is None or scope == LOCAL:
+        return False
+    kind = ScopeId.parse(scope).kind
+    if kind == "user" or not writable_at(prefs, key, scope):
+        return False
+    return not base_spec(key, scoped.registry).allows(kind)
 
 
 def lock_at(prefs: PreferencesManager, key: str, scope: str) -> LockInfo | None:

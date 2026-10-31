@@ -46,7 +46,7 @@ class SettingsForm(QWidget):
     """Renders a form page's ``sections()`` for the scope chosen in the dialog.
 
     ``prefs`` is duck-typed: only ``allowed_at``, ``writable_at``, ``lock_at``
-    and ``scope_choices`` are used. Values come from and go to ``model``.
+    and ``scope_choices`` are used (``needs_approval`` too when present). Values come from and go to ``model``.
     """
 
     edited = Signal()
@@ -201,6 +201,8 @@ class SettingsForm(QWidget):
         reason = self._read_only_reason(field.key, scope, scope_reason)
         # The header already states the scope's reason; repeat only the lock glyph.
         row.set_read_only(reason, inline=reason != scope_reason)
+        needs_approval = getattr(self._prefs, "needs_approval", None)
+        row.set_needs_approval(bool(needs_approval and needs_approval(field.key, scope)))
         key = field.key
         editor.changed.connect(lambda: self._on_editor_changed(key))
         row.clear_requested.connect(lambda: self._on_clear(key))
