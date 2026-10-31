@@ -96,7 +96,12 @@ class ToastManager(QObject):
             return self._parent_widget
         app = QApplication.instance()
         if app:
-            return app.activeWindow()
+            active = app.activeWindow()
+            # With no main window the active window is the toast shown last. A child of
+            # it dies with it while pyqttoast still lists it, and the next show() crashes.
+            if isinstance(active, Toast):
+                return None
+            return active
         return None
 
     def _get_preset(self, base_preset: ToastPreset) -> ToastPreset:

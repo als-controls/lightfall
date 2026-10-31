@@ -107,3 +107,21 @@ def test_environment_signs_in_the_simulated_operator():
         assert SessionManager.get_instance().check_permission(Permission.DEVICE_CONTROL)
     finally:
         SessionManager.reset()
+
+
+def test_engine_starts_before_devices_connect(monkeypatch):
+    """Device connection checks run on worker threads and import lightfall.acquire.engine
+    (via devices.async_connect). Importing lightfall.acquire on the main thread at the same
+    time deadlocked the import system (_DeadlockError, flaky). The app imports the engine
+    first; the harness must too."""
+    from lightfall.eval.environment import SimEnvironment
+
+    order = []
+    env = SimEnvironment(role=None)
+    monkeypatch.setattr(env, "_start_engine", lambda: order.append("engine"))
+    monkeypatch.setattr(env, "_start_devices", lambda: order.append("devices"))
+    monkeypatch.setattr(env, "_start_tiled", lambda: order.append("tiled"))
+    monkeypatch.setattr("lightfall.eval.environment._qapp", lambda: None)
+    env.__enter__()
+    env.close()
+    assert order == ["engine", "devices", "tiled"]
