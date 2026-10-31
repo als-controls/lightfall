@@ -605,15 +605,6 @@ class PreferencesManager(QObject):
         return derived_default(key, getattr(site, "bind", None),
                                getattr(site, "facility", "") or "")
 
-    def set_unless_derived(self, key: str, value: str) -> None:
-        """Save a settings-page field; blank or the derived value means "use the default"
-        and is not stored, so a console's identity never follows the user elsewhere."""
-        derived = self.derived_value(key)
-        if derived is not None and value in ("", derived):
-            self.remove(key)
-        else:
-            self.set(key, value)
-
     @property
     def scope_info(self) -> ScopeInfo:
         return self._scope_info

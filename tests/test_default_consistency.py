@@ -39,19 +39,29 @@ def empty_prefs(monkeypatch):
 
 
 def test_tiled_defaults_are_off_and_shared(qapp, empty_prefs):
+    from types import SimpleNamespace
+
     from lightfall.services.tiled_service import DEFAULT_TILED_URL, TILED_DEFAULTS
-    from lightfall.ui.preferences.tiled_settings import TiledSettingsPlugin
+    from lightfall.ui.preferences import tiled_settings
+    from lightfall.ui.preferences.form.schema import section_fields
 
     assert TILED_DEFAULTS == {"tiled_enabled": False, "tiled_url": "", "tiled_auth_mode": ""}
-    page = TiledSettingsPlugin()
-    page.create_widget()
-    page.load_settings()
-    assert page._enabled_check.isChecked() is False
-    assert page._url_edit.text() == ""
-    assert page._url_edit.placeholderText() == DEFAULT_TILED_URL
-    assert page._auth_mode_combo.currentData() == ""
+    fields = {f.key: f for s in tiled_settings.TiledSettingsPlugin().sections() for f in section_fields(s)}
+    assert fields["tiled_url"].placeholder == DEFAULT_TILED_URL
+    # The page's predicates and Test Connection fall back to the same defaults.
+    asked: dict[str, object] = {}
+
+    def effective(key, default=None):
+        asked[key] = default
+        return default
+
+    values = SimpleNamespace(scope="local", effective=effective, get=lambda key: None)
+    assert fields["tiled_url"].enabled_when(values) is False
+    assert fields["tiled_api_key"].visible_when(values) is False
+    with pytest.raises(RuntimeError, match="Enter a URL first"):
+        tiled_settings._test_connection(values)
     for key, value in TILED_DEFAULTS.items():
-        assert empty_prefs.asked[key] == value
+        assert asked[key] == value
 
 
 def test_tiled_startup_uses_the_same_defaults(qapp, empty_prefs):

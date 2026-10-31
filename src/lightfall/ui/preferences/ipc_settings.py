@@ -18,6 +18,7 @@ from lightfall.ipc.local_server import (
     resolve_nats_binary,
 )
 from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.form.binding import binding_derived, shown_unless_bound
 from lightfall.ui.preferences.form.schema import (
     Action,
     Embed,
@@ -30,7 +31,6 @@ from lightfall.ui.preferences.form.schema import (
     Toggle,
     Url,
 )
-from lightfall.ui.preferences.manager import PreferencesManager
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -45,6 +45,11 @@ CONSOLE = frozenset({"local"})
 DEFAULT_LOCAL_PORT = 4222
 LIST_MAX_HEIGHT = 120
 NO_BINARY = "nats-server not found — install it or `pip install lightfall[local-nats]`"
+
+_PREFIX_FIELD, _PREFIX_BINDING = binding_derived(
+    SettingField("ipc_topic_prefix", Text(), label="Topic Prefix", placeholder=DEFAULT_IPC_TOPIC_PREFIX),
+    DEFAULT_IPC_TOPIC_PREFIX,
+)
 
 
 def _use_local(values: FormValues) -> bool:
@@ -176,26 +181,9 @@ class IPCSettingsPlugin(SettingsPlugin):
         version = self._versions[path]
         return f"{f'v{version}' if version else '(version unknown)'} — {path}"
 
-    @staticmethod
-    def _prefix_unbound(values: FormValues) -> bool:
-        """The console's prefix field shows only while the console is unbound.
-
-        The binding is read live from PreferencesManager; a binding change shows
-        up when the form is rebuilt (scope change or ``scopes_changed``).
-        """
-        return values.scope != "local" or not PreferencesManager.get_instance().console_bound()
-
-    @staticmethod
-    def _prefix_binding(_values: FormValues) -> str:
-        """The bound console's prefix, or "" (the line hides) when unbound.
-
-        Read live like ``_prefix_unbound``; re-evaluated after every edit and rebuild.
-        """
-        prefs = PreferencesManager.get_instance()
-        if not prefs.console_bound():
-            return ""
-        prefix = prefs.get("ipc_topic_prefix", DEFAULT_IPC_TOPIC_PREFIX) or ""
-        return f"From this console's binding: {prefix}"
+    # The topic prefix follows the console's binding (form/binding.py).
+    _prefix_unbound = staticmethod(shown_unless_bound)
+    _prefix_binding = staticmethod(_PREFIX_BINDING.text)
 
     @staticmethod
     def _turned_on_now(values: FormValues) -> bool:
@@ -243,14 +231,8 @@ class IPCSettingsPlugin(SettingsPlugin):
                         placeholder=DEFAULT_IPC_NATS_URL,
                         enabled_when=_not_local,
                     ),
-                    SettingField(
-                        "ipc_topic_prefix",
-                        Text(),
-                        label="Topic Prefix",
-                        placeholder=DEFAULT_IPC_TOPIC_PREFIX,
-                        visible_when=self._prefix_unbound,
-                    ),
-                    Info(self._prefix_binding, scopes=CONSOLE),
+                    _PREFIX_FIELD,
+                    _PREFIX_BINDING,
                     SettingField(
                         "ipc_display_name",
                         Text(),

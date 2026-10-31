@@ -1,7 +1,14 @@
-"""Tiled data catalog settings plugin for NCS.
+"""Tiled data catalog settings page.
 
-This module contains the TiledSettingsPlugin that allows users to
-configure the Tiled server connection for data catalog integration.
+Where each key lives (scope registry): enable and authentication mode are site-wide
+(facility/beamline/branch); the server and alshub URLs may be set at any scope; the
+API key is this console's own; the session key lifetime and the admin access override
+are per user; the beamline follows the console's binding (editable at "This console"
+when unbound, see form/binding.py).
+
+Saving needs no hook here: ``setup.services.watch_tiled_preferences`` re-applies the
+Tiled configuration whenever ``tiled_enabled``/``tiled_url``/``tiled_auth_mode``/
+``tiled_api_key`` change, and the other keys are read when they are used.
 """
 
 from __future__ import annotations
@@ -10,26 +17,45 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from lightfall_settings import SettingSpec
 
 from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.services.tiled_service import DEFAULT_TILED_URL, TILED_DEFAULTS
+from lightfall.ui.preferences.form.binding import binding_derived
+from lightfall.ui.preferences.form.schema import (
+    Action,
+    Choice,
+    FormValues,
+    Secret,
+    Section,
+    SettingField,
+    Text,
+    Toggle,
+    Url,
+)
 from lightfall.ui.preferences.manager import PreferencesManager
-from lightfall.ui.theme import scaled_pt
-from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from PySide6.QtGui import QIcon
+
+USER = frozenset({"user"})
+DEFAULT_ALSHUB_URL = "https://bcgmds01.als.lbl.gov"
+OVERRIDE_SECTION = "Access Override (Admin / Staff Only)"
+AUTH_MODES: tuple[tuple[str, str], ...] = (
+    ("", "Automatic (match sign-in)"),
+    ("none", "None"),
+    ("api_key", "API Key"),
+    ("keycloak", "Keycloak (use Lightfall session)"),
+)
+KEY_LIFETIMES: tuple[tuple[int, str], ...] = (
+    (604800, "7 days (default)"),
+    (86400, "1 day"),
+    (3600, "1 hour (development)"),
+)
+URL_REQUIRED = "Tiled server URL is required when enabled"
+URL_INVALID = "Tiled server URL must start with http:// or https://"
 
 
 @dataclass
@@ -61,216 +87,90 @@ def access_override_from_prefs(prefs: PreferencesManager) -> AccessOverride | No
         return None
 
 
+def _enabled(values: FormValues) -> bool:
+    return bool(values.effective("tiled_enabled", TILED_DEFAULTS["tiled_enabled"]))
+
+
+def _api_key_mode(values: FormValues) -> bool:
+    return values.effective("tiled_auth_mode", TILED_DEFAULTS["tiled_auth_mode"]) == "api_key"
+
+
+def _lifetime_options() -> list[tuple[int, str]]:
+    """The presets, plus a hand-edited stored lifetime shown as "<n> seconds (custom)"."""
+    options = list(KEY_LIFETIMES)
+    stored = PreferencesManager.get_instance().get("tiled_session_key_lifetime")
+    if isinstance(stored, int) and not isinstance(stored, bool) and stored not in dict(options):
+        options.append((stored, f"{stored} seconds (custom)"))
+    return options
+
+
+def _is_valid_url(url: str) -> bool:
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def _test_connection(values: FormValues) -> str:
+    """Try the effective URL, auth mode and API key (worker thread); raise on failure."""
+    from lightfall.services.tiled_service import TiledService
+
+    url = (values.effective("tiled_url", TILED_DEFAULTS["tiled_url"]) or "").strip()
+    if not url:
+        raise RuntimeError("Enter a URL first")
+    api_key = (values.effective("tiled_api_key", "") or "").strip() or None
+    auth_mode = values.effective("tiled_auth_mode", TILED_DEFAULTS["tiled_auth_mode"]) or ""
+    success, message = TiledService.get_instance().test_connection(url, api_key, auth_mode=auth_mode)
+    if not success:
+        raise RuntimeError(message)
+    return "Connected!"
+
+
+_BEAMLINE_FIELD, _BEAMLINE_BINDING = binding_derived(
+    SettingField("tiled_beamline", Text(), label="Beamline", placeholder="e.g. 7.0.1.1")
+)
+
+
 class TiledSettingsPlugin(SettingsPlugin):
-    """Settings plugin for Tiled data catalog configuration.
-
-    Allows users to configure:
-    - Enable/disable Tiled integration
-    - Tiled server URL
-    - API key for authentication
-    - Test connection functionality
-
-    Note: Changes to the Tiled configuration are applied when saved
-    and take effect on next connection (or immediately if reconnecting).
-    """
-
-    def __init__(self) -> None:
-        """Initialize the Tiled settings plugin."""
-        self._widget: QWidget | None = None
-        self._enabled_check: QCheckBox | None = None
-        self._url_edit: QLineEdit | None = None
-        self._api_key_edit: QLineEdit | None = None
-        self._test_button: QPushButton | None = None
-        self._status_label: QLabel | None = None
-        self._key_lifetime_combo: QComboBox | None = None
-        self._beamline_edit: QLineEdit | None = None
-        self._alshub_url_edit: QLineEdit | None = None
-        self._override_esaf_edit: QLineEdit | None = None
-        self._override_start_edit: QLineEdit | None = None
-        self._override_end_edit: QLineEdit | None = None
+    """Settings page for the Tiled data catalog connection and per-entry authorization."""
 
     @property
     def name(self) -> str:
-        """Return unique identifier for this settings plugin."""
         return "tiled"
 
     @property
     def display_name(self) -> str:
-        """Return human-readable name for preferences sidebar."""
         return "Tiled Data Catalog"
 
     @property
     def icon(self) -> QIcon | None:
-        """Return optional icon for sidebar."""
         return None
 
     @property
     def category(self) -> str:
-        """Return category for grouping."""
         return "data"
 
     @property
     def priority(self) -> int:
-        """Return sort order (lower = higher in list)."""
         return 50
 
-    def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        """Create the settings widget.
-
-        Args:
-            parent: Parent widget (the dialog).
-
-        Returns:
-            A QWidget containing the Tiled settings controls.
-        """
-        widget = QWidget(parent)
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        # Connection group
-        connection_group = QGroupBox("Tiled Connection")
-        connection_layout = QFormLayout(connection_group)
-
-        # Enable checkbox
-        self._enabled_check = QCheckBox("Enable Tiled integration")
-        self._enabled_check.stateChanged.connect(self._on_enabled_changed)
-        connection_layout.addRow(self._enabled_check)
-
-        # Server URL
-        self._url_edit = QLineEdit()
-        from lightfall.services.tiled_service import DEFAULT_TILED_URL
-
-        self._url_edit.setPlaceholderText(DEFAULT_TILED_URL)
-        self._url_edit.editingFinished.connect(self._validate_url)
-        self._url_error_label = QLabel()
-        self._url_error_label.setStyleSheet(f"color: #f44336; font-size: {scaled_pt(9)}pt;")
-        self._url_error_label.hide()
-        connection_layout.addRow("Server URL:", self._url_edit)
-        connection_layout.addRow("", self._url_error_label)
-
-        # Authentication mode
-        self._auth_mode_combo = QComboBox()
-        self._auth_mode_combo.addItem("Automatic (match sign-in)", "")
-        self._auth_mode_combo.addItem("None", "none")
-        self._auth_mode_combo.addItem("API Key", "api_key")
-        self._auth_mode_combo.addItem("Keycloak (use Lightfall session)", "keycloak")
-        self._auth_mode_combo.currentIndexChanged.connect(self._on_auth_mode_changed)
-        connection_layout.addRow("Authentication:", self._auth_mode_combo)
-
-        # API Key (shown only when API Key auth is selected)
-        self._api_key_edit = QLineEdit()
-        self._api_key_edit.setPlaceholderText("(optional)")
-        self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self._api_key_label = QLabel("API Key:")
-        connection_layout.addRow(self._api_key_label, self._api_key_edit)
-
-        # Session key lifetime (auth-v2 per-service API keys)
-        self._key_lifetime_combo = QComboBox()
-        self._key_lifetime_combo.addItem("7 days (default)", 604800)
-        self._key_lifetime_combo.addItem("1 day", 86400)
-        self._key_lifetime_combo.addItem("1 hour (development)", 3600)
-        self._key_lifetime_combo.setToolTip(
-            "TTL of the per-service API keys minted at login. The long "
-            "default lets detached long-running experiments finish; use a "
-            "short lifetime when restarting Lightfall frequently so stale "
-            "keys don't accumulate against the server's per-principal cap. "
-            "Applies at next login."
-        )
-        connection_layout.addRow("Session key lifetime:", self._key_lifetime_combo)
-
-        # Test connection button and status
-        test_layout = QHBoxLayout()
-        self._test_button = QPushButton("Test Connection")
-        self._test_button.clicked.connect(self._on_test_connection)
-        test_layout.addWidget(self._test_button)
-
-        self._status_label = QLabel()
-        test_layout.addWidget(self._status_label)
-        test_layout.addStretch()
-
-        connection_layout.addRow(test_layout)
-
-        # Description
-        desc = QLabel(
-            "Tiled provides a data catalog for storing and accessing "
-            "bluesky run data. When enabled, acquisition data is automatically "
-            "streamed to the Tiled server."
-        )
-        desc.setWordWrap(True)
-        desc.setStyleSheet("color: gray;")
-        connection_layout.addRow(desc)
-
-        layout.addWidget(connection_group)
-
-        # Per-entry authorization (alshub-api integration)
-        authz_group = QGroupBox("Per-entry authorization (alshub-api)")
-        authz_layout = QFormLayout()
-
-        # Read-only: the beamline is this console's binding (one place to set it).
-        self._beamline_edit = QLineEdit()
-        self._beamline_edit.setReadOnly(True)
-        self._beamline_edit.setToolTip("Set by this console's beamline: Settings › Advanced › Scopes")
-        self._beamline_edit.setPlaceholderText("not bound — bind this console on the Scopes page")
-        authz_layout.addRow("Beamline:", self._beamline_edit)
-
-        self._alshub_url_edit = QLineEdit()
-        self._alshub_url_edit.setPlaceholderText("https://bcgmds01.als.lbl.gov")
-        authz_layout.addRow("alshub URL:", self._alshub_url_edit)
-
-        authz_help = QLabel(
-            "Set Beamline + alshub URL to enable AccessStamper. Each Tiled "
-            "entry written after reconnect will be stamped with an access_blob "
-            "containing the operator's Keycloak identity and the active ESAF "
-            "for this beamline (looked up via alshub-api's public active-esaf "
-            "route). Off-network setups: configure SOCKS in Network Proxy."
-        )
-        authz_help.setWordWrap(True)
-        authz_help.setStyleSheet("color: gray;")
-        authz_layout.addRow(authz_help)
-
-        authz_group.setLayout(authz_layout)
-        layout.addWidget(authz_group)
-
-        # Admin: access override section (hidden for non-admin/staff users)
-        override_group = QGroupBox("Admin: write-time access override")
-        override_layout = QFormLayout()
-
-        self._override_esaf_edit = QLineEdit()
-        self._override_esaf_edit.setPlaceholderText("BLS-00480-001")
-        override_layout.addRow("ESAF ID:", self._override_esaf_edit)
-
-        self._override_start_edit = QLineEdit()
-        self._override_start_edit.setPlaceholderText("2026-04-26T18:00:00+00:00")
-        override_layout.addRow("Start (ISO8601):", self._override_start_edit)
-
-        self._override_end_edit = QLineEdit()
-        self._override_end_edit.setPlaceholderText("2026-04-27T02:00:00+00:00")
-        override_layout.addRow("End (ISO8601):", self._override_end_edit)
-
-        override_help = QLabel(
-            "When set and current time is within [start, end], the AccessStamper "
-            "will use this ESAF ID instead of querying alshub-api."
-        )
-        override_help.setWordWrap(True)
-        override_help.setStyleSheet("color: gray;")
-        override_layout.addRow(override_help)
-
-        override_group.setLayout(override_layout)
-        override_group.setVisible(self._user_has_admin_or_staff())
-        layout.addWidget(override_group)
-
-        layout.addStretch()
-
-        self._widget = widget
-        self._update_enabled_state()
-        return widget
+    def specs(self) -> Sequence[SettingSpec]:
+        return [
+            SettingSpec(key="tiled_session_key_lifetime", scopes=USER, label="Session key lifetime"),
+            SettingSpec(key="tiled_access_override_esaf_id", scopes=USER, label="Access override ESAF ID"),
+            SettingSpec(key="tiled_access_override_start", scopes=USER, label="Access override start"),
+            SettingSpec(key="tiled_access_override_end", scopes=USER, label="Access override end"),
+        ]
 
     def _user_has_admin_or_staff(self) -> bool:
         """Check current SessionManager user claims for admin/staff groups.
 
         Reads from ``session.user.attributes`` (decoded JWT claims) rather
         than ``session.token`` (which is the raw JWT string and has no
-        ``.claims`` attribute — the previous code was dead).
+        ``.claims`` attribute).
         """
         try:
             from lightfall.auth.session import SessionManager
@@ -285,225 +185,109 @@ class TiledSettingsPlugin(SettingsPlugin):
         except Exception:
             return False
 
-    def _on_enabled_changed(self, state: int) -> None:
-        """Handle enable checkbox state change."""
-        self._update_enabled_state()
+    def _show_override(self, _values: FormValues) -> bool:
+        return self._user_has_admin_or_staff()
 
-    def _on_auth_mode_changed(self, index: int) -> None:
-        """Show/hide API key field based on auth mode."""
-        self._update_enabled_state()
+    def sections(self) -> Sequence[Section]:
+        override = self._show_override
+        return [
+            Section(
+                "Tiled Connection",
+                [
+                    SettingField("tiled_enabled", Toggle(), label="Enable Tiled integration"),
+                    SettingField(
+                        "tiled_url",
+                        Url(),
+                        label="Server URL",
+                        placeholder=DEFAULT_TILED_URL,
+                        enabled_when=_enabled,
+                    ),
+                    SettingField("tiled_auth_mode", Choice(AUTH_MODES), label="Authentication"),
+                    SettingField(
+                        "tiled_api_key",
+                        Secret(),
+                        label="API Key",
+                        placeholder="(optional)",
+                        visible_when=_api_key_mode,
+                    ),
+                    SettingField(
+                        "tiled_session_key_lifetime",
+                        Choice(_lifetime_options),
+                        label="Session key lifetime",
+                        description=(
+                            "TTL of the per-service API keys minted at login. The long default lets "
+                            "detached long-running experiments finish; use a short lifetime when "
+                            "restarting Lightfall frequently so stale keys don't accumulate against "
+                            "the server's per-principal cap. Applies at next login."
+                        ),
+                    ),
+                    Action("Test Connection", _test_connection, enabled_when=_enabled),
+                ],
+                description=(
+                    "Tiled provides a data catalog for storing and accessing bluesky run data. "
+                    "When enabled, acquisition data is automatically streamed to the Tiled server."
+                ),
+            ),
+            Section(
+                "Per-entry authorization (alshub-api)",
+                [
+                    _BEAMLINE_FIELD,
+                    _BEAMLINE_BINDING,
+                    SettingField(
+                        "tiled_alshub_url", Url(), label="alshub URL", placeholder=DEFAULT_ALSHUB_URL
+                    ),
+                ],
+                description=(
+                    "Set Beamline + alshub URL to enable AccessStamper. Each Tiled entry written "
+                    "after reconnect is stamped with an access_blob containing the operator's "
+                    "Keycloak identity and the active ESAF for this beamline (looked up via "
+                    "alshub-api's public active-esaf route). Off-network setups: configure SOCKS "
+                    "in Network Proxy."
+                ),
+            ),
+            Section(
+                OVERRIDE_SECTION,
+                [
+                    SettingField(
+                        "tiled_access_override_esaf_id",
+                        Text(),
+                        label="ESAF ID",
+                        placeholder="BLS-00480-001",
+                        visible_when=override,
+                    ),
+                    SettingField(
+                        "tiled_access_override_start",
+                        Text(),
+                        label="Start (ISO8601)",
+                        placeholder="2026-04-26T18:00:00+00:00",
+                        visible_when=override,
+                    ),
+                    SettingField(
+                        "tiled_access_override_end",
+                        Text(),
+                        label="End (ISO8601)",
+                        placeholder="2026-04-27T02:00:00+00:00",
+                        visible_when=override,
+                    ),
+                ],
+                description=(
+                    "When set and the current time is within [start, end], the AccessStamper "
+                    "uses this ESAF ID instead of querying alshub-api."
+                ),
+            ),
+        ]
 
-    def _update_enabled_state(self) -> None:
-        """Update widget enabled states based on checkbox and auth mode."""
-        enabled = self._enabled_check.isChecked() if self._enabled_check else False
-        auth_mode = self._auth_mode_combo.currentData() if self._auth_mode_combo else "none"
-        show_api_key = enabled and auth_mode == "api_key"
-
-        if self._url_edit:
-            self._url_edit.setEnabled(enabled)
-        if self._auth_mode_combo:
-            self._auth_mode_combo.setEnabled(enabled)
-        if self._api_key_edit:
-            self._api_key_edit.setEnabled(show_api_key)
-            self._api_key_edit.setVisible(show_api_key)
-        if self._api_key_label:
-            self._api_key_label.setVisible(show_api_key)
-        if self._test_button:
-            self._test_button.setEnabled(enabled)
-
-    def _on_test_connection(self) -> None:
-        """Handle test connection button click."""
-        if not self._url_edit or not self._status_label:
-            return
-
-        url = self._url_edit.text().strip()
-        api_key = self._api_key_edit.text() if self._api_key_edit else None
-        if api_key:
-            api_key = api_key.strip() or None
-        auth_mode = self._auth_mode_combo.currentData() if self._auth_mode_combo else "none"
-
+    def validate_values(self, values: FormValues) -> list[str]:
+        # Only an edit at this scope to the enable switch or the URL can make the pair
+        # invalid here; another scope's state never blocks this save.
+        is_dirty = getattr(values, "is_dirty", None)
+        if not is_dirty or not (is_dirty("tiled_enabled") or is_dirty("tiled_url")):
+            return []
+        if not _enabled(values):
+            return []
+        url = (values.effective("tiled_url", TILED_DEFAULTS["tiled_url"]) or "").strip()
         if not url:
-            self._status_label.setText("Enter a URL first")
-            self._status_label.setStyleSheet("color: orange;")
-            return
-
-        self._status_label.setText("Testing...")
-        self._status_label.setStyleSheet("color: gray;")
-
-        # Force UI update
-        from PySide6.QtCore import QCoreApplication
-
-        QCoreApplication.processEvents()
-
-        try:
-            from lightfall.services.tiled_service import TiledService
-
-            service = TiledService.get_instance()
-            success, message = service.test_connection(url, api_key, auth_mode=auth_mode)
-
-            if success:
-                self._status_label.setText("Connected!")
-                self._status_label.setStyleSheet("color: green;")
-            else:
-                self._status_label.setText(message)
-                self._status_label.setStyleSheet("color: red;")
-
-        except Exception as e:
-            self._status_label.setText(f"Error: {e}")
-            self._status_label.setStyleSheet("color: red;")
-            logger.error("Test connection error: {}", e)
-
-    def load_settings(self) -> None:
-        """Load current settings into the widget.
-
-        Populates the controls with current values from PreferencesManager.
-        """
-        prefs = PreferencesManager.get_instance()
-
-        from lightfall.services.tiled_service import TILED_DEFAULTS
-
-        if self._enabled_check:
-            self._enabled_check.setChecked(
-                prefs.get("tiled_enabled", TILED_DEFAULTS["tiled_enabled"])
-            )
-
-        if self._url_edit:
-            self._url_edit.setText(prefs.get("tiled_url", TILED_DEFAULTS["tiled_url"]))
-
-        if self._auth_mode_combo:
-            auth_mode = prefs.get("tiled_auth_mode", TILED_DEFAULTS["tiled_auth_mode"])
-            index = self._auth_mode_combo.findData(auth_mode)
-            if index >= 0:
-                self._auth_mode_combo.setCurrentIndex(index)
-
-        if self._api_key_edit:
-            self._api_key_edit.setText(prefs.get("tiled_api_key", ""))
-
-        if self._key_lifetime_combo:
-            lifetime = int(prefs.get("tiled_session_key_lifetime", 604800))
-            index = self._key_lifetime_combo.findData(lifetime)
-            # A hand-edited value not in the preset list shows as a 4th entry
-            # rather than being silently snapped to a preset.
-            if index < 0:
-                self._key_lifetime_combo.addItem(f"{lifetime} seconds (custom)", lifetime)
-                index = self._key_lifetime_combo.count() - 1
-            self._key_lifetime_combo.setCurrentIndex(index)
-
-        if self._beamline_edit:
-            self._beamline_edit.setText(str(prefs.get("tiled_beamline", "") or ""))
-
-        if self._alshub_url_edit:
-            self._alshub_url_edit.setText(
-                prefs.get("tiled_alshub_url", "https://bcgmds01.als.lbl.gov")
-            )
-
-        if self._status_label:
-            self._status_label.setText("")
-
-        if self._override_esaf_edit:
-            self._override_esaf_edit.setText(prefs.get("tiled_access_override_esaf_id", ""))
-
-        if self._override_start_edit:
-            self._override_start_edit.setText(prefs.get("tiled_access_override_start", ""))
-
-        if self._override_end_edit:
-            self._override_end_edit.setText(prefs.get("tiled_access_override_end", ""))
-
-        self._update_enabled_state()
-
-    def save_settings(self) -> None:
-        """Save widget values to persistent storage.
-
-        Writes the current control values to PreferencesManager and
-        updates the TiledService configuration.
-        """
-        prefs = PreferencesManager.get_instance()
-
-        enabled = self._enabled_check.isChecked() if self._enabled_check else False
-        url = self._url_edit.text().strip() if self._url_edit else ""
-        api_key = self._api_key_edit.text().strip() if self._api_key_edit else ""
-
-        auth_mode = self._auth_mode_combo.currentData() if self._auth_mode_combo else "none"
-
-        prefs.set("tiled_enabled", enabled)
-        prefs.set("tiled_url", url)
-        prefs.set("tiled_auth_mode", auth_mode)
-        prefs.set("tiled_api_key", api_key or "")
-
-        if self._key_lifetime_combo:
-            prefs.set(
-                "tiled_session_key_lifetime",
-                int(self._key_lifetime_combo.currentData()),
-            )
-
-        alshub_url = self._alshub_url_edit.text().strip() if self._alshub_url_edit else ""
-        prefs.set("tiled_alshub_url", alshub_url)
-
-        override_esaf = self._override_esaf_edit.text().strip() if self._override_esaf_edit else ""
-        override_start = self._override_start_edit.text().strip() if self._override_start_edit else ""
-        override_end = self._override_end_edit.text().strip() if self._override_end_edit else ""
-        prefs.set("tiled_access_override_esaf_id", override_esaf)
-        prefs.set("tiled_access_override_start", override_start)
-        prefs.set("tiled_access_override_end", override_end)
-
-        # Update the TiledService with new configuration
-        try:
-            from lightfall.services.tiled_service import TiledService
-
-            service = TiledService.get_instance()
-            service.configure(
-                url=url,
-                api_key=api_key or None,
-                enabled=enabled,
-                auth_mode=auth_mode,
-            )
-
-            # Connect if enabled (async to avoid blocking UI)
-            if enabled and url:
-                service.connect_async()
-            else:
-                service.disconnect_tiled()
-
-        except Exception as e:
-            logger.error("Failed to update TiledService: {}", e)
-
-    def validate(self) -> list[str]:
-        """Validate current widget values.
-
-        Returns:
-            List of error messages, or empty list if valid.
-        """
-        errors = []
-
-        enabled = self._enabled_check.isChecked() if self._enabled_check else False
-        if enabled:
-            url = self._url_edit.text().strip() if self._url_edit else ""
-            if not url:
-                errors.append("Tiled server URL is required when enabled")
-            elif not self._is_valid_url(url):
-                errors.append("Tiled server URL must start with http:// or https://")
-
-        return errors
-
-    @staticmethod
-    def _is_valid_url(url: str) -> bool:
-        """Check if URL is valid and uses http(s) scheme."""
-        from urllib.parse import urlparse
-
-        try:
-            parsed = urlparse(url)
-            return parsed.scheme in ("http", "https") and bool(parsed.netloc)
-        except Exception:
-            return False
-
-    def _validate_url(self) -> None:
-        """Validate URL field and show/hide inline error."""
-        url = self._url_edit.text().strip() if self._url_edit else ""
-        if not url:
-            self._url_error_label.hide()
-            return
-        if self._is_valid_url(url):
-            self._url_error_label.hide()
-        else:
-            self._url_error_label.setText("URL must start with http:// or https://")
-            self._url_error_label.show()
+            return [URL_REQUIRED]
+        if not _is_valid_url(url):
+            return [URL_INVALID]
+        return []
