@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 from qtpy.QtCore import Qt
-from qtpy.QtWidgets import QComboBox, QLabel, QLineEdit
+from qtpy.QtWidgets import QComboBox, QLabel, QLineEdit, QToolButton
 
 from lightfall.ui.preferences.form.editors import create_editor
 from lightfall.ui.preferences.form.schema import (
@@ -11,9 +11,11 @@ from lightfall.ui.preferences.form.schema import (
     EditorSpec,
     Integer,
     Number,
+    Secret,
     SettingField,
     Text,
     Toggle,
+    Url,
 )
 
 OPTIONS = [("a", "Alpha"), ("", "Blank"), ("b", "Beta")]
@@ -379,3 +381,84 @@ def test_arrow_keys_do_nothing_when_read_only_or_without_step(qtbot):
     other.set_value(4.0)
     qtbot.keyClick(other.findChild(QLineEdit), Qt.Key_Up)
     assert other.value() == 4.0
+
+
+def _hint_text(editor):
+    return next(
+        (lb.text() for lb in editor.findChildren(QLabel) if lb.text() and not lb.isHidden() and lb is not editor.empty_hint),
+        "",
+    )
+
+
+def _type(qtbot, editor, text):
+    """Replace the line's text with real key events (so ``textEdited`` fires)."""
+    line = editor.findChild(QLineEdit)
+    line.setFocus()
+    qtbot.keyClicks(line, "x")  # guarantees a real edit even when ``text`` is empty
+    line.selectAll()
+    qtbot.keyClick(line, Qt.Key.Key_Delete)
+    qtbot.keyClicks(line, text)
+
+
+def make_spec(qtbot, spec):
+    editor = create_editor(spec, SettingField("k", spec))
+    qtbot.addWidget(editor)
+    editor.show()
+    return editor
+
+
+@pytest.mark.parametrize(
+    ("text", "valid", "hint"),
+    [
+        ("https://a.b", True, ""),
+        ("ftp://a", False, "Must start with http:// or https://"),
+        ("http://", False, "Missing host"),
+        ("", True, ""),
+    ],
+)
+def test_url_valid_and_invalid(qtbot, text, valid, hint):
+    editor = make_spec(qtbot, Url())
+    assert editor.value() is None and editor.is_valid()
+    _type(qtbot, editor, text)
+    assert editor.is_valid() is valid
+    assert _hint_text(editor) == hint
+    assert editor.value() == text  # "" is a value, not "not set"
+
+
+def test_url_not_set_and_empty_behave_like_text(qtbot):
+    editor = make_spec(qtbot, Url())
+    editor.set_value("")
+    assert editor.value() == "" and editor.empty_hint.isVisible()
+    editor.set_value(None)
+    assert editor.value() is None and not editor.empty_hint.isVisible()
+
+
+def test_url_custom_scheme(qtbot):
+    editor = make_spec(qtbot, Url(schemes=("nats",)))
+    _type(qtbot, editor, "nats://h:4222")
+    assert editor.is_valid()
+    _type(qtbot, editor, "http://h")
+    assert not editor.is_valid()
+    assert _hint_text(editor) == "Must start with nats://"
+
+
+def test_secret_masks_and_toggles(qtbot):
+    editor = make_spec(qtbot, Secret())
+    line = editor.findChild(QLineEdit)
+    button = editor.findChild(QToolButton)
+    assert line.echoMode() == QLineEdit.EchoMode.Password
+    _type(qtbot, editor, "hunter2")
+    assert editor.value() == "hunter2"
+    button.click()
+    assert line.echoMode() == QLineEdit.EchoMode.Normal and button.text() == "Hide"
+    button.click()
+    assert line.echoMode() == QLineEdit.EchoMode.Password and button.text() == "Show"
+
+
+def test_secret_not_set_and_empty_distinct(qtbot):
+    editor = make_spec(qtbot, Secret())
+    assert editor.value() is None
+    editor.set_value("")
+    assert editor.value() == "" and editor.empty_hint.isVisible()
+    editor.set_value(None)
+    assert editor.value() is None and not editor.empty_hint.isVisible()

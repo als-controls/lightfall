@@ -12,7 +12,14 @@ from PySide6.QtWidgets import QComboBox, QLabel, QMessageBox, QPushButton, QWidg
 from lightfall.ui.preferences.dialog import PreferencesDialog
 from lightfall.ui.preferences.form.header import LEGACY_TEXT, ScopeHeader
 from lightfall.ui.preferences.form.row import SettingRow
-from lightfall.ui.preferences.form.schema import Integer, Section, SettingField, Text, Toggle
+from lightfall.ui.preferences.form.schema import (
+    Integer,
+    Secret,
+    Section,
+    SettingField,
+    Text,
+    Toggle,
+)
 from lightfall.ui.preferences.form.view import SettingsForm
 from lightfall.ui.preferences.scope_api import ScopeChoice
 
@@ -589,3 +596,24 @@ def test_header_combo_stays_put_when_state_text_hides(qtbot):
     assert not h._state.isVisible()
     assert h._combo.x() == with_state.x()
     assert h._combo.width() == with_state.width()
+
+
+def test_secret_value_not_logged(qtbot, env):
+    from loguru import logger as loguru_logger
+    from PySide6.QtWidgets import QLineEdit
+
+    secret = "s3cr3t-T0KEN-xyz"
+    env.prefs.allowed["api_token"] = {LOCAL}
+    env.console._sections = [Section("Console", [SettingField("api_token", Secret(), label="Token")])]
+    dialog = make_dialog(qtbot, env)
+    dialog.select_scope(LOCAL)
+    lines: list[str] = []
+    sink = loguru_logger.add(lambda m: lines.append(str(m)), level="TRACE")
+    try:
+        line = row(dialog, "console", "api_token").editor.findChild(QLineEdit)
+        qtbot.keyClicks(line, secret)
+        assert dialog._apply() is True
+    finally:
+        loguru_logger.remove(sink)
+    assert ("set", "api_token", secret, LOCAL) in env.prefs.calls
+    assert not any(secret in m for m in lines)

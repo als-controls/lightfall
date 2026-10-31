@@ -9,10 +9,19 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlparse
 
 from qtpy.QtCore import QEvent, QObject, Qt, Signal
 from qtpy.QtGui import QColor, QPalette
-from qtpy.QtWidgets import QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit, QWidget
+from qtpy.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QToolButton,
+    QWidget,
+)
 
 from lightfall.ui.preferences.form.schema import EditorSpec, SettingField
 
@@ -355,7 +364,12 @@ class NumberEditor(FieldEditor):
 
 
 class TextEditor(FieldEditor):
-    """Line edit; ``""`` is a value, shown with an "(empty)" hint."""
+    """Line edit; ``""`` is a value, shown with an "(empty)" hint.
+
+    Subclasses may override ``_problem`` to reject text: the hint label and
+    tooltip then show the reason, the text turns the theme error colour and
+    ``is_valid()`` is False.
+    """
 
     def __init__(self, placeholder: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -367,10 +381,30 @@ class TextEditor(FieldEditor):
         self.empty_hint = QLabel("(empty)", self)
         RoleColor(self.empty_hint, TEXT_ROLES, muted_color)
         layout.addWidget(self.empty_hint)
+        self._hint = QLabel(self)
+        self._hint.hide()
+        RoleColor(self._hint, TEXT_ROLES, muted_color)
+        layout.addWidget(self._hint)
         self._value: str | None = None
+        self._valid = True
+        self._text_style = RoleColor(self._edit, (QPalette.ColorRole.Text,), self._text_color)
         self._read_only_look = _ReadOnlyLook(self._edit)
         self._refresh()
         self._edit.textEdited.connect(self._on_edited)
+
+    def _problem(self, text: str) -> str:
+        """Why ``text`` is unacceptable, or ``""`` if it is fine."""
+        return ""
+
+    def _text_color(self, widget: QWidget) -> QColor | None:
+        return None if self._valid else error_color(widget)
+
+    def _set_valid(self, reason: str) -> None:
+        self._valid = not reason
+        self._hint.setText(reason)
+        self._hint.setVisible(bool(reason))
+        self._edit.setToolTip(reason)
+        self._text_style.refresh()
 
     def _refresh(self) -> None:
         is_empty_value = self._value == ""
@@ -379,19 +413,64 @@ class TextEditor(FieldEditor):
 
     def _on_edited(self, text: str) -> None:
         self._value = text
+        self._set_valid(self._problem(text))
         self._refresh()
         self.changed.emit()
 
     def value(self) -> str | None:
         return self._value
 
+    def is_valid(self) -> bool:
+        return self._valid
+
     def set_value(self, value: Any) -> None:
         self._value = None if value is None else str(value)
         self._edit.setText(self._value or "")
+        self._set_valid("")
         self._refresh()
 
     def set_read_only(self, read_only: bool) -> None:
         self._read_only_look.set_read_only(read_only)
+
+
+class UrlEditor(TextEditor):
+    """Text editor that flags non-empty text that is not an acceptable URL."""
+
+    def __init__(self, spec: EditorSpec, placeholder: str = "", parent: QWidget | None = None) -> None:
+        self._schemes = tuple(spec.schemes)
+        self._require_host = spec.require_host
+        super().__init__(placeholder, parent)
+
+    def _problem(self, text: str) -> str:
+        text = text.strip()
+        if not text:
+            return ""
+        try:
+            parts = urlparse(text)
+        except ValueError:
+            return "Not a valid URL"
+        if parts.scheme.lower() not in self._schemes:
+            return "Must start with " + " or ".join(f"{s}://" for s in self._schemes)
+        if self._require_host and not parts.netloc:
+            return "Missing host"
+        return ""
+
+
+class SecretEditor(TextEditor):
+    """Masked text editor with a Show/Hide toggle. Never logs its value."""
+
+    def __init__(self, placeholder: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(placeholder, parent)
+        self._edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._toggle = QToolButton(self)
+        self._toggle.setCheckable(True)
+        self._toggle.setText("Show")
+        self._toggle.toggled.connect(self._on_toggled)
+        self.layout().insertWidget(1, self._toggle)
+
+    def _on_toggled(self, shown: bool) -> None:
+        self._edit.setEchoMode(QLineEdit.EchoMode.Normal if shown else QLineEdit.EchoMode.Password)
+        self._toggle.setText("Hide" if shown else "Show")
 
 
 def create_editor(spec: EditorSpec, field: SettingField, parent: QWidget | None = None) -> FieldEditor:
@@ -404,6 +483,10 @@ def create_editor(spec: EditorSpec, field: SettingField, parent: QWidget | None 
         editor = NumberEditor(spec, field.unit)
     elif spec.kind == "text":
         editor = TextEditor(field.placeholder)
+    elif spec.kind == "url":
+        editor = UrlEditor(spec, field.placeholder)
+    elif spec.kind == "secret":
+        editor = SecretEditor(field.placeholder)
     else:
         raise ValueError(f"unknown editor kind: {spec.kind!r}")
     if parent is not None:

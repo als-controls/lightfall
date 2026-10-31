@@ -26,11 +26,13 @@ Predicate = Callable[["FormValues"], bool]
 class EditorSpec:
     """Which editor widget to build for a field, and its parameters."""
 
-    kind: str  # "toggle" | "choice" | "integer" | "number" | "text"
+    kind: str  # "toggle" | "choice" | "integer" | "number" | "text" | "url" | "secret"
     options: Sequence[tuple[Any, str]] | Callable[[], Sequence[tuple[Any, str]]] = ()
     minimum: float | None = None
     maximum: float | None = None
     step: float | None = None
+    schemes: tuple[str, ...] = ("http", "https")  # url only
+    require_host: bool = True  # url only
 
 
 def Toggle() -> EditorSpec:  # noqa: N802
@@ -51,6 +53,14 @@ def Number(minimum: float | None = None, maximum: float | None = None, step: flo
 
 def Text() -> EditorSpec:  # noqa: N802
     return EditorSpec("text")
+
+
+def Url(schemes: tuple[str, ...] = ("http", "https"), require_host: bool = True) -> EditorSpec:  # noqa: N802
+    return EditorSpec("url", schemes=tuple(schemes), require_host=require_host)
+
+
+def Secret() -> EditorSpec:  # noqa: N802
+    return EditorSpec("secret")
 
 
 @dataclass(frozen=True)
