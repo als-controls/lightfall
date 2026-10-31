@@ -143,3 +143,20 @@ def test_discard_keeps_loaded_cache():
     m.discard()
     assert m.ops(allow) == []
     assert m.pending(U, "k") == "a"
+
+
+def test_discard_cell_drops_only_that_cell():
+    m, store = make({(U, "k"): "a"})
+    m.edit(U, "k", "x")
+    m.edit(U, "j", "y")
+    m.edit(S, "k", "z")
+    store[(U, "k")] = "b"
+    m.reload(U, "k")
+    assert m.conflict(U, "k")
+    m.discard_cell(U, "k")
+    assert not m.is_dirty(U, "k")
+    assert not m.conflict(U, "k")
+    assert m.pending(U, "k") == "b"
+    assert m.dirty_cells() == [(S, "k"), (U, "j")]
+    m.discard_cell(U, "missing")  # no edit there: a no-op
+    assert m.dirty_cells() == [(S, "k"), (U, "j")]

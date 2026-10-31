@@ -2,29 +2,31 @@
 
 Markers (accent bar when set at the scope, dirty dot, lock and reason,
 restart tag, conflict note) are painted from the widget palette so they
-follow the theme.
+follow the theme. The row has no buttons of its own: right-clicking it
+offers "Clear (not set)".
 """
 
 from __future__ import annotations
 
-from qtpy.QtCore import QEvent, Qt, Signal
-from qtpy.QtGui import QAction, QPainter, QPalette
+from qtpy.QtCore import QEvent, QObject, QPoint, Qt, Signal
+from qtpy.QtGui import QAction, QContextMenuEvent, QPainter, QPalette
 from qtpy.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMenu,
     QSizePolicy,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from lightfall.ui.preferences.form.editors import (
-    _TEXT_ROLES,
+    TEXT_ROLES,
     FieldEditor,
-    _error_color,
-    _muted_color,
-    _RoleColor,
+    RoleColor,
+    error_color,
+    muted_color,
 )
 from lightfall.utils.logging import logger
 
@@ -39,11 +41,12 @@ LOCK_ICON_SIZE = 14
 
 CONFLICT_TEXT = "Changed elsewhere since you opened this"
 RESTART_TEXT = "restart"
+CLEAR_TEXT = "Clear (not set)"
 LOCK_GLYPH = "\U0001f512"
 
 
 def set_muted(label: QLabel) -> None:
-    _RoleColor(label, _TEXT_ROLES, _muted_color)
+    RoleColor(label, TEXT_ROLES, muted_color)
 
 
 class _AccentBar(QWidget):
@@ -158,7 +161,7 @@ class SettingRow(QWidget):
 
         self._conflict = QLabel(CONFLICT_TEXT, self)
         self._conflict.setWordWrap(True)
-        _RoleColor(self._conflict, _TEXT_ROLES, _error_color)
+        RoleColor(self._conflict, TEXT_ROLES, error_color)
         self._conflict.hide()
         left.addWidget(self._conflict)
 
@@ -171,30 +174,40 @@ class SettingRow(QWidget):
         editor.setMinimumWidth(EDITOR_COLUMN_MIN)
         outer.addWidget(editor, 0, Qt.AlignmentFlag.AlignTop)
 
-        self._menu_button = QToolButton(self)
-        self._menu_button.setText("⋯")
-        self._menu_button.setToolTip("More actions")
-        self._menu_button.setAutoRaise(True)
-        self._menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        menu = QMenu(self._menu_button)
-        self.clear_action = QAction("Clear", self)
+        self.clear_action = QAction(CLEAR_TEXT, self)
         self.clear_action.setToolTip("Remove this setting at the selected scope")
         self.clear_action.triggered.connect(self.clear_requested)
-        menu.addAction(self.clear_action)
-        self._menu_button.setMenu(menu)
-        policy = self._menu_button.sizePolicy()
-        policy.setRetainSizeWhenHidden(True)
-        self._menu_button.setSizePolicy(policy)
-        self._menu_button.hide()
-        outer.addWidget(self._menu_button, 0, Qt.AlignmentFlag.AlignTop)
+        # Combos swallow context-menu events and line edits have their own
+        # menu, so both are filtered: combos show the row menu, line edits
+        # get Clear added to their standard one.
+        for child in (*editor.findChildren(QComboBox), *editor.findChildren(QLineEdit)):
+            child.installEventFilter(self)
 
-    # Hover reveals the row menu.
-    def event(self, event: QEvent) -> bool:
-        if event.type() == QEvent.Type.Enter:
-            self._menu_button.show()
-        elif event.type() == QEvent.Type.Leave and not self._menu_button.menu().isVisible():
-            self._menu_button.hide()
-        return super().event(event)
+    # Right-click offers "Clear (not set)".
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
+        menu = QMenu(self)
+        menu.addAction(self.clear_action)
+        self._popup(menu, event.globalPos())
+        event.accept()
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if event.type() != QEvent.Type.ContextMenu:
+            return super().eventFilter(obj, event)
+        if isinstance(obj, QComboBox):
+            self.contextMenuEvent(event)
+            return True
+        if isinstance(obj, QLineEdit):
+            menu = obj.createStandardContextMenu()
+            menu.addSeparator()
+            menu.addAction(self.clear_action)
+            self._popup(menu, event.globalPos())
+            return True
+        return super().eventFilter(obj, event)
+
+    @staticmethod
+    def _popup(menu: QMenu, pos: QPoint) -> None:
+        menu.exec(pos)
+        menu.deleteLater()
 
     def set_markers(self, is_set: bool, dirty: bool, conflict: bool) -> None:
         self._accent.set_active(is_set)

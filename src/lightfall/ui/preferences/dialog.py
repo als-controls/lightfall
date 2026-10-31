@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.scopes.keys import client_registry
-from lightfall.ui.preferences.form.editors import _muted_color
+from lightfall.ui.preferences.form.editors import muted_color
 from lightfall.ui.preferences.form.header import ScopeHeader
 from lightfall.ui.preferences.form.model import FormModel
 from lightfall.ui.preferences.form.schema import SettingField, field_label
@@ -339,7 +339,7 @@ class PreferencesDialog(QDialog):
     def _refresh_pages(self) -> None:
         """Dim form pages with nothing at the scope and show their 'nothing here' note."""
         choices = self._prefs.scope_choices()
-        dim = _muted_color(self)
+        dim = muted_color(self)
         label = self._scope_label(self._scope)
         for row, name in enumerate(self._page_names):
             page = self._form_pages.get(name)
@@ -439,13 +439,29 @@ class PreferencesDialog(QDialog):
                 errors.append(f"{plugin.display_name} ({label}): Validation error - {e}")
         return errors
 
-    def _unwritable_edits(self) -> list[str]:
-        """Labels (with scope) of unsaved edits that can no longer be written."""
-        return [
-            f"{self._label(key)} ({self._scope_label(scope)})"
-            for scope, key in self._model.dirty_cells()
-            if not self._prefs.writable_at(key, scope)
-        ]
+    def _unwritable_edits(self) -> list[tuple[str, str]]:
+        """(scope, key) of unsaved edits that can no longer be written."""
+        return [(scope, key) for scope, key in self._model.dirty_cells() if not self._prefs.writable_at(key, scope)]
+
+    def _discard_unwritable(self, blocked: list[tuple[str, str]]) -> bool:
+        """Ask whether to drop the ``blocked`` edits; True if they were dropped."""
+        lines = [f"{self._label(key)} ({self._scope_label(scope)})" for scope, key in blocked]
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Can't save")
+        box.setText(
+            "You can no longer change these where you edited them:\n\n"
+            + "\n".join(lines)
+            + "\n\nDiscard these edits and save the rest, or cancel to go back."
+        )
+        discard = box.addButton("Discard these edits", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        if box.clickedButton() is not discard:
+            return False
+        for scope, key in blocked:
+            self._model.discard_cell(scope, key)
+        return True
 
     def _write_ops(self) -> tuple[list[tuple[str, str, Any]], bool]:
         """Write every dirty, writable edit; stop at the first failure.
@@ -516,14 +532,7 @@ class PreferencesDialog(QDialog):
             return False
 
         blocked = self._unwritable_edits()
-        if blocked:
-            QMessageBox.warning(
-                self,
-                "Can't save",
-                "You can no longer change these where you edited them, so nothing was saved:\n\n"
-                + "\n".join(blocked)
-                + "\n\nCancel to discard your changes.",
-            )
+        if blocked and not self._discard_unwritable(blocked):
             return False
 
         written, ok = self._write_ops()

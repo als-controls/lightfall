@@ -12,23 +12,17 @@ from typing import Any
 
 from qtpy.QtCore import QEvent, QObject, Qt, Signal
 from qtpy.QtGui import QColor, QPalette
-from qtpy.QtWidgets import (
-    QAbstractButton,
-    QButtonGroup,
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QToolButton,
-    QWidget,
-)
+from qtpy.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QWidget
 
 from lightfall.ui.preferences.form.schema import EditorSpec, SettingField
 
 NOT_SET = "Not set"
 
+# A yes/no field is a combo: "Not set" (added by ChoiceEditor), then these.
+TOGGLE_OPTIONS: tuple[tuple[bool, str], ...] = ((False, "Off"), (True, "On"))
 
-_TEXT_ROLES = (QPalette.ColorRole.ButtonText, QPalette.ColorRole.WindowText, QPalette.ColorRole.Text)
+
+TEXT_ROLES = (QPalette.ColorRole.ButtonText, QPalette.ColorRole.WindowText, QPalette.ColorRole.Text)
 
 
 _ACTIVE_GROUPS = (QPalette.ColorGroup.Active, QPalette.ColorGroup.Inactive)
@@ -46,7 +40,7 @@ def _theme_color(name: str) -> QColor | None:
     return color if color.isValid() else None
 
 
-def _muted_color(widget: QWidget) -> QColor:
+def muted_color(widget: QWidget) -> QColor:
     """Secondary text colour for "Not set", hints and read-only values.
 
     Taken from the theme's ``text_secondary``: the theme builds its palette
@@ -56,12 +50,12 @@ def _muted_color(widget: QWidget) -> QColor:
     return _theme_color("text_secondary") or widget.palette().color(QPalette.ColorRole.PlaceholderText)
 
 
-def _error_color(widget: QWidget) -> QColor:
+def error_color(widget: QWidget) -> QColor:
     """Theme error colour; falls back to a palette alert role."""
     return _theme_color("error") or widget.palette().color(QPalette.ColorRole.Highlight)
 
 
-class _RoleColor(QObject):
+class RoleColor(QObject):
     """Keeps a colour override on a widget in step with theme changes.
 
     Only the given roles of the given colour groups (Active and Inactive by
@@ -134,7 +128,7 @@ class _ReadOnlyLook(QObject):
     def refresh(self) -> None:
         sheet = ""
         if self.read_only:
-            muted = _muted_color(self._edit).name()
+            muted = muted_color(self._edit).name()
             sheet = (
                 f"QLineEdit {{ color: {muted}; background: transparent;"
                 " border: 1px solid transparent; }"
@@ -142,65 +136,6 @@ class _ReadOnlyLook(QObject):
         if sheet != self._last:
             self._last = sheet
             self._edit.setStyleSheet(sheet)
-
-
-class _SegmentStyle(QObject):
-    """Scoped stylesheet that makes the checked toggle segment unmistakable.
-
-    The checked segment is filled with the theme accent (``primary``, or the
-    palette Highlight) and drawn in HighlightedText; unchecked segments stay
-    flat with a thin border. Read-only (disabled) segments are muted, but the
-    checked one keeps a faded accent fill so its state still reads. Colours
-    come from the theme and are re-applied whenever the palette changes
-    (which is how a theme switch reaches widgets).
-    """
-
-    SEGMENT = "toggleSegment"
-    NOT_SET = "toggleSegmentNotSet"
-    READ_ONLY_ALPHA = 0.35
-
-    def __init__(self, host: QWidget) -> None:
-        super().__init__(host)
-        self._host = host
-        self._last = ""
-        host.installEventFilter(self)
-        self.refresh()
-
-    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
-        if obj is self._host and event.type() == QEvent.Type.PaletteChange:
-            self.refresh()
-        return False
-
-    @staticmethod
-    def _rgba(color: QColor, alpha: float = 1.0) -> str:
-        return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alphaF() * alpha:.3f})"
-
-    def stylesheet(self) -> str:
-        pal = self._host.palette()
-        accent = _theme_color("primary") or pal.color(QPalette.ColorRole.Highlight)
-        on_accent = pal.color(QPalette.ColorRole.HighlightedText)
-        text = _theme_color("text") or pal.color(QPalette.ColorRole.ButtonText)
-        border = _theme_color("border") or pal.color(QPalette.ColorRole.Mid)
-        muted = _muted_color(self._host)
-        a, on_a, t, b, m = (self._rgba(c) for c in (accent, on_accent, text, border, muted))
-        faded = self._rgba(accent, self.READ_ONLY_ALPHA)
-
-        def sel(state: str = "") -> str:
-            return f"QToolButton#{self.SEGMENT}{state}, QToolButton#{self.NOT_SET}{state}"
-
-        return "\n".join((
-            f"{sel()} {{ background: transparent; border: 1px solid {b}; padding: 2px 8px; color: {t}; }}",
-            f"QToolButton#{self.NOT_SET} {{ color: {m}; }}",
-            f"{sel(':checked')} {{ background: {a}; border-color: {a}; color: {on_a}; }}",
-            f"{sel(':disabled')} {{ color: {m}; }}",
-            f"{sel(':checked:disabled')} {{ background: {faded}; border-color: {a}; color: {t}; }}",
-        ))
-
-    def refresh(self) -> None:
-        sheet = self.stylesheet()
-        if sheet != self._last:
-            self._last = sheet
-            self._host.setStyleSheet(sheet)
 
 
 class _OutOfRangeError(ValueError):
@@ -227,55 +162,6 @@ class FieldEditor(QWidget):
         return True
 
 
-class ToggleEditor(FieldEditor):
-    """Segmented control: Not set / Off / On."""
-
-    _SEGMENTS = ((NOT_SET, None), ("Off", False), ("On", True))
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        self._group = QButtonGroup(self)
-        self._group.setExclusive(True)
-        self._buttons: dict[Any, QToolButton] = {}
-        self._loading = False
-        for text, val in self._SEGMENTS:
-            btn = QToolButton(self)
-            btn.setText(text)
-            btn.setCheckable(True)
-            btn.setObjectName(_SegmentStyle.NOT_SET if val is None else _SegmentStyle.SEGMENT)
-            self._group.addButton(btn)
-            layout.addWidget(btn)
-            self._buttons[val] = btn
-        self._buttons[None].setChecked(True)
-        self._segment_style = _SegmentStyle(self)
-        self._group.buttonToggled.connect(self._on_toggled)
-
-    def _on_toggled(self, _btn: QAbstractButton, checked: bool) -> None:
-        if checked and not self._loading:
-            self.changed.emit()
-
-    def value(self) -> bool | None:
-        for val, btn in self._buttons.items():
-            if btn.isChecked():
-                return val
-        return None
-
-    def set_value(self, value: Any) -> None:
-        key = None if value is None else bool(value)
-        self._loading = True
-        try:
-            self._buttons[key].setChecked(True)
-        finally:
-            self._loading = False
-
-    def set_read_only(self, read_only: bool) -> None:
-        for btn in self._buttons.values():
-            btn.setEnabled(not read_only)
-
-
 class ChoiceEditor(FieldEditor):
     """Combo box whose first entry is a muted "Not set"."""
 
@@ -288,7 +174,7 @@ class ChoiceEditor(FieldEditor):
         options = spec.options() if callable(spec.options) else spec.options
         self._values: list[Any] = [None]
         self._loading = False
-        _RoleColor(self._combo, _TEXT_ROLES, _muted_color, _DISABLED_GROUP)
+        RoleColor(self._combo, TEXT_ROLES, muted_color, _DISABLED_GROUP)
         self._combo.addItem(NOT_SET)
         self._mute_not_set_entry()
         for val, label in options:
@@ -297,7 +183,7 @@ class ChoiceEditor(FieldEditor):
         self._combo.currentIndexChanged.connect(self._on_index)
 
     def _mute_not_set_entry(self) -> None:
-        self._combo.setItemData(0, _muted_color(self._combo), Qt.ItemDataRole.ForegroundRole)
+        self._combo.setItemData(0, muted_color(self._combo), Qt.ItemDataRole.ForegroundRole)
 
     def changeEvent(self, event: QEvent) -> None:  # noqa: N802
         if event.type() == QEvent.Type.PaletteChange and hasattr(self, "_combo"):
@@ -348,20 +234,20 @@ class NumberEditor(FieldEditor):
         layout.addWidget(self._edit)
         if unit:
             self._unit = QLabel(unit, self)
-            _RoleColor(self._unit, _TEXT_ROLES, _muted_color)
+            RoleColor(self._unit, TEXT_ROLES, muted_color)
             layout.addWidget(self._unit)
         self._value: int | float | None = None
         self._valid = True
         self._hint = QLabel(self)
         self._hint.hide()
         layout.addWidget(self._hint)
-        _RoleColor(self._hint, _TEXT_ROLES, _muted_color)
-        self._text_style = _RoleColor(self._edit, (QPalette.ColorRole.Text,), self._text_color)
+        RoleColor(self._hint, TEXT_ROLES, muted_color)
+        self._text_style = RoleColor(self._edit, (QPalette.ColorRole.Text,), self._text_color)
         self._read_only_look = _ReadOnlyLook(self._edit)
         self._edit.textEdited.connect(self._on_edited)
 
     def _text_color(self, widget: QWidget) -> QColor | None:
-        return None if self._valid else _error_color(widget)
+        return None if self._valid else error_color(widget)
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
         """Up/Down arrow keys step the number by the spec's ``step``."""
@@ -458,7 +344,7 @@ class TextEditor(FieldEditor):
         self._edit = QLineEdit(self)
         layout.addWidget(self._edit)
         self.empty_hint = QLabel("(empty)", self)
-        _RoleColor(self.empty_hint, _TEXT_ROLES, _muted_color)
+        RoleColor(self.empty_hint, TEXT_ROLES, muted_color)
         layout.addWidget(self.empty_hint)
         self._value: str | None = None
         self._read_only_look = _ReadOnlyLook(self._edit)
@@ -490,7 +376,7 @@ class TextEditor(FieldEditor):
 def create_editor(spec: EditorSpec, field: SettingField, parent: QWidget | None = None) -> FieldEditor:
     """Build the editor widget for ``spec``; unknown kinds raise ValueError."""
     if spec.kind == "toggle":
-        editor: FieldEditor = ToggleEditor()
+        editor: FieldEditor = ChoiceEditor(EditorSpec("choice", options=TOGGLE_OPTIONS))
     elif spec.kind == "choice":
         editor = ChoiceEditor(spec)
     elif spec.kind in ("integer", "number"):

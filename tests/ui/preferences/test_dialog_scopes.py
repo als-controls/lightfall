@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QAbstractButton, QLabel, QMessageBox, QPushButton, QWidget
+from PySide6.QtWidgets import QComboBox, QLabel, QMessageBox, QPushButton, QWidget
 
 from lightfall.ui.preferences.dialog import PreferencesDialog
 from lightfall.ui.preferences.form.header import LEGACY_TEXT, ScopeHeader
@@ -195,7 +195,20 @@ def env(monkeypatch):
 
     monkeypatch.setattr(QMessageBox, "warning", record("warning"))
     monkeypatch.setattr(QMessageBox, "critical", record("critical"))
-    return SimpleNamespace(prefs=prefs, main=main, console=console, legacy=legacy, restarts=restarts, boxes=boxes)
+    ns = SimpleNamespace(
+        prefs=prefs, main=main, console=console, legacy=legacy, restarts=restarts, boxes=boxes, box_choice=None
+    )
+
+    def fake_exec(box):
+        """Record a modal box and click the button named ``ns.box_choice`` (or none)."""
+        boxes.append(("box", box.text()))
+        chosen = next((b for b in box.buttons() if b.text() == ns.box_choice), None)
+        if chosen is not None:
+            chosen.click()
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    return ns
 
 
 def make_dialog(qtbot, env):
@@ -217,8 +230,8 @@ def row(dialog, name, key) -> SettingRow:
 
 
 def click_toggle(qtbot, r, text):
-    buttons = {b.text(): b for b in r.editor.findChildren(QAbstractButton)}
-    qtbot.mouseClick(buttons[text], Qt.LeftButton)
+    combo = r.editor.findChild(QComboBox)
+    combo.setCurrentIndex(combo.findText(text))  # emits like a user pick
 
 
 def type_number(qtbot, r, text):
@@ -287,7 +300,9 @@ def test_clear_issues_remove_with_scope(qtbot, env):
     env.prefs.layers[(BEAMLINE, FLAG)] = True
     dialog = make_dialog(qtbot, env)
     dialog.select_scope(BEAMLINE)
-    row(dialog, "main", FLAG).clear_action.trigger()
+    r = row(dialog, "main", FLAG)
+    assert r.clear_action.isEnabled()
+    r.clear_action.trigger()  # what "Clear (not set)" in the row's context menu does
     dialog.accept()
     assert env.prefs.calls == [("remove", FLAG, BEAMLINE)]
     assert env.main.after_save_calls == [(BEAMLINE, {FLAG: None})]
@@ -527,16 +542,33 @@ def test_edit_that_became_unwritable_blocks_save_with_warning(qtbot, env):
     type_number(qtbot, row(dialog, "main", COUNT), "5")
     env.prefs.read_only_scopes.add(USER)
     env.prefs.scopes_changed.emit(None)
-    assert dialog._apply() is False
+    assert dialog._apply() is False  # the user closes the warning without discarding
     assert env.prefs.calls == []
     assert env.legacy.saved == 0
-    warnings = [text for kind, text in env.boxes if kind == "warning"]
+    warnings = [text for kind, text in env.boxes if kind == "box"]
     assert len(warnings) == 1
     assert "Flag (User — u1)" in warnings[0]
     assert "Count" not in warnings[0]
     assert dialog._model.is_dirty(USER, FLAG) and dialog._model.is_dirty(BEAMLINE, COUNT)
     dialog.accept()
     assert dialog.result() != dialog.DialogCode.Accepted
+
+
+def test_discard_blocked_edits_then_save_continues(qtbot, env):
+    dialog = make_dialog(qtbot, env)
+    click_toggle(qtbot, row(dialog, "main", FLAG), "On")
+    dialog.select_scope(BEAMLINE)
+    type_number(qtbot, row(dialog, "main", COUNT), "5")
+    env.prefs.read_only_scopes.add(BEAMLINE)
+    env.prefs.scopes_changed.emit(None)
+    env.box_choice = "Discard these edits"
+    dialog.accept()
+    assert [text for kind, text in env.boxes if kind == "box"] and "Count (Beamline 7.0.1)" in env.boxes[0][1]
+    assert env.prefs.calls == [("set", FLAG, True, USER)]
+    assert not dialog._model.is_dirty(BEAMLINE, COUNT)
+    assert dialog._model.dirty_cells() == []
+    assert env.legacy.saved == 1
+    assert dialog.result() == dialog.DialogCode.Accepted
 
 
 def test_header_combo_stays_put_when_state_text_hides(qtbot):

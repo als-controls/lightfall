@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from qtpy.QtCore import Signal
-from qtpy.QtGui import QFont
-from qtpy.QtWidgets import QLabel, QVBoxLayout, QWidget
+from qtpy.QtWidgets import QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from lightfall.scopes.keys import client_registry
 from lightfall.ui.preferences.form.editors import create_editor
@@ -22,10 +21,10 @@ GENERIC_READ_ONLY = "You can't change this here"
 
 
 class _SectionBlock:
-    """A rendered section: its header widgets and its rows."""
+    """A rendered section: its group box and the rows inside it."""
 
-    def __init__(self, header: list[QWidget], rows: list[SettingRow]) -> None:
-        self.header = header
+    def __init__(self, box: QGroupBox, rows: list[SettingRow]) -> None:
+        self.box = box
         self.rows = rows
 
 
@@ -86,24 +85,31 @@ class SettingsForm(QWidget):
             fields = fields_at([section], scope, self._prefs.allowed_at)
             if not fields:
                 continue
-            header = self._section_header(section.title, section.description)
+            box = self._section_box(section.title, section.description)
             if self._blocks:
                 content_layout.addSpacing(SECTION_SPACING)
-            for widget in header:
-                content_layout.addWidget(widget)
-            rows = [self._build_row(f, scope, read_only_reason) for f in fields]
+            content_layout.addWidget(box)
+            rows = [self._build_row(f, scope, read_only_reason, box) for f in fields]
             for row in rows:
-                content_layout.addWidget(row)
-            self._blocks.append(_SectionBlock(header, rows))
+                box.layout().addWidget(row)
+            self._blocks.append(_SectionBlock(box, rows))
         content_layout.addStretch(1)
         self._layout.addWidget(self._content)
         self._apply_predicates()
 
     def invalid_fields(self, scope: str) -> list[str]:
-        """Keys at ``scope`` whose editor currently holds unparsable or out-of-range input."""
+        """Keys at ``scope`` whose editor holds unparsable or out-of-range input.
+
+        Rows hidden or disabled by their predicates don't count: the user can't
+        see or fix them, and their (unchanged) model value is what gets saved.
+        """
         if scope != self._scope:
             return []
-        return [key for key, row in self._rows.items() if row.is_marked_invalid()]
+        return [
+            key
+            for key, row in self._rows.items()
+            if row.is_marked_invalid() and row.isVisibleTo(self) and row.editor.isEnabled()
+        ]
 
     def refresh_from_store(self) -> None:
         """Reload shown keys; clean fields take the new value, dirty ones keep the edit."""
@@ -119,21 +125,19 @@ class SettingsForm(QWidget):
         self._apply_predicates()
 
     # Building -------------------------------------------------------------
-    def _section_header(self, title: str, description: str) -> list[QWidget]:
-        label = QLabel(title, self._content)
-        label.setObjectName("sectionTitle")
-        font = QFont(label.font())
-        font.setBold(True)
-        label.setFont(font)
-        widgets: list[QWidget] = [label]
+    def _section_box(self, title: str, description: str) -> QGroupBox:
+        """A group box titled ``title``; the theme's QGroupBox rules style it."""
+        box = QGroupBox(title, self._content)
+        layout = QVBoxLayout(box)
+        layout.setSpacing(0)
         if description:
-            desc = QLabel(description, self._content)
+            desc = QLabel(description, box)
             desc.setWordWrap(True)
             set_muted(desc)
-            widgets.append(desc)
-        return widgets
+            layout.addWidget(desc)
+        return box
 
-    def _build_row(self, field: SettingField, scope: str, scope_reason: str) -> SettingRow:
+    def _build_row(self, field: SettingField, scope: str, scope_reason: str, parent: QWidget) -> SettingRow:
         spec = client_registry().get(field.key)
         editor = create_editor(field.editor, field)
         row = SettingRow(
@@ -142,7 +146,7 @@ class SettingsForm(QWidget):
             field.description,
             editor,
             restart_required=field.restart_required or spec.restart_required,
-            parent=self._content,
+            parent=parent,
         )
         editor.set_value(self._model.pending(scope, field.key))
         reason = self._read_only_reason(field.key, scope, scope_reason)
@@ -222,5 +226,4 @@ class SettingsForm(QWidget):
                 row.setVisible(bool(visible))
                 row.editor.setEnabled(bool(enabled))
                 any_visible = any_visible or bool(visible)
-            for widget in block.header:
-                widget.setVisible(any_visible)
+            block.box.setVisible(any_visible)

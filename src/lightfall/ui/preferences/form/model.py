@@ -101,6 +101,12 @@ class FormModel:
             self._loaded[cell] = self._edits.pop(cell)
         self._conflicts.discard(cell)
 
+    def discard_cell(self, scope: str, key: str) -> None:
+        """Drop the edit (and conflict flag) of one cell; other cells keep theirs."""
+        cell = (scope, key)
+        self._edits.pop(cell, None)
+        self._conflicts.discard(cell)
+
     def discard(self) -> None:
         self._edits.clear()
         self._conflicts.clear()
