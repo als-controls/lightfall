@@ -42,6 +42,10 @@ class _ScopeValues:
     def effective(self, key: str, default: Any = None) -> Any:
         return self._model.effective(self.scope, key, default)
 
+    def is_dirty(self, key: str) -> bool:
+        """Whether the user edited ``key`` at this scope (and has not saved it)."""
+        return self._model.is_dirty(self.scope, key)
+
 
 class NotAPageField(KeyError):
     """An action read a key that is not a field on its page."""

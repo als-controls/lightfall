@@ -178,17 +178,31 @@ class IPCSettingsPlugin(SettingsPlugin):
 
     @staticmethod
     def _prefix_unbound(values: FormValues) -> bool:
-        """The console's prefix field shows only while the console is unbound."""
+        """The console's prefix field shows only while the console is unbound.
+
+        The binding is read live from PreferencesManager; a binding change shows
+        up when the form is rebuilt (scope change or ``scopes_changed``).
+        """
         return values.scope != "local" or not PreferencesManager.get_instance().console_bound()
 
     @staticmethod
     def _prefix_binding(_values: FormValues) -> str:
-        """The bound console's prefix, or "" (the line hides) when unbound."""
+        """The bound console's prefix, or "" (the line hides) when unbound.
+
+        Read live like ``_prefix_unbound``; re-evaluated after every edit and rebuild.
+        """
         prefs = PreferencesManager.get_instance()
         if not prefs.console_bound():
             return ""
         prefix = prefs.get("ipc_topic_prefix", DEFAULT_IPC_TOPIC_PREFIX) or ""
         return f"From this console's binding: {prefix}"
+
+    @staticmethod
+    def _turned_on_now(values: FormValues) -> bool:
+        """The user switched the local server on in this edit (a stale stored "on"
+        doesn't count: startup copes with a missing binary)."""
+        is_dirty = getattr(values, "is_dirty", None)
+        return values.get("ipc_use_local_nats") is True and bool(is_dirty and is_dirty("ipc_use_local_nats"))
 
     def _trusted_apps(self, parent: QWidget | None) -> QWidget:
         trust = self._trust_override if self._trust_override is not None else _trust_manager()
@@ -250,12 +264,16 @@ class IPCSettingsPlugin(SettingsPlugin):
         ]
 
     def validate_values(self, values: FormValues) -> list[str]:
+        # Every rule concerns console-only keys; elsewhere effective() would read
+        # this console's state and block unrelated edits (e.g. the branch prefix).
+        if values.scope != "local":
+            return []
         if _use_local(values):
             errors: list[str] = []
             port = values.effective("ipc_local_nats_port", DEFAULT_LOCAL_PORT)
             if not isinstance(port, int) or not 1 <= port <= 65535:
                 errors.append("Local NATS port must be between 1 and 65535")
-            if not self._binary_found():
+            if not self._binary_found() and self._turned_on_now(values):
                 errors.append("nats-server not found (install it or `pip install lightfall[local-nats]`)")
             return errors
         url = (values.effective("ipc_nats_url", "") or "").strip()

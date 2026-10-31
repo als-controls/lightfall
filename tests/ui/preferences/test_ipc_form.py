@@ -148,9 +148,9 @@ def _info_texts(dialog) -> list[str]:
     return [i.text() for i in _form(dialog).findChildren(InfoItem)]
 
 
-def _values(**kw):
-    return SimpleNamespace(scope=LOCAL, effective=lambda key, default=None: kw.get(key, default),
-                           get=lambda key: kw.get(key))
+def _values(scope=LOCAL, dirty=(), **kw):
+    return SimpleNamespace(scope=scope, effective=lambda key, default=None: kw.get(key, default),
+                           get=lambda key: kw.get(key), is_dirty=lambda key: key in dirty)
 
 
 def test_ipc_writes_same_keys(qtbot, env):
@@ -278,9 +278,56 @@ def test_ipc_validation(env, monkeypatch):
     ]
     monkeypatch.setattr(mod, "resolve_nats_binary", lambda: None)
     page.sections()
-    assert page.validate_values(_values(ipc_use_local_nats=True)) == [
+    assert page.validate_values(_values(ipc_use_local_nats=True, dirty={"ipc_use_local_nats"})) == [
         "nats-server not found (install it or `pip install lightfall[local-nats]`)"
     ]
+    assert page.validate_values(_values(ipc_use_local_nats=True)) == []  # stale stored "on"
+    # Rules are about console-only keys: other scopes are never blocked by them.
+    assert page.validate_values(_values(scope=BRANCH, ipc_nats_url="http://x")) == []
+    assert page.validate_values(
+        _values(scope=BRANCH, ipc_use_local_nats=True, ipc_local_nats_port=0, dirty={"ipc_use_local_nats"})
+    ) == []
+
+
+def _stale_local_without_binary(env, monkeypatch):
+    monkeypatch.setattr(mod, "resolve_nats_binary", lambda: None)
+    env.prefs.layers[(LOCAL, "ipc_use_local_nats")] = True
+    env.prefs.values["ipc_use_local_nats"] = True
+
+
+def test_branch_prefix_edit_not_blocked_by_console_state(qtbot, env, monkeypatch):
+    _stale_local_without_binary(env, monkeypatch)
+    env.prefs.values["ipc_nats_url"] = "http://not-nats"
+    dialog = _dialog(qtbot)
+    dialog.select_scope(BRANCH)
+    _type(qtbot, _row(dialog, PREFIX), "als.7011.1")
+    assert dialog._apply() is True
+    assert env.prefs.calls == [(PREFIX, "als.7011.1", BRANCH)]
+
+
+def test_stale_local_on_does_not_block_other_edits(qtbot, env, monkeypatch):
+    _stale_local_without_binary(env, monkeypatch)
+    dialog = _dialog(qtbot)
+    _type(qtbot, _row(dialog, "ipc_display_name"), "Hutch")
+    assert dialog._apply() is True
+    assert env.prefs.calls == [("ipc_display_name", "Hutch", LOCAL)]
+
+
+def test_turning_local_on_without_binary_is_blocked(qtbot, env, monkeypatch):
+    monkeypatch.setattr(mod, "resolve_nats_binary", lambda: None)
+    dialog = _dialog(qtbot)
+    dialog._model.edit(LOCAL, "ipc_use_local_nats", True)  # the toggle is disabled; edit the cell directly
+    assert dialog._validation_errors() == [
+        "IPC (This console): nats-server not found (install it or `pip install lightfall[local-nats]`)"
+    ]
+
+
+def test_port_shows_default_placeholder(qtbot, env):
+    row = _row(_dialog(qtbot), "ipc_local_nats_port")
+    line = row.editor.findChild(QLineEdit)
+    assert line.placeholderText() == "4222"
+    assert line.text() == ""
+    assert row.editor.value() is None
 
 
 def test_trusted_apps_list_populated_and_revoke(qtbot, env):

@@ -247,9 +247,11 @@ class ChoiceEditor(FieldEditor):
 
 
 class NumberEditor(FieldEditor):
-    """Line edit for integer or number; empty means not set."""
+    """Line edit for integer or number; empty means not set (shows ``placeholder`` or "Not set")."""
 
-    def __init__(self, spec: EditorSpec, unit: str = "", parent: QWidget | None = None) -> None:
+    def __init__(
+        self, spec: EditorSpec, unit: str = "", parent: QWidget | None = None, *, placeholder: str = ""
+    ) -> None:
         super().__init__(parent)
         self._integer = spec.kind == "integer"
         self._min = spec.minimum
@@ -259,7 +261,7 @@ class NumberEditor(FieldEditor):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self._edit = QLineEdit(self)
-        self._edit.setPlaceholderText(NOT_SET)
+        self._edit.setPlaceholderText(placeholder or NOT_SET)
         self._edit.installEventFilter(self)
         layout.addWidget(self._edit)
         if unit:
@@ -486,7 +488,7 @@ def create_editor(spec: EditorSpec, field: SettingField, parent: QWidget | None 
     elif spec.kind == "choice":
         editor = ChoiceEditor(spec)
     elif spec.kind in ("integer", "number"):
-        editor = NumberEditor(spec, field.unit)
+        editor = NumberEditor(spec, field.unit, placeholder=field.placeholder)
     elif spec.kind == "text":
         editor = TextEditor(field.placeholder)
     elif spec.kind == "url":

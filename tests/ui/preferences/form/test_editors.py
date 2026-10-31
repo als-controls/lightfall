@@ -172,6 +172,17 @@ def test_text_default_placeholder(qtbot):
     assert editor.findChild(QLineEdit).placeholderText() == "Not set"
 
 
+@pytest.mark.parametrize("kind", ["integer", "number"])
+def test_number_placeholder(qtbot, kind):
+    spec = CASES[kind][0]
+    editor = create_editor(spec, SettingField("k", spec, placeholder="4222"))
+    qtbot.addWidget(editor)
+    line = editor.findChild(QLineEdit)
+    assert line.placeholderText() == "4222"
+    assert editor.value() is None  # a placeholder is not a value
+    assert make(qtbot, kind).findChild(QLineEdit).placeholderText() == "Not set"
+
+
 def test_toggle_is_combo_with_three_entries(qtbot):
     from lightfall.ui.preferences.form.editors import muted_color
 
