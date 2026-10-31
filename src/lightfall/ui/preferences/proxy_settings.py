@@ -402,8 +402,8 @@ class ProxySettingsPlugin(SettingsPlugin):
         ]
 
     def validate_values(self, values: FormValues) -> list[str]:
-        if values.effective("proxy_enabled", False) is True:
+        if _connection_enabled(values):
             host = values.effective("proxy_host", DEFAULT_PROXY_HOST)
             if not (host or "").strip():
-                return ["Proxy host is required when the proxy is enabled"]
+                return ["Proxy host is required when the proxy or auto-detect is enabled"]
         return []

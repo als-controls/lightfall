@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QComboBox, QLineEdit
 
 from lightfall.scopes.keys import console_only
@@ -164,14 +164,47 @@ def test_auto_detect_enables_connection_fields(qtbot, env):
     assert item.button.isEnabled()
 
 
+HOST_REQUIRED = "Proxy host is required when the proxy or auto-detect is enabled"
+
+
 def test_proxy_host_required_when_enabled(qtbot, env):
     page = ProxySettingsPlugin()
-    message = "Proxy host is required when the proxy is enabled"
+    message = HOST_REQUIRED
     assert page.validate_values(_values(proxy_enabled=True, proxy_host="  ")) == [message]
     assert page.validate_values(_values(proxy_enabled=True, proxy_host="")) == [message]
     assert page.validate_values(_values(proxy_enabled=True)) == []  # unset -> localhost
     assert page.validate_values(_values(proxy_enabled=False, proxy_host="")) == []
     assert page.validate_values(_values(proxy_enabled=True, proxy_host="h")) == []
+    assert page.validate_values(_values(proxy_auto_detect=True, proxy_host=" ")) == [message]
+    assert page.validate_values(_values(proxy_auto_detect=True)) == []
+
+
+def test_blank_host_with_auto_detect_blocks_apply(qtbot, env, monkeypatch):
+    warnings = []
+    monkeypatch.setattr(
+        "lightfall.ui.preferences.dialog.QMessageBox.warning",
+        lambda _parent, _title, text: warnings.append(text),
+    )
+    dialog = _dialog(qtbot)
+    dialog._prompt_restart = lambda: None
+    _toggle(_row(dialog, "proxy", "proxy_auto_detect"), "On")
+    _type(qtbot, _row(dialog, "proxy", "proxy_host"), "h")  # then emptied: "" is a value, not unset
+    qtbot.keyClick(_row(dialog, "proxy", "proxy_host").editor.findChild(QLineEdit), Qt.Key.Key_Backspace)
+    assert dialog._apply() is False
+    assert len(warnings) == 1 and HOST_REQUIRED in warnings[0]
+    assert env.prefs.calls == []
+
+
+def test_unset_host_with_auto_detect_saves(qtbot, env, monkeypatch):
+    monkeypatch.setattr(
+        "lightfall.ui.preferences.dialog.QMessageBox.warning",
+        lambda *_a: pytest.fail("unexpected validation warning"),
+    )
+    dialog = _dialog(qtbot)
+    dialog._prompt_restart = lambda: None
+    _toggle(_row(dialog, "proxy", "proxy_auto_detect"), "On")
+    assert dialog._apply() is True
+    assert env.prefs.calls == [("proxy_auto_detect", True, LOCAL)]
 
 
 def test_proxy_restart_prompt_once(qtbot, env):
