@@ -2,8 +2,8 @@
 
 Opening the Preferences dialog populates the appearance controls from saved
 preferences. Those programmatic writes must NOT be mistaken for user edits:
-firing apply_preview() during load re-applies the already-active theme (a full
-stylesheet regen + pyqtgraph re-theme), which stutters the dialog open.
+previewing during load re-applies the already-active theme (a full stylesheet
+regen + pyqtgraph re-theme), which stutters the dialog open.
 """
 
 from __future__ import annotations
@@ -26,12 +26,36 @@ class _FakePrefs(QObject):
         self.font_size = font_size
         self._islands = islands
 
+    def default_scope(self) -> str:
+        return "user:u1"
+
     def get(self, key: str, default=None):
         if key == "islands_mode":
             return self._islands
         if key == "console_syntax_style":
             return ""
+        if key == "theme":
+            return self.theme
+        if key == "font_size":
+            return self.font_size
         return default
+
+
+class _Values:
+    """FormValues at the user scope with the given pending edits."""
+
+    scope = "user:u1"
+
+    def __init__(self, prefs: _FakePrefs, **edits) -> None:
+        self._prefs = prefs
+        self._edits = edits
+
+    def get(self, key: str):
+        return self._edits.get(key)
+
+    def effective(self, key: str, default=None):
+        value = self._edits.get(key)
+        return value if value is not None else self._prefs.get(key, default)
 
 
 @pytest.fixture
@@ -44,13 +68,13 @@ def fake_prefs(monkeypatch):
     return prefs
 
 
-def test_load_settings_does_not_drive_theme_manager(qtbot, fake_prefs, monkeypatch):
-    """load_settings() is pure initialization and must not touch the theme."""
+def test_building_the_form_does_not_drive_theme_manager(qtbot, fake_prefs, monkeypatch):
+    """Showing the page with saved values is pure initialization: no theme calls."""
+    from lightfall.ui.preferences.form.model import FormModel
+    from lightfall.ui.preferences.form.view import SettingsForm
+
     ThemeManager.reset()
     plugin = AppearanceSettingsPlugin()
-    widget = plugin.create_widget()  # connects currentIndexChanged / toggled
-    qtbot.addWidget(widget)
-
     theme_mgr = ThemeManager.get_instance()
     calls: list[tuple] = []
     monkeypatch.setattr(
@@ -62,13 +86,33 @@ def test_load_settings_does_not_drive_theme_manager(qtbot, fake_prefs, monkeypat
         lambda *a, **k: calls.append(("set_islands_mode", a)),
     )
 
-    plugin.load_settings()
+    class _Store:
+        def allowed_at(self, key, scope):
+            return True
+
+        writable_at = allowed_at
+
+        def lock_at(self, key, scope):
+            return None
+
+        def needs_approval(self, key, scope):
+            return False
+
+        def scope_choices(self):
+            from lightfall.ui.preferences.scope_api import ScopeChoice
+
+            return [ScopeChoice("user:u1", "user", "User", None, "")]
+
+    saved = {"theme": "slate", "islands_mode": True, "font_size": 12}
+    model = FormModel(read_layer=lambda key, scope: saved.get(key))
+    form = SettingsForm(plugin, model, _Store())
+    qtbot.addWidget(form)
+    form.show_scope("user:u1")
 
     assert calls == [], (
-        "load_settings() fired apply_preview() and re-applied the theme; "
+        "showing the form re-applied the theme; "
         f"unexpected ThemeManager calls: {calls}"
     )
-
 
 def _app_point_size() -> int:
     from PySide6.QtWidgets import QApplication
@@ -85,17 +129,13 @@ def _set_app_point_size(size: int) -> None:
     app.setFont(font)
 
 
-def test_apply_preview_applies_font_size(qtbot, fake_prefs):
-    """Changing the font spinbox applies the size app-wide (live preview)."""
+def test_preview_applies_font_size(qtbot, fake_prefs):
+    """Editing the font size applies it app-wide (live preview)."""
     ThemeManager.reset()
     original = _app_point_size()
     try:
         plugin = AppearanceSettingsPlugin()
-        widget = plugin.create_widget()
-        qtbot.addWidget(widget)
-        plugin.load_settings()
-
-        plugin._font_spin.setValue(18)  # user edit -> valueChanged
+        plugin.preview(_Values(fake_prefs, font_size=18))  # user edit
 
         assert _app_point_size() == 18
     finally:
@@ -125,11 +165,8 @@ def test_revert_preview_restores_font_size(qtbot, fake_prefs):
     original = _app_point_size()
     try:
         plugin = AppearanceSettingsPlugin()
-        widget = plugin.create_widget()
-        qtbot.addWidget(widget)
-        plugin.load_settings()  # records original (fake_prefs.font_size == 10)
-
-        plugin._font_spin.setValue(22)  # preview a bigger size
+        plugin._apply_font_size(10)  # in effect when the dialog opened
+        plugin.preview(_Values(fake_prefs, font_size=22))  # preview a bigger size
         plugin.revert_preview()
 
         assert _app_point_size() == 10

@@ -103,7 +103,7 @@ class PreferencesDialog(QDialog):
         ...     # Preferences were applied
 
     The dialog supports:
-    - Live preview via apply_preview()
+    - Live preview via preview(values) (form pages) / apply_preview() (hand-built)
     - Validation before save via validate() / validate_values()
     - Revert on cancel via revert_preview()
     """
@@ -268,6 +268,7 @@ class PreferencesDialog(QDialog):
     def _build_form_page(self, plugin: SettingsPlugin) -> _FormPage:
         form = SettingsForm(plugin, self._model, self._prefs)
         form.edited.connect(self._on_form_edited)
+        form.edited.connect(lambda: self._preview(plugin, form))
         form.show_scope(self._scope)
         page = _FormPage(form)
         self._form_pages[plugin.name] = page
@@ -363,6 +364,18 @@ class PreferencesDialog(QDialog):
 
     def _on_form_edited(self) -> None:
         self._header.set_dirty_scopes(self._model.dirty_scopes())
+
+    def _preview(self, plugin: SettingsPlugin, form: SettingsForm) -> None:
+        scope = form.scope
+        if scope is None:
+            return
+        preview = getattr(plugin, "preview", None)
+        if preview is None:
+            return
+        try:
+            preview(self._model.values(scope))
+        except Exception as e:
+            logger.error("Preview failed for '{}': {}", plugin.name, e)
 
     def _invalid_labels(self) -> list[str]:
         labels: list[str] = []
