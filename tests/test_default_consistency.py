@@ -25,6 +25,9 @@ class _EmptyPrefs:
     def explicit(self, key, default=None):
         return self.get(key, default)
 
+    def subscribe(self, key, slot):
+        pass  # startup's watch_tiled_preferences: nothing changes here
+
 
 @pytest.fixture
 def empty_prefs(monkeypatch):
