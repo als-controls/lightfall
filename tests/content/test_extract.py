@@ -77,3 +77,18 @@ def test_not_a_zip(tmp_path, dest):
     z.write_bytes(b"not a zip at all")
     with pytest.raises(UnsafeBundle):
         safe_extract(z, dest, max_files=10, max_bytes=100)
+
+
+def test_corrupt_member_is_unsafe(tmp_path, dest):
+    import zipfile as zf_mod
+
+    z = _zip(tmp_path / "b.zip", [("a.py", b"print('hello world')" * 200)])
+    raw = bytearray(z.read_bytes())
+    with zf_mod.ZipFile(z) as zf:
+        info = zf.infolist()[0]
+    start = info.header_offset + 30 + len(info.filename) + 10
+    for i in range(start, start + 40):
+        raw[i] ^= 0xFF
+    z.write_bytes(bytes(raw))
+    with pytest.raises(UnsafeBundle):
+        safe_extract(z, dest, max_files=10, max_bytes=10**6)

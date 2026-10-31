@@ -31,7 +31,7 @@ class ContentSync(QObject):
 
     def __init__(self, *, client: Any, store: ContentStore, bind: Callable[[], str],
                  run: Runner | None = None, ipc: Callable[[], Any] | None = None,
-                 debounce_ms: int = 500,
+                 debounce_ms: int = 500, poll_ms: int = 300_000,
                  sync: Callable[..., SyncResult] = sync_chain) -> None:
         super().__init__()
         if run is None:
@@ -49,10 +49,15 @@ class ContentSync(QObject):
         self._again = False
         self._offline = False
         self._session = 0  # bumped by stop() so results from before it are dropped
+        self._pruned = False  # the first sync of this process prunes old folders
         self._debounce_ms = debounce_ms
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self.refresh)
+        # Retries after an offline login or a failed item (events only say "changed").
+        self._poll_ms = poll_ms
+        self._poll = QTimer(self)
+        self._poll.timeout.connect(self.refresh)
 
     @property
     def store(self) -> ContentStore:
@@ -71,6 +76,8 @@ class ContentSync(QObject):
         self._chain = tuple(chain)
         self._started = True
         self._subscribe()
+        if self._poll_ms > 0:
+            self._poll.start(self._poll_ms)
         self.refresh()
 
     def follow(self, info: Any) -> None:
@@ -86,9 +93,11 @@ class ContentSync(QObject):
         self._started = False
         self._chain = ()
         self._session += 1
-        self._busy = False
+        # _busy stays set: a worker may still be syncing, and the next session must wait
+        # for it (the dropped result clears it) rather than run a second sync beside it.
         self._again = False
         self._debounce.stop()
+        self._poll.stop()
         self._unsubscribe()
 
     def refresh(self) -> None:
@@ -98,19 +107,31 @@ class ContentSync(QObject):
             self._again = True
             return
         self._busy = True
+        self._again = False  # this run covers every request made so far
         session = self._session
+        prune, self._pruned = not self._pruned, True
         client, store, bind, chain, sync = (self._client, self._store, self._bind(),
                                             self._chain, self._sync)
 
         def ok(result: SyncResult) -> None:
             if session == self._session:
                 self._on_synced(result)
+            else:
+                self._on_stale()
 
         def err(exc: Exception) -> None:
             if session == self._session:
                 self._on_failed(exc)
+            else:
+                self._on_stale()
 
-        self._run(lambda: sync(client, store, bind, chain), ok, err)
+        self._run(lambda: sync(client, store, bind, chain, prune=prune), ok, err)
+
+    def _on_stale(self) -> None:
+        """A sync from before stop() finished: free the slot for the current session."""
+        self._busy = False
+        if self._started:
+            self.refresh()
 
     def _on_synced(self, result: SyncResult) -> None:
         self._busy = False

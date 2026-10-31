@@ -35,7 +35,7 @@ def safe_extract(zip_path: Path, dest: Path, *, max_files: int, max_bytes: int) 
     """
     try:
         zf = zipfile.ZipFile(zip_path)
-    except (zipfile.BadZipFile, OSError) as e:
+    except Exception as e:
         raise UnsafeBundle(f"not a zip: {e}") from e
     with zf:
         seen: set[str] = set()
@@ -64,6 +64,8 @@ def safe_extract(zip_path: Path, dest: Path, *, max_files: int, max_bytes: int) 
                         if total > max_bytes:
                             raise UnsafeBundle(f"more than the declared {max_bytes} bytes")
                         out.write(chunk)
-        except (zipfile.BadZipFile, OSError, EOFError, ValueError) as e:  # corrupt member
-            raise UnsafeBundle(f"unreadable bundle: {e}") from e
+        except UnsafeBundle:
+            raise
+        except Exception as e:  # corrupt data (zlib.error), deflate64, encryption, ...
+            raise UnsafeBundle(f"unreadable bundle: {type(e).__name__}: {e}") from e
     return len(files)

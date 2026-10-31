@@ -44,6 +44,12 @@ def _store(tmp_path):
     return ContentStore(tmp_path / "root")
 
 
+def current(store, type_, name, scope=BR):
+    """The folder of the installed revision the index names."""
+    item = next(i for i in store.listing(scope).items if (i.type, i.name) == (type_, name))
+    return store.item_path(scope, type_, name, item.revision)
+
+
 def test_first_sync_installs_everything(tmp_path):
     c, store = FakeClient(), _store(tmp_path)
     a = c.publish(BR, "agent", "helper", 1, {"helper.md": b"hi"})
@@ -51,7 +57,7 @@ def test_first_sync_installs_everything(tmp_path):
     c.serve(BR, [a, p], "e1")
     result = sync_scope(c, store, BR)
     assert set(result.changed) == {("agent", "helper"), ("plugin", "xas_tools")}
-    assert (store.item_path(BR, "plugin", "xas_tools") / "t" / "r.html").exists()
+    assert (current(store, "plugin", "xas_tools") / "t" / "r.html").exists()
     assert store.listing(BR) == ContentListing(BR, (a, p), "e1")
     assert list((tmp_path / "root" / ".staging").iterdir()) == []
 
@@ -72,7 +78,7 @@ def test_new_revision_replaces_item(tmp_path):
     c.serve(BR, [c.publish(BR, "agent", "helper", 2, {"helper.md": b"v2"})], "e2")
     result = sync_scope(c, store, BR)
     assert result.changed == (("agent", "helper"),)
-    assert (store.item_path(BR, "agent", "helper") / "helper.md").read_bytes() == b"v2"
+    assert (current(store, "agent", "helper") / "helper.md").read_bytes() == b"v2"
 
 
 def test_retracted_item_is_removed(tmp_path):
@@ -84,8 +90,11 @@ def test_retracted_item_is_removed(tmp_path):
     c.serve(BR, [b], "e2")
     result = sync_scope(c, store, BR)
     assert result.removed == (("agent", "helper"),) and result.changed == ()
-    assert not store.item_path(BR, "agent", "helper").exists()
     assert store.listing(BR).items == (b,)
+    folder = store.item_path(BR, "agent", "helper", 1)
+    assert folder.is_dir()  # still loaded somewhere, maybe: gone at the next prune
+    store.prune()
+    assert not folder.exists()
 
 
 def test_failed_item_keeps_previous_copy_and_retries(tmp_path):
@@ -101,14 +110,14 @@ def test_failed_item_keeps_previous_copy_and_retries(tmp_path):
     result = sync_scope(c, store, BR)
     assert result.changed == (("agent", "other"),)
     assert [(t, n) for t, n, _ in result.failed] == [("agent", "helper")]
-    assert (store.item_path(BR, "agent", "helper") / "helper.md").read_bytes() == b"v1"
-    assert (store.item_path(BR, "agent", "other") / "other.md").read_bytes() == b"o2"
+    assert (current(store, "agent", "helper") / "helper.md").read_bytes() == b"v1"
+    assert (current(store, "agent", "other") / "other.md").read_bytes() == b"o2"
     saved = store.listing(BR)
     assert saved.etag == "" and set(saved.items) == {a1, b2}
     c.bundles[(BR, "agent", "helper", 2)] = make_zip({"helper.md": b"v2"})
     retry = sync_scope(c, store, BR)
     assert retry.changed == (("agent", "helper"),)
-    assert (store.item_path(BR, "agent", "helper") / "helper.md").read_bytes() == b"v2"
+    assert (current(store, "agent", "helper") / "helper.md").read_bytes() == b"v2"
     assert store.listing(BR).etag == "e2"
 
 
@@ -121,7 +130,7 @@ def test_download_error_keeps_previous_copy(tmp_path):
     c.serve(BR, [a2], "e2")
     result = sync_scope(c, store, BR)
     assert len(result.failed) == 1
-    assert (store.item_path(BR, "agent", "helper") / "helper.md").read_bytes() == b"v1"
+    assert (current(store, "agent", "helper") / "helper.md").read_bytes() == b"v1"
 
 
 def test_sync_skips_invalid_listing_entries(tmp_path):
@@ -160,3 +169,56 @@ def test_sync_chain_http_error_on_one_scope_continues(tmp_path):
     assert [s.scope for s in result.scopes] == ["facility", BR]
     assert result.scopes[0].failed and result.scopes[1].changed == (("plan", "xafs"),)
     assert result.changed_types == frozenset({"plan"})
+
+
+def test_missing_folder_is_reinstalled_despite_matching_etag(tmp_path):
+    import shutil
+
+    c, store = FakeClient(), _store(tmp_path)
+    c.serve(BR, [c.publish(BR, "agent", "helper", 1, {"helper.md": b"hi"})], "e1")
+    sync_scope(c, store, BR)
+    shutil.rmtree(current(store, "agent", "helper"))  # antivirus, a person, a failed delete
+    result = sync_scope(c, store, BR)
+    assert c.listing_calls[-1] == (BR, None)  # no etag: a 304 would skip the repair
+    assert result.changed == (("agent", "helper"),)
+    assert (current(store, "agent", "helper") / "helper.md").read_bytes() == b"hi"
+
+
+def test_unexpected_install_error_is_per_item(tmp_path, monkeypatch):
+    c, store = FakeClient(), _store(tmp_path)
+    a = c.publish(BR, "agent", "a", 1, {"a.md": b"a"})
+    b = c.publish(BR, "agent", "b", 1, {"b.md": b"b"})
+    c.serve(BR, [a, b], "e1")
+    real = store.install
+
+    def install(scope, item, zip_path):
+        if item.name == "a":
+            raise RuntimeError("deflate64 not supported")
+        real(scope, item, zip_path)
+
+    monkeypatch.setattr(store, "install", install)
+    result = sync_scope(c, store, BR)
+    assert result.changed == (("agent", "b"),) and [f[1] for f in result.failed] == ["a"]
+    assert store.listing(BR).items == (b,)
+
+
+def test_sync_chain_skips_while_another_process_syncs(tmp_path):
+    from filelock import FileLock
+
+    c, store = FakeClient(), _store(tmp_path)
+    store.root.mkdir(parents=True)
+    with FileLock(str(store.root / ".lock")):
+        result = sync_chain(c, store, BR, ["facility", BR])
+    assert result.scopes == () and not result.offline and c.listing_calls == []
+
+
+def test_sync_chain_prunes_when_asked(tmp_path):
+    c, store = FakeClient(), _store(tmp_path)
+    c.serve(BR, [c.publish(BR, "agent", "helper", 1, {"helper.md": b"v1"})], "e1")
+    sync_chain(c, store, BR, [BR])
+    c.serve(BR, [c.publish(BR, "agent", "helper", 2, {"helper.md": b"v2"})], "e2")
+    sync_chain(c, store, BR, [BR])
+    assert store.item_path(BR, "agent", "helper", 1).is_dir()
+    sync_chain(c, store, BR, [BR], prune=True)
+    assert not store.item_path(BR, "agent", "helper", 1).exists()
+    assert current(store, "agent", "helper").is_dir()

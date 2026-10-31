@@ -1,4 +1,4 @@
-"""ContentStore: atomic installs, the installed index and per-bind chain records."""
+"""ContentStore: one folder per revision, the installed index, prune and per-bind chains."""
 from __future__ import annotations
 
 import os
@@ -16,32 +16,39 @@ BR = "branch:7.0.1.1"
 
 def _install(store, tmp_path, revision, files, name="xas_tools"):
     data = make_zip(files)
-    z = tmp_path / f"r{revision}.zip"
+    z = tmp_path / f"r{revision}-{name}.zip"
     z.write_bytes(data)
     item = item_for("plugin", name, revision, data, files)
     store.install(BR, item, z)
     return item
 
 
-def test_install_and_replace_atomically(tmp_path):
+def test_install_puts_each_revision_in_its_own_folder(tmp_path):
     store = ContentStore(tmp_path / "root")
     _install(store, tmp_path, 1, {"__init__.py": b"v1", "old.py": b"x"})
-    path = store.item_path(BR, "plugin", "xas_tools")
-    assert (path / "__init__.py").read_bytes() == b"v1"
     _install(store, tmp_path, 2, {"__init__.py": b"v2"})
-    assert sorted(p.name for p in path.iterdir()) == ["__init__.py"]
-    assert (path / "__init__.py").read_bytes() == b"v2"
+    v1 = store.item_path(BR, "plugin", "xas_tools", 1)
+    v2 = store.item_path(BR, "plugin", "xas_tools", 2)
+    assert v2 == tmp_path / "root" / "branch-7.0.1.1" / "plugin" / "xas_tools@2"
+    assert (v1 / "__init__.py").read_bytes() == b"v1"  # untouched: a running plugin keeps it
+    assert sorted(p.name for p in v2.iterdir()) == ["__init__.py"]
     assert list((tmp_path / "root" / ".staging").iterdir()) == []
-    assert path == tmp_path / "root" / "branch-7.0.1.1" / "plugin" / "xas_tools"
 
 
-def test_unsafe_bundle_keeps_previous_copy(tmp_path):
+def test_install_of_an_existing_revision_is_a_no_op(tmp_path):
+    store = ContentStore(tmp_path / "root")
+    _install(store, tmp_path, 1, {"__init__.py": b"v1"})
+    _install(store, tmp_path, 1, {"__init__.py": b"v1"})
+    assert (store.item_path(BR, "plugin", "xas_tools", 1) / "__init__.py").read_bytes() == b"v1"
+
+
+def test_unsafe_bundle_leaves_nothing(tmp_path):
     store = ContentStore(tmp_path / "root")
     _install(store, tmp_path, 1, {"__init__.py": b"v1"})
     with pytest.raises(UnsafeBundle):
         _install(store, tmp_path, 2, {"../evil.py": b"v2"})
-    path = store.item_path(BR, "plugin", "xas_tools")
-    assert (path / "__init__.py").read_bytes() == b"v1"
+    assert not store.item_path(BR, "plugin", "xas_tools", 2).exists()
+    assert store.item_path(BR, "plugin", "xas_tools", 1).is_dir()
     assert list((tmp_path / "root" / ".staging").iterdir()) == []
 
 
@@ -70,14 +77,26 @@ def test_listing_round_trip_and_unreadable_index_is_none(tmp_path):
     assert store.listing(BR) is None
 
 
-def test_remove_deletes_only_that_item(tmp_path):
+def test_prune_removes_unindexed_folders_and_staging(tmp_path):
     store = ContentStore(tmp_path / "root")
-    _install(store, tmp_path, 1, {"__init__.py": b"v1"}, name="a")
-    _install(store, tmp_path, 1, {"__init__.py": b"v1"}, name="b")
-    store.remove(BR, "plugin", "a")
-    store.remove(BR, "plugin", "never-there")
-    assert not store.item_path(BR, "plugin", "a").exists()
-    assert store.item_path(BR, "plugin", "b").exists()
+    old = _install(store, tmp_path, 1, {"__init__.py": b"v1"})
+    new = _install(store, tmp_path, 2, {"__init__.py": b"v2"})
+    gone = _install(store, tmp_path, 3, {"__init__.py": b"g"}, name="retracted")
+    store.save_listing(ContentListing(BR, (new,), "e"))
+    (store.root / ".staging" / "dl-left-by-a-crash.zip").write_bytes(b"x")
+    store.prune()
+    assert store.item_path(BR, "plugin", "xas_tools", 2).is_dir()
+    assert not store.item_path(BR, "plugin", "xas_tools", old.revision).exists()
+    assert not store.item_path(BR, "plugin", "retracted", gone.revision).exists()
+    assert list((store.root / ".staging").iterdir()) == []
+
+
+def test_prune_keeps_a_scope_whose_index_is_unreadable(tmp_path):
+    store = ContentStore(tmp_path / "root")
+    _install(store, tmp_path, 1, {"__init__.py": b"v1"})
+    (store.scope_dir(BR) / "index.json").write_text("{not json", encoding="utf-8")
+    store.prune()
+    assert store.item_path(BR, "plugin", "xas_tools", 1).is_dir()
 
 
 def test_chain_record_is_per_bind(tmp_path):

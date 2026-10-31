@@ -4,8 +4,14 @@ Layout under the root (``default_content_dir()``)::
 
     chains.json                  {bind: [facility, beamline:…, branch:…]} last synced per bind
     branch-7.0.1.1/index.json    the listing that is installed (not what the server last said)
-    branch-7.0.1.1/plugin/xas_tools/…
+    branch-7.0.1.1/plugin/xas_tools@17/…   one folder per revision, never changed once there
     .staging/                    downloads and extractions in progress
+    .lock                        held while a process syncs
+
+Readers take each item's folder from index.json, never by listing folders. A new
+revision lands beside the old one, so nothing changes under code that is already
+loaded (Windows can't rename a folder with open files either); ``prune()`` removes
+folders the index no longer names, at a process's first sync.
 
 The copy belongs to the machine, not the user: guests read the last synced copy.
 """
@@ -59,10 +65,15 @@ class ContentStore:
         stem = f"{kind}-{rest}" if sep else kind
         return self.root / _UNSAFE.sub("_", stem)
 
-    def item_path(self, scope: str, type_: str, name: str) -> Path:
+    def item_path(self, scope: str, type_: str, name: str, revision: int) -> Path:
+        """The folder holding one revision of an item."""
         if not valid_item(type_, name):
             raise ValueError(f"invalid content item {type_}/{name!r}")
-        return self.scope_dir(scope) / type_ / name
+        return self.scope_dir(scope) / type_ / f"{name}@{int(revision)}"
+
+    @property
+    def lock_path(self) -> Path:
+        return self.root / ".lock"
 
     def _staging(self) -> Path:
         path = self.root / ".staging"
@@ -78,15 +89,18 @@ class ContentStore:
     # -- installed index --------------------------------------------------------------
 
     def listing(self, scope: str) -> ContentListing | None:
-        path = self.scope_dir(scope) / "index.json"
+        listing = self._read_listing(self.scope_dir(scope) / "index.json")
+        return listing if listing is not None and listing.scope == scope else None
+
+    @staticmethod
+    def _read_listing(path: Path) -> ContentListing | None:
         try:
-            listing = ContentListing.from_dict(json.loads(path.read_text(encoding="utf-8")))
+            return ContentListing.from_dict(json.loads(path.read_text(encoding="utf-8")))
         except FileNotFoundError:
             return None
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
             logger.warning("Ignoring unreadable content index {}: {}", path, e)
             return None
-        return listing if listing.scope == scope else None
 
     def save_listing(self, listing: ContentListing) -> None:
         write_json_atomic(self.scope_dir(listing.scope) / "index.json", listing.to_dict())
@@ -94,11 +108,13 @@ class ContentStore:
     # -- items ------------------------------------------------------------------------
 
     def install(self, scope: str, item: ContentItem, zip_path: Path) -> None:
-        """Unpack ``zip_path`` as ``item`` and swap it into place.
+        """Unpack ``zip_path`` as ``item``'s revision folder (no-op if already there).
 
-        Raises UnsafeBundle or OSError; the previous copy is then still in place.
+        Raises UnsafeBundle or OSError; nothing is left behind then.
         """
-        target = self.item_path(scope, item.type, item.name)
+        target = self.item_path(scope, item.type, item.name, item.revision)
+        if target.is_dir():
+            return  # folders arrive whole, by rename: one that exists is complete
         staged = Path(tempfile.mkdtemp(dir=self._staging(), prefix="new-"))
         try:
             safe_extract(zip_path, staged,
@@ -107,26 +123,47 @@ class ContentStore:
                          max_bytes=item.uncompressed_size if item.uncompressed_size is not None
                          else FALLBACK_MAX_BYTES)
             target.parent.mkdir(parents=True, exist_ok=True)
-            old: Path | None = None
-            if target.exists():
-                old = Path(tempfile.mkdtemp(dir=self._staging(), prefix="old-")) / "item"
-                os.replace(target, old)
-            try:
-                os.replace(staged, target)
-            except OSError:
-                if old is not None:
-                    os.replace(old, target)
-                raise
-            if old is not None:
-                shutil.rmtree(old.parent, ignore_errors=True)
+            os.replace(staged, target)
         finally:
             if staged.exists():
                 shutil.rmtree(staged, ignore_errors=True)
 
-    def remove(self, scope: str, type_: str, name: str) -> None:
-        path = self.item_path(scope, type_, name)
-        if path.exists():
-            shutil.rmtree(path)
+    def prune(self) -> None:
+        """Delete revision folders no index names, and leftovers in ``.staging``.
+
+        Best effort (a folder in use stays until next time). A scope whose index can't
+        be read is left alone: without it we can't tell what is current.
+        """
+        if not self.root.is_dir():
+            return
+        staging = self._staging()
+        for scope_dir in self.root.iterdir():
+            if not scope_dir.is_dir() or scope_dir.name.startswith("."):
+                continue
+            index = scope_dir / "index.json"
+            listing = self._read_listing(index)
+            if listing is None and index.exists():
+                continue
+            keep = {(i.type, f"{i.name}@{i.revision}")
+                    for i in (listing.items if listing is not None else ())}
+            for type_dir in scope_dir.iterdir():
+                if not type_dir.is_dir() or type_dir.name not in CONTENT_TYPES:
+                    continue
+                for folder in type_dir.iterdir():
+                    if (type_dir.name, folder.name) in keep:
+                        continue
+                    # Rename first so a half-finished delete never looks like content.
+                    trash = Path(tempfile.mkdtemp(dir=staging, prefix="old-")) / "item"
+                    try:
+                        os.replace(folder, trash)
+                    except OSError as e:
+                        logger.debug("Content folder {} in use; pruned later: {}", folder, e)
+                        continue
+        for leftover in staging.iterdir():
+            if leftover.is_dir():
+                shutil.rmtree(leftover, ignore_errors=True)
+            else:
+                leftover.unlink(missing_ok=True)
 
     # -- chains (which scopes each binding reads) ------------------------------------
 

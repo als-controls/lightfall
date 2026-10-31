@@ -5,6 +5,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from filelock import FileLock, Timeout
+
 from lightfall.content.extract import UnsafeBundle
 from lightfall.content.store import ContentStore, _is_shared_scope, valid_item
 from lightfall.scopes.client import ContentItem, ContentListing, ScopesError
@@ -45,16 +47,20 @@ def _fetch_item(client: Any, store: ContentStore, scope: str, item: ContentItem)
 
 
 def sync_scope(client: Any, store: ContentStore, scope: str) -> ScopeSyncResult:
-    """Install new and updated items, remove retracted ones. A failed item keeps its
+    """Install new and updated items, drop retracted ones from the index. A failed item keeps its
     previous copy and stays at its old revision in the index, so the next sync retries it.
 
     Raises ScopesError when the listing itself can't be fetched.
     """
     local = store.listing(scope)
-    fresh = client.content_listing(scope, etag=local.etag if local and local.etag else None)
+    have = {(i.type, i.name): i for i in local.items} if local else {}
+    present = {key for key, i in have.items()
+               if valid_item(*key) and store.item_path(scope, *key, i.revision).is_dir()}
+    # A folder that went missing must be repaired, so don't let the server say "304".
+    etag = local.etag if local and local.etag and len(present) == len(have) else None
+    fresh = client.content_listing(scope, etag=etag)
     if fresh is None:
         return ScopeSyncResult(scope, unchanged=True)
-    have = {(i.type, i.name): i for i in local.items} if local else {}
     keep: list[ContentItem] = []
     changed: list[tuple[str, str]] = []
     failed: list[tuple[str, str, str]] = []
@@ -67,37 +73,45 @@ def sync_scope(client: Any, store: ContentStore, scope: str) -> ScopeSyncResult:
             continue
         wanted.add(key)
         old = have.get(key)
-        if old is not None and (old.revision, old.sha256) == (item.revision, item.sha256):
+        if (old is not None and key in present
+                and (old.revision, old.sha256) == (item.revision, item.sha256)):
             keep.append(item)
             continue
         try:
             _fetch_item(client, store, scope, item)
-        except (ScopesError, UnsafeBundle, OSError) as e:
+        except Exception as e:  # one bad item must not stop the rest of the sync
             logger.warning("Could not sync {} {} at {}: {}", item.type, item.name, scope, e)
             failed.append((item.type, item.name, str(e)))
-            if old is not None:
+            if old is not None and key in present:
                 keep.append(old)
             continue
         keep.append(item)
         changed.append(key)
-    removed: list[tuple[str, str]] = []
-    for key in have:
-        if key in wanted:
-            continue
-        try:
-            store.remove(scope, *key)
-        except (OSError, ValueError) as e:
-            logger.warning("Could not remove retracted {} {} at {}: {}", *key, scope, e)
-            failed.append((*key, str(e)))
-            keep.append(have[key])
-            continue
-        removed.append(key)
+    # Retracted: dropped from the index; the folder goes at the next prune (it may be loaded).
+    removed = [key for key in have if key not in wanted]
     store.save_listing(ContentListing(scope, tuple(keep), "" if failed else fresh.etag))
     return ScopeSyncResult(scope, tuple(changed), tuple(removed), tuple(failed))
 
 
-def sync_chain(client: Any, store: ContentStore, bind: str, chain: Sequence[str]) -> SyncResult:
-    """Sync every shared scope of ``chain`` and record it as ``bind``'s chain."""
+def sync_chain(client: Any, store: ContentStore, bind: str, chain: Sequence[str], *,
+               prune: bool = False) -> SyncResult:
+    """Sync every shared scope of ``chain`` and record it as ``bind``'s chain.
+
+    ``prune`` first removes folders no index names (a process's first sync). Skipped,
+    with an empty result, while another process on this machine is syncing.
+    """
+    store.root.mkdir(parents=True, exist_ok=True)
+    try:
+        with FileLock(str(store.lock_path), timeout=0):
+            if prune:
+                store.prune()
+            return _sync_chain(client, store, bind, chain)
+    except Timeout:
+        logger.info("Another Lightfall on this machine is syncing content; skipped")
+        return SyncResult(bind, (), offline=False)
+
+
+def _sync_chain(client: Any, store: ContentStore, bind: str, chain: Sequence[str]) -> SyncResult:
     scopes = [s for s in chain if _is_shared_scope(s)]
     store.save_chain(bind, scopes)
     results: list[ScopeSyncResult] = []

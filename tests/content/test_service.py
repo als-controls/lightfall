@@ -32,19 +32,22 @@ class FakeIpc(QObject):
 class FakeSync:
     def __init__(self):
         self.calls = []
+        self.prunes = []
         self.result = None  # None: nothing changed
 
-    def __call__(self, client, store, bind, chain):
+    def __call__(self, client, store, bind, chain, *, prune=False):
         self.calls.append((bind, tuple(chain)))
+        self.prunes.append(prune)
         if isinstance(self.result, Exception):
             raise self.result
         return self.result or SyncResult(bind, (ScopeSyncResult(BR, unchanged=True),), False)
 
 
-def make(tmp_path, qapp, run=sync_run):
+def make(tmp_path, qapp, run=sync_run, poll_ms=0):
     ipc, fake = FakeIpc(), FakeSync()
     cs = ContentSync(client=object(), store=ContentStore(tmp_path / "root"), bind=lambda: BR,
-                     run=run, ipc=lambda: ipc, debounce_ms=0, sync=fake)
+                     run=run, ipc=lambda: ipc, debounce_ms=0, sync=fake,
+                     poll_ms=poll_ms)
     got = []
     cs.synced.connect(got.append)
     return cs, ipc, fake, got
@@ -139,3 +142,35 @@ def test_follow_scope_info(tmp_path, qapp):
     assert cs.chain == () and CONTENT_SUBJECT not in ipc.handlers
     cs.follow(ScopeInfo("off"))
     assert len(fake.calls) == 2
+
+
+def test_stop_then_start_never_runs_two_syncs_at_once(tmp_path, qapp):
+    deferred = Deferred()
+    cs, ipc, fake, got = make(tmp_path, qapp, run=deferred)
+    cs.start(CHAIN)
+    cs.stop()
+    cs.start(CHAIN)  # logout and login again while the first sync is still running
+    assert len(deferred.jobs) == 1
+    fn, ok, _err = deferred.jobs.pop(0)
+    ok(fn())  # the old session's result: dropped, then the new session syncs
+    assert len(deferred.jobs) == 1
+    fn, ok, _err = deferred.jobs.pop(0)
+    ok(fn())
+    assert deferred.jobs == []
+
+
+def test_first_sync_of_the_process_prunes(tmp_path, qapp):
+    cs, ipc, fake, _ = make(tmp_path, qapp)
+    cs.start(CHAIN)
+    cs.refresh()
+    assert fake.prunes == [True, False]
+
+
+def test_polls_while_started(tmp_path, qapp):
+    cs, ipc, fake, _ = make(tmp_path, qapp, poll_ms=60_000)
+    cs.start(CHAIN)
+    assert cs._poll.isActive()
+    cs._poll.timeout.emit()
+    assert len(fake.calls) == 2
+    cs.stop()
+    assert not cs._poll.isActive()
