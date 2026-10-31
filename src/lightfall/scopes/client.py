@@ -1,8 +1,10 @@
 """Sync HTTP client for the logbook scoped-settings endpoints (read side)."""
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -120,6 +122,60 @@ class Snapshot:
     @classmethod
     def empty(cls, scope: str) -> Snapshot:
         return cls(scope=scope)
+
+
+@dataclass(frozen=True)
+class ContentItem:
+    """One published item at a scope, at its current revision."""
+
+    type: str
+    name: str
+    revision: int
+    sha256: str
+    size: int
+    published_by: str = ""
+    published_at: str = ""
+    author: str | None = None
+    file_count: int | None = None  # declared by the publisher; None from older servers
+    uncompressed_size: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ContentItem:
+        def opt_int(v: Any) -> int | None:
+            return None if v is None else int(v)
+
+        return cls(type=str(d["type"]), name=str(d["name"]), revision=int(d["revision"]),
+                   sha256=str(d["sha256"]), size=int(d["size"]),
+                   published_by=str(d.get("published_by") or ""),
+                   published_at=str(d.get("published_at") or ""),
+                   author=None if d.get("author") is None else str(d["author"]),
+                   file_count=opt_int(d.get("file_count")),
+                   uncompressed_size=opt_int(d.get("uncompressed_size")))
+
+
+
+@dataclass(frozen=True)
+class ContentListing:
+    scope: str
+    items: tuple[ContentItem, ...] = ()
+    etag: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"scope": self.scope, "items": [i.to_dict() for i in self.items],
+                "etag": self.etag}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ContentListing:
+        items = []
+        for raw in d.get("items") or ():
+            try:
+                items.append(ContentItem.from_dict(raw))
+            except (KeyError, TypeError, ValueError, AttributeError):
+                logger.warning("Ignoring malformed content item at {}: {!r}", d.get("scope"), raw)
+        return cls(scope=str(d["scope"]), items=tuple(items), etag=str(d.get("etag") or ""))
 
 
 def _detail(r: httpx.Response) -> str:
@@ -279,3 +335,46 @@ class ScopesClient:
         if not isinstance(body, list):
             raise ScopesError("Setting keys: malformed response")
         return [rec for rec in body if isinstance(rec, dict) and "key" in rec]
+
+    # -- scoped content (read side) --------------------------------------------------
+
+    def content_listing(self, scope: str, etag: str | None = None) -> ContentListing | None:
+        """``scope``'s current content items; None when unchanged since ``etag``."""
+        headers = {"If-None-Match": etag} if etag else None
+        r = self._get(f"/logbook/scopes/{scope}/content/", headers=headers)
+        if r.status_code == 304:
+            return None
+        self._raise_for(r, f"Content for {scope}")
+        try:
+            return ContentListing.from_dict(r.json())
+        except (ValueError, KeyError, TypeError) as e:
+            raise ScopesError(f"Content for {scope}: malformed response ({e})") from e
+
+    def download_bundle(self, scope: str, type_: str, name: str, revision: int, dest: Path,
+                        *, expected_size: int) -> str:
+        """Stream one revision's zip into ``dest``; returns the sha256 of what was written.
+
+        Stops with ScopesError as soon as more than ``expected_size`` bytes arrive.
+        """
+        what = f"{type_} {name} at {scope}"
+        path = f"/logbook/scopes/{scope}/content/{type_}/{name}/bundle"
+        digest = hashlib.sha256()
+        written = 0
+        try:
+            with self._client() as c, c.stream("GET", path,
+                                               params={"revision": str(revision)}) as r:
+                if r.status_code >= 400:
+                    r.read()
+                    self._raise_for(r, f"Download {what}")
+                with open(dest, "wb") as f:
+                    for chunk in r.iter_bytes():
+                        written += len(chunk)
+                        if written > expected_size:
+                            raise ScopesError(f"Download {what}: larger than the listed "
+                                              f"{expected_size} bytes")
+                        digest.update(chunk)
+                        f.write(chunk)
+        except _TRANSPORT_ERRORS as e:
+            logger.debug("Content download {} failed: {}", path, e)
+            raise ScopesError(f"Logbook server unreachable: {e}") from e
+        return digest.hexdigest()
