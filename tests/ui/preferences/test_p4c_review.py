@@ -103,7 +103,7 @@ def test_ipc_page_shows_the_derived_prefix_read_only(bound):
     assert manager.console_bound()
     assert not plugin._prefix_unbound(local)  # the console's field is hidden
     assert not manager.writable_at("ipc_topic_prefix", "local")
-    assert plugin._prefix_binding(local) == "From this console's binding: als.7011"
+    assert plugin._prefix_binding(local) == "Topic Prefix \u2014 from this console's binding: als.7011"
     assert plugin._prefix_unbound(SimpleNamespace(scope="branch:7.0.1.1"))
 
 
@@ -118,7 +118,7 @@ def test_tiled_page_shows_the_bound_beamline_read_only(bound):
     local = SimpleNamespace(scope="local")
     assert not field.visible_when(local)
     assert not manager.writable_at("tiled_beamline", "local")
-    assert binding.text(local) == "From this console's binding: 7.0.1.1"
+    assert binding.text(local) == "Beamline \u2014 from this console's binding: 7.0.1.1"
     assert field.visible_when(SimpleNamespace(scope="branch:7.0.1.1"))
 
 

@@ -196,7 +196,7 @@ def test_ipc_topic_prefix_console_field_only_when_unbound(qtbot, env):
     assert not _row(dialog2, PREFIX).isVisibleTo(form2)
     binding = [i for i in form2.findChildren(InfoItem) if i.info.text == IPCSettingsPlugin._prefix_binding]
     assert binding[0].isVisibleTo(form2)
-    assert binding[0].text() == "From this console's binding: als.7011"
+    assert binding[0].text() == "Topic Prefix \u2014 from this console's binding: als.7011"
 
     # At Branch the prefix is a plain field, and the console-only items are gone.
     dialog2.select_scope(BRANCH)

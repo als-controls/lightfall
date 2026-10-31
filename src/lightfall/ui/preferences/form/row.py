@@ -40,6 +40,9 @@ EDITOR_COLUMN_MIN = 240
 LABEL_STRETCH = 4  # label column : editor column
 EDITOR_STRETCH = 5
 LOCK_ICON_SIZE = 14
+TEXT_INSET = 9  # margin around the label column's contents
+# x of a row's label from the row's left edge; field Info lines indent to it
+LABEL_INDENT = ACCENT_WIDTH + ROW_SPACING + TEXT_INSET
 
 CONFLICT_TEXT = "Changed elsewhere since you opened this"
 APPROVAL_TEXT = "Saving here asks a facility admin to approve this setting"
@@ -130,6 +133,7 @@ class SettingRow(QWidget):
         outer.addWidget(self._accent)
 
         left = QVBoxLayout()
+        left.setContentsMargins(TEXT_INSET, TEXT_INSET, TEXT_INSET, TEXT_INSET)
         left.setSpacing(TEXT_SPACING)
         title = QHBoxLayout()
         title.setSpacing(ROW_SPACING // 2)

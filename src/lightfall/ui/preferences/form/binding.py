@@ -30,18 +30,19 @@ def shown_unless_bound(values: FormValues) -> bool:
     return values.scope != "local" or not _prefs().console_bound()
 
 
-def binding_text(key: str, default: str = "") -> Callable[[FormValues], str]:
-    """Info text "From this console's binding: <value>", or "" (the line hides) when unbound."""
+def binding_text(key: str, label: str, default: str = "") -> Callable[[FormValues], str]:
+    """Info text "<label> \u2014 from this console's binding: <value>", or "" (the line hides) when unbound."""
 
     def text(_values: FormValues) -> str:
         prefs = _prefs()
         if not prefs.console_bound():
             return ""
-        return f"From this console's binding: {prefs.get(key, default) or ''}"
+        return f"{label} \u2014 from this console's binding: {prefs.get(key, default) or ''}"
 
     return text
 
 
 def binding_derived(field: SettingField, default: str = "") -> tuple[SettingField, Info]:
     """``field`` shown unless bound, plus its "This console" binding Info line."""
-    return replace(field, visible_when=shown_unless_bound), Info(binding_text(field.key, default), scopes=CONSOLE)
+    info = Info(binding_text(field.key, field.label or field.key, default), scopes=CONSOLE, field=field.key)
+    return replace(field, visible_when=shown_unless_bound), info

@@ -310,7 +310,9 @@ def test_beamline_from_binding_when_bound(qtbot, env):
     assert not _visible(dialog, "tiled_beamline")
     info = _binding_infos(dialog)[0]
     assert info.isVisibleTo(_form(dialog))
-    assert info.text() == "From this console's binding: 7.0.1.1"
+    assert info.text() == "Beamline \u2014 from this console's binding: 7.0.1.1"
+    assert info.info.field == "tiled_beamline"  # lines up under the field labels (test_view)
+    assert info.margin() > 0  # spaced from the section description
     dialog.select_scope(BRANCH)
     assert _visible(dialog, "tiled_beamline")
     assert _binding_infos(dialog) == []

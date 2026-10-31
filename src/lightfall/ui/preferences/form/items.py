@@ -9,6 +9,7 @@ from qtpy.QtGui import QColor
 from qtpy.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from lightfall.ui.preferences.form.editors import TEXT_ROLES, RoleColor, error_color, muted_color
+from lightfall.ui.preferences.form.row import LABEL_INDENT, ROW_MARGIN_V, TEXT_INSET
 from lightfall.ui.preferences.form.schema import Action, FormValues, Info
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
@@ -98,6 +99,10 @@ class InfoItem(QLabel):
         self._section = section
         self.setWordWrap(True)
         RoleColor(self, TEXT_ROLES, muted_color)
+        if info.field:  # about one field: line up with the row labels, spaced like a row
+            # QLabel margin/indent, not contentsMargins: style-sheet polish resets the latter.
+            self.setMargin(ROW_MARGIN_V + TEXT_INSET)
+            self.setIndent(LABEL_INDENT - ROW_MARGIN_V - TEXT_INSET)
 
     def update_text(self, values: FormValues) -> None:
         if not callable(self.info.text):

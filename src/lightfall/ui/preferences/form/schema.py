@@ -105,10 +105,15 @@ class Action:
 
 @dataclass(frozen=True)
 class Info:
-    """A muted status line; a callable is re-evaluated after every edit (GUI thread)."""
+    """A muted status line; a callable is re-evaluated after every edit (GUI thread).
+
+    ``field`` names the setting the line describes; the line then lines up
+    with the field labels instead of the section edge.
+    """
 
     text: Callable[[FormValues], str] | str
     scopes: frozenset[str] | None = None
+    field: str | None = None
 
 
 @dataclass(frozen=True)

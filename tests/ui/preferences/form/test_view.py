@@ -485,3 +485,29 @@ def test_text_editors_fill_the_row_and_editors_line_up(qtbot):
     finally:
         for k in keys:
             ALLOWED.pop(k, None)
+
+
+def test_field_info_lines_up_with_the_field_labels(qtbot):
+    from lightfall.ui.preferences.form.items import InfoItem
+    from lightfall.ui.preferences.form.schema import Info
+
+    sections = [Section("S", [
+        SettingField(CONSOLE, Text(), label="Console text"),
+        Info("About the console text", field=CONSOLE),
+        Info("About the section"),
+    ], description="A section description")]
+    form, _model, _prefs = make_form(qtbot, sections=sections, scope=LOCAL)
+    form.resize(800, 600)
+    form.show()
+    QApplication.processEvents()
+    label = rows(form)[CONSOLE]._label
+    field_info, plain_info = sorted(form.findChildren(InfoItem), key=lambda i: i.info.field is None)
+    label_x = label.mapTo(form, QPoint(0, 0)).x()
+
+    def text_x(info):
+        indent = max(info.indent(), 0)  # -1 = none for a plain-text label
+        return info.mapTo(form, info.contentsRect().topLeft()).x() + info.margin() + indent
+
+    assert text_x(field_info) == label_x
+    assert text_x(plain_info) < label_x
+    assert field_info.margin() > 0  # spaced from the section description
