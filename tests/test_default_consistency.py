@@ -111,11 +111,11 @@ def test_ipc_page_and_startup_share_the_defaults(qapp, empty_prefs):
     from lightfall.ui.preferences.ipc_settings import IPCSettingsPlugin
 
     assert DEFAULT_IPC_TOPIC_PREFIX == "als.7011"
-    page = IPCSettingsPlugin()
-    page.create_widget()
-    page.load_settings()
-    assert page._prefix_edit.text() == DEFAULT_IPC_TOPIC_PREFIX
-    assert page._url_edit.text() == DEFAULT_IPC_NATS_URL
+    from lightfall.ui.preferences.form.schema import section_fields
+
+    fields = {f.key: f for s in IPCSettingsPlugin().sections() for f in section_fields(s)}
+    assert fields["ipc_topic_prefix"].placeholder == DEFAULT_IPC_TOPIC_PREFIX
+    assert fields["ipc_nats_url"].placeholder == DEFAULT_IPC_NATS_URL
 
     app = LFApplication.__new__(LFApplication)
     svc = app._create_ipc_service(MagicMock())

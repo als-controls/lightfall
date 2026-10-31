@@ -209,6 +209,19 @@ def test_info_text_updates_after_edit(qtbot):
     assert infos[0].text() == "Will connect to abc"
 
 
+def test_info_with_empty_text_is_hidden(qtbot):
+    sections = [Section("Server", [
+        SettingField(NAME, Text(), label="Name"),
+        Info(lambda v: f"Name is {v.get(NAME)}" if v.get(NAME) else ""),
+    ])]
+    form, _ = make_form(qtbot, sections)
+    info = form.findChild(InfoItem)
+    assert not info.isVisibleTo(form)
+    type_into(qtbot, form, NAME, "abc")
+    assert info.isVisibleTo(form)
+    assert info.text() == "Name is abc"
+
+
 def test_embed_shown_only_at_its_scopes(qtbot):
     built = []
 

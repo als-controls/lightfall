@@ -86,6 +86,8 @@ class ActionItem(QWidget):
 class InfoItem(QLabel):
     """A muted, word-wrapped status line; ``update_text`` re-evaluates it.
 
+    An empty text hides the line (so a callable can show it only when relevant).
+
     A text callable that raises shows the exception text (still muted) and
     is logged; it never breaks the rest of the form.
     """
@@ -99,7 +101,7 @@ class InfoItem(QLabel):
 
     def update_text(self, values: FormValues) -> None:
         if not callable(self.info.text):
-            self.setText(self.info.text)
+            self._show(self.info.text)
             return
         try:
             text = self.info.text(values)
@@ -107,4 +109,8 @@ class InfoItem(QLabel):
             name = getattr(self.info.text, "__qualname__", repr(self.info.text))
             logger.warning("Info line {} in section '{}' failed: {!r}", name, self._section, exc)
             text = str(exc)
+        self._show(text)
+
+    def _show(self, text: str) -> None:
         self.setText(text)
+        self.setVisible(bool(text))
