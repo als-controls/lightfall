@@ -273,3 +273,25 @@ def test_server_bound_console_prefers_scope_value_over_derived(pm):  # noqa: F81
     assert manager.get("ipc_topic_prefix", "x") == "als.7011"
     qapp_process()
     assert seen == ["als.custom", "als.7011"]  # subscribers see the resolved value
+
+
+def test_facility_admin_can_write_at_facility(pm):  # noqa: F811
+    manager, _ = pm
+    tsb.CHAIN = tsb.ChainInfo(
+        chain=("facility", "beamline:7.0.1", "user:u1"),
+        roles={"facility": "admin", "beamline:7.0.1": "admin", "user:u1": "owner"},
+        entitled=("beamline:7.0.1",), facility_label="ALS")
+    assert manager.activate_scopes("u1", "beamline:7.0.1")
+    facility = next(c for c in manager.scope_choices() if c.kind == "facility")
+    assert facility.role == "admin" and facility.read_only_reason == ""
+    assert "facility" in manager.write_targets("tiled_url")
+    assert manager.writable_at("tiled_url", "facility")
+    assert not manager.writable_at("theme", "facility")  # theme's spec doesn't allow facility
+
+
+def test_facility_viewer_without_grant_stays_read_only(pm):  # noqa: F811
+    manager, _ = pm
+    _login(manager)
+    facility = next(c for c in manager.scope_choices() if c.kind == "facility")
+    assert "facility admins" in facility.read_only_reason
+    assert not manager.writable_at("tiled_url", "facility")

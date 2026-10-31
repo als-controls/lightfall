@@ -334,7 +334,7 @@ class ScopedBackend(PreferenceBackend):
             out.append(LOCAL)
         for scope in reversed(store.chain if store is not None else ()):
             sid = ScopeId.parse(scope)
-            if sid.kind in ("user", "facility") or not spec.allows(sid.kind):
+            if sid.kind == "user" or not spec.allows(sid.kind):
                 continue
             if role_at_least(self._roles.get(scope), spec.required_role(sid.kind)):
                 out.append(scope)

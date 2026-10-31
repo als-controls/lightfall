@@ -77,10 +77,10 @@ def scope_choices(prefs: PreferencesManager) -> list[ScopeChoice]:
     out.append(_local_choice())
     for s in reversed([s for s in info.chain if s not in users]):
         kind, role = ScopeId.parse(s).kind, info.roles.get(s)
-        if kind == "facility":
-            reason = _READ_ONLY_FACILITY
-        elif role_at_least(role, "operator"):
+        if role_at_least(role, "operator"):
             reason = ""
+        elif kind == "facility" and role is None:
+            reason = _READ_ONLY_FACILITY
         else:
             reason = f"Read-only: you are a {role or 'not a member'} here"
         out.append(ScopeChoice(s, kind, _label(s, fac), role, reason))
