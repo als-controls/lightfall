@@ -70,18 +70,39 @@ def test_tiled_startup_uses_the_same_defaults(qapp, empty_prefs):
         TiledService.reset()
 
 
-def test_logbook_page_and_client_share_the_default(qapp, empty_prefs):
+def test_logbook_page_and_client_share_the_default(qapp):
     from lightfall.logbook.url import DEFAULT_LOGBOOK_URL, get_logbook_base_url
-    from lightfall.ui.preferences.logbook_settings import LogbookSettingsPlugin
+    from lightfall.ui.preferences.form.schema import SettingField
+    from lightfall.ui.preferences.logbook_settings import (
+        LogbookSettingsPlugin,
+        _test_connection,
+    )
 
     assert DEFAULT_LOGBOOK_URL == "http://bcglucidlogbook.dhcp.lbl.gov:8000"
-    page = LogbookSettingsPlugin()
-    page.create_widget()
-    page.load_settings()
-    assert empty_prefs.asked["logbook_url"] == DEFAULT_LOGBOOK_URL
-    assert page._url_edit.text() == DEFAULT_LOGBOOK_URL
-    assert page._url_edit.placeholderText() == DEFAULT_LOGBOOK_URL
+    fields = {
+        item.key: item
+        for section in LogbookSettingsPlugin().sections()
+        for item in section.items
+        if isinstance(item, SettingField)
+    }
+    assert fields["logbook_url"].placeholder == DEFAULT_LOGBOOK_URL
     assert get_logbook_base_url() == DEFAULT_LOGBOOK_URL
+
+    asked: dict[str, object] = {}
+
+    class _Values:
+        def effective(self, key, default=None):
+            asked[key] = default
+            return default
+
+    from unittest.mock import patch
+
+    import httpx
+
+    with patch.object(httpx, "Client", side_effect=RuntimeError("stop")):
+        with pytest.raises(RuntimeError):
+            _test_connection(_Values())
+    assert asked["logbook_url"] == DEFAULT_LOGBOOK_URL
 
 
 def test_ipc_page_and_startup_share_the_defaults(qapp, empty_prefs):
