@@ -201,3 +201,21 @@ def test_configure_tiled_treats_an_invalid_auth_mode_as_auto_detect(prefs, cfg, 
     prefs.set("tiled_auth_mode", "oidc")
     configure_tiled(cfg)  # raised ValueError("'oidc' is not a valid TiledAuthMode") before
     assert calls["configures"][0]["auth_mode"] == TiledAuthMode.API_KEY
+
+
+def test_watch_reapplies_tiled_when_a_pref_changes_after_startup(prefs, cfg, qapp, calls):
+    """Scoped values (e.g. beamline-scope tiled_enabled) land after login as key changes."""
+    from lightfall.setup.services import configure_tiled, watch_tiled_preferences
+
+    configure_tiled(cfg)  # startup, before scopes: Tiled reads as disabled
+    watch_tiled_preferences(cfg)
+    assert not any(c["enabled"] for c in calls["configures"])
+
+    prefs.set("tiled_auth_mode", "none")
+    prefs.set("tiled_url", "http://tiled.example")
+    prefs.set("tiled_enabled", True)
+    qapp.processEvents()  # the three changes coalesce into one re-apply
+
+    enabled = [c for c in calls["configures"] if c["enabled"]]
+    assert len(enabled) == 1 and enabled[0]["url"] == "http://tiled.example"
+    assert calls["connects"] == [1]

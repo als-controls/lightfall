@@ -461,9 +461,11 @@ def _setup_tiled(app: LFApplication, config: ConfigManager) -> None:
         config: The configuration manager.
     """
     from lightfall.services.tiled_service import TiledService
-    from lightfall.setup.services import configure_tiled
+    from lightfall.setup.services import configure_tiled, watch_tiled_preferences
 
     configure_tiled(config)
+    # Scoped values (beamline/branch/user) only resolve after login; re-apply then.
+    watch_tiled_preferences(config)
     app.services.register(TiledService, TiledService.get_instance)
 
 

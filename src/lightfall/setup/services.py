@@ -156,6 +156,46 @@ def configure_tiled(config: ConfigManager) -> None:
         logger.info("Tiled service initialized, connecting in background")
 
 
+# Preference keys configure_tiled reads. A change to any of them re-applies Tiled.
+TILED_PREFERENCE_KEYS = ("tiled_enabled", "tiled_url", "tiled_auth_mode", "tiled_api_key")
+
+
+def watch_tiled_preferences(config: ConfigManager) -> Callable[[], None]:
+    """Re-run ``configure_tiled`` whenever a Tiled preference changes.
+
+    Startup configures Tiled before login, when server scopes are not active yet, so
+    values set at facility/beamline/branch/user scope read as defaults then. Those
+    values arrive as per-key changes once ``activate_scopes`` resolves the chain
+    (and again on refresh/deactivation). Changes are coalesced into one
+    ``configure_tiled`` call per event-loop pass so a half-applied chain (new
+    ``tiled_enabled``, old ``tiled_url``) never connects. Returns the flush callable.
+    """
+    from PySide6.QtCore import QTimer
+
+    from lightfall.ui.preferences.manager import PreferencesManager
+
+    pending = False
+
+    def flush() -> None:
+        nonlocal pending
+        pending = False
+        try:
+            configure_tiled(config)
+        except Exception:  # noqa: BLE001 - a bad pref must not break the slot chain
+            logger.exception("Re-applying Tiled configuration failed")
+
+    def on_change(_value: object) -> None:
+        nonlocal pending
+        if not pending:
+            pending = True
+            QTimer.singleShot(0, flush)
+
+    prefs = PreferencesManager.get_instance()
+    for key in TILED_PREFERENCE_KEYS:
+        prefs.subscribe(key, on_change)  # plain closure: held strongly, lives with prefs
+    return flush
+
+
 def reconfigure_services(config: ConfigManager) -> list[str]:
     """Re-apply auth and Tiled configuration. Idempotent; logs and returns errors."""
     errors: list[str] = []
