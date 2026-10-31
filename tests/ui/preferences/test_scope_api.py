@@ -207,3 +207,69 @@ def test_needs_approval_only_for_page_declared_scopes(pm):  # noqa: F811
 def test_needs_approval_false_in_local_file_mode(local_pm):
     assert not local_pm.needs_approval("tiled_url", "facility")
     assert not local_pm.needs_approval("theme", "local")
+
+
+# Task 5: identity keys follow the console's binding ---------------------------
+
+_IDENTITY = ("ipc_topic_prefix", "tiled_beamline")
+
+
+def qapp_process():
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.processEvents()
+
+
+def _login_unbound(manager):
+    tsb.CHAIN = tsb.ChainInfo(chain=("facility", "user:u1"),
+                              roles={"facility": None, "user:u1": "owner"},
+                              entitled=(), facility_label="ALS")
+    assert manager.activate_scopes("u1", "facility")
+
+
+def test_identity_keys_writable_at_local_only_when_unbound(pm):  # noqa: F811
+    manager, _ = pm
+    cm = FakeCM("facility")
+    manager.set_config_manager(cm)
+    for key in _IDENTITY:  # off mode
+        assert manager.allowed_at(key, "local") and manager.writable_at(key, "local")
+    _login_unbound(manager)
+    for key in _IDENTITY:
+        assert manager.allowed_at(key, "local"), key
+        assert manager.writable_at(key, "local"), key
+        assert not manager.writable_at(key, "user:u1"), key
+    manager.set("ipc_topic_prefix", "dev.me", scope="local")
+    assert cm.data["preferences.ipc_topic_prefix"] == "dev.me"
+    assert manager.get("ipc_topic_prefix", "x") == "dev.me"
+    assert manager.layer_value("ipc_topic_prefix", "local") == "dev.me"
+    manager.remove("ipc_topic_prefix", scope="local")
+    assert manager.get("ipc_topic_prefix", "x") == "x"
+    manager.deactivate_scopes()
+
+    cm.model.site.bind = "branch:7.0.1.1"
+    _login(manager, role="maintainer")
+    for key in _IDENTITY:
+        assert manager.allowed_at(key, "local"), key
+        assert not manager.writable_at(key, "local"), key
+        assert manager.allowed_at(key, "branch:7.0.1.1"), key
+        assert manager.writable_at(key, "branch:7.0.1.1"), key
+    with pytest.raises(ValueError, match="binding"):
+        manager.set("ipc_topic_prefix", "dev.me", scope="local")
+
+
+def test_server_bound_console_prefers_scope_value_over_derived(pm):  # noqa: F811
+    manager, server = pm
+    manager.set_config_manager(FakeCM("branch:7.0.1.1", ipc_topic_prefix="dev.me"))
+    _login(manager)
+    assert manager.get("ipc_topic_prefix", "x") == "als.7011"  # console value ignored
+    assert manager.get("tiled_beamline") == "7.0.1.1"
+    seen = []
+    manager.subscribe("ipc_topic_prefix", seen.append)
+    server.rows[("branch:7.0.1.1", "ipc_topic_prefix")] = ("als.custom", 1)
+    manager.scoped_backend.refresh()
+    assert manager.get("ipc_topic_prefix", "x") == "als.custom"
+    del server.rows[("branch:7.0.1.1", "ipc_topic_prefix")]
+    manager.scoped_backend.refresh()
+    assert manager.get("ipc_topic_prefix", "x") == "als.7011"
+    qapp_process()
+    assert seen == ["als.custom", "als.7011"]  # subscribers see the resolved value

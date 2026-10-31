@@ -192,6 +192,9 @@ class ScopeInfo:
     roles: dict[str, str | None] = field(default_factory=dict)
 
 
+_BOUND_KINDS = ("beamline", "branch")  # a site.bind kind that binds this console
+
+
 class PreferencesManager(QObject):
     """
     Manager for NCS user preferences.
@@ -310,23 +313,55 @@ class PreferencesManager(QObject):
     def get(self, key: str, default: Any = None) -> Any:
         """Get a preference value. Dispatches to the owning backend.
 
-        Identity keys (tiled_beamline, ipc_topic_prefix) fall back to values derived
-        from the machine's site.bind when nothing sets them; blank or removed (None)
-        counts as unset for those keys.
+        Identity keys (tiled_beamline, ipc_topic_prefix) follow the console's binding:
+        see ``_identity_value``.
         """
-        value = self._get_raw(key, self._MISSING)
-        from lightfall.scopes.identity import DERIVED_KEYS
+        from lightfall.scopes.keys import CONSOLE_WHEN_UNBOUND_KEYS
 
-        if key in DERIVED_KEYS and (value is self._MISSING or value in ("", None)):
-            derived = self.derived_value(key)
-            if derived is not None:
-                return derived
+        if key in CONSOLE_WHEN_UNBOUND_KEYS:
+            value = self._identity_value(key)
+        else:
+            value = self._get_raw(key, self._MISSING)
         if value is self._MISSING or value is None:
             # Unset typed preferences persist as ``null`` (pydantic field
             # defaults), so a stored None means "no value", not "the value
             # None" — the caller's default must win.
             return default
         return value
+
+    def _identity_value(self, key: str) -> Any:
+        """An identity key's value (Ron, 2026-10-31).
+
+        Bound console: the value set at a bound beamline/branch scope, else the value
+        derived from site.bind; blank counts as unset, and this console's own value and
+        the user's are ignored. Unbound console: this console's own value.
+        """
+        if not self.console_bound():
+            return self._local.get(key, self._MISSING)
+        value = self._binding_scope_value(key)
+        if value is self._MISSING or value in ("", None):
+            value = self.derived_value(key)
+        return self._MISSING if value is None else value
+
+    def _binding_scope_value(self, key: str) -> Any:
+        """``key``'s value from a beamline or branch scope (server, else scope files)."""
+        for source in (self._active_scoped(), self._local_scopes):
+            res = source.resolution(key) if source is not None else None
+            if res is not None and res.origin is not None and res.origin.kind in _BOUND_KINDS:
+                return res.value
+        return self._MISSING
+
+    def console_bound(self) -> bool:
+        """True when this console's site.bind names a beamline or branch."""
+        kind, _, name = (getattr(self._site(), "bind", None) or "").partition(":")
+        return kind in _BOUND_KINDS and bool(name)
+
+    def _refuse_bound_identity_write(self, key: str, scope: str | None) -> None:
+        from lightfall.scopes.keys import CONSOLE_WHEN_UNBOUND_KEYS
+
+        if scope == "local" and key in CONSOLE_WHEN_UNBOUND_KEYS and self.console_bound():
+            raise ValueError(f"Cannot write {key!r} on this console: it follows the "
+                             "console's beamline binding")
 
     def _site(self) -> Any:
         try:
@@ -359,6 +394,7 @@ class PreferencesManager(QObject):
         `scope` (e.g. "branch:7.0.1.1") writes at that scope instead of the user's;
         it requires active scoped settings. `persist` is retained for back-compat.
         """
+        self._refuse_bound_identity_write(key, scope)
         backend = self._backend_for(key)
         if scope == "local" and backend is not self._scoped:
             backend.set(key, value)  # no scopes active: every write is this console's
@@ -372,6 +408,7 @@ class PreferencesManager(QObject):
 
     def remove(self, key: str, *, scope: str | None = None) -> None:
         """Remove a preference (at `scope` when given). Dispatches to the owning backend."""
+        self._refuse_bound_identity_write(key, scope)
         backend = self._backend_for(key)
         if scope == "local" and backend is not self._scoped:
             backend.remove(key)
@@ -483,10 +520,13 @@ class PreferencesManager(QObject):
         With scope files loaded, "local" is this console's own YAML value (never a
         file value) and every other scope is that file's value.
         """
+        from lightfall.scopes.keys import CONSOLE_WHEN_UNBOUND_KEYS
         from lightfall.scopes.store import MISSING
 
         scoped = self._active_scoped()
-        if scoped is not None:
+        if scope == "local" and key in CONSOLE_WHEN_UNBOUND_KEYS:
+            value = self._local.get(key, None)  # the console's own, never the binding's
+        elif scoped is not None:
             value = scoped.layer_value(key, scope)
         elif self._local_scopes is not None and (scope != "local" or self._local_scopes.owns(key)):
             value = self._local_scopes.layer_value(key, scope)
@@ -631,8 +671,12 @@ class PreferencesManager(QObject):
         topic = self._topics.get(key)
         if topic is None:
             return
+        from lightfall.scopes.keys import CONSOLE_WHEN_UNBOUND_KEYS
+
         if value is None and key in self._USER_PORTABLE_WITH_LOCAL_FALLBACK:
             value = self._local.get(key, None)
+        elif key in CONSOLE_WHEN_UNBOUND_KEYS:
+            value = self.get(key)  # a backend's value may be one the binding overrides
         topic.emit_value(value)
 
     # Recent files management
