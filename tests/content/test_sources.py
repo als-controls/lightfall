@@ -91,3 +91,15 @@ def test_default_synced_items_never_raises(monkeypatch):
 def test_specificity():
     assert specificity("core") == 0 and specificity("package") == 0
     assert [specificity(s) for s in (FAC, BL, BR, "local")] == [1, 2, 3, 4]
+
+
+def test_tests_never_read_the_real_store_through_the_sources_module(monkeypatch):
+    # main._setup_agent_specs and mainwindow._on_content_synced import
+    # default_synced_items from this module at call time; the autouse fixture in
+    # tests/conftest.py must cover that lookup too.
+    from lightfall.content import sources
+
+    opened = []
+    monkeypatch.setattr(sources, "ContentStore", lambda root: opened.append(root))
+    assert sources.default_synced_items("agent") == []
+    assert opened == []

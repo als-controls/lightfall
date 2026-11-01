@@ -62,6 +62,7 @@ class SkillRow:
     scope: str
     path: Path
     editable: bool
+    shadowed_scopes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -130,16 +131,33 @@ def _scope_for_error_path(
 def skill_rows() -> list[SkillRow]:
     """Build one row per resolved skill, taking its scope from the skill catalog."""
     resolved = skills_store.resolve_skills()
+    sources = skills_store.skill_sources()
     rows: list[SkillRow] = []
     for info in skills_store.skill_catalog().values():
         # Package skills are listed under namespaced ids too; keep only the winner.
         if info.source == "package" and resolved.get(info.name) != info.path:
             continue
-        scope = "core" if info.source == "builtin" else info.source
+        scope = _skill_scope(info.source)
+        # Every source the winner shadows, in precedence order, without repeats.
+        shadowed = tuple(dict.fromkeys(
+            _skill_scope(s) for s in sources.get(info.name, [])[:-1]
+        ))
         rows.append(SkillRow(
-            name=info.name, scope=scope, path=info.path, editable=scope == "user"
+            name=info.name, scope=scope, path=info.path, editable=scope == "user",
+            shadowed_scopes=tuple(s for s in shadowed if s != scope),
         ))
     return sorted(rows, key=lambda r: r.name)
+
+
+def _skill_scope(source: str) -> str:
+    return "core" if source == "builtin" else source
+
+
+def skill_label(row: SkillRow) -> str:
+    """List label for a skill row: its name, plus what it shadows if anything."""
+    if row.shadowed_scopes:
+        return f"{row.name}  (shadows {', '.join(row.shadowed_scopes)})"
+    return row.name
 
 
 def group_skill_rows(

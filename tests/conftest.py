@@ -281,3 +281,15 @@ def _no_real_synced_plugins(monkeypatch):
     except Exception:
         return
     monkeypatch.setattr(user_plugins, "default_synced_items", lambda type_: [], raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_synced_agents(monkeypatch):
+    """Keep agents (and anything else that looks up ``default_synced_items`` in
+    ``lightfall.content.sources`` at call time, e.g. main._setup_agent_specs and
+    mainwindow._on_content_synced) off the developer's real content store."""
+    try:
+        from lightfall.content import sources
+    except Exception:
+        return
+    monkeypatch.setattr(sources, "default_synced_items", lambda type_: [])

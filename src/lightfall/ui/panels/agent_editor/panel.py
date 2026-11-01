@@ -336,7 +336,7 @@ class AgentEditorPanel(BasePanel):
         for scope, in_scope in models.group_skill_rows(rows, _SCOPE_ORDER):
             self._skill_list.addItem(_header_item(_SCOPE_LABEL.get(scope, scope)))
             for row in in_scope:
-                item = QListWidgetItem(row.name)
+                item = QListWidgetItem(models.skill_label(row))
                 item.setData(_ROLE_KIND, "skill")
                 item.setData(_ROLE_NAME, row.name)
                 self._skill_list.addItem(item)

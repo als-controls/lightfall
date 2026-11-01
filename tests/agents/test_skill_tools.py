@@ -147,3 +147,22 @@ def test_draft_skill_toast_failure_does_not_break_result(user_root, monkeypatch)
     )
     assert not result.get("is_error")
     assert "must approve" in str(result)
+
+
+@pytest.mark.parametrize(
+    ("source", "wording"),
+    [
+        ("facility", "published to the facility"),
+        ("beamline:7.0.1", "published to beamline 7.0.1"),
+        ("branch:7.0.1.1", "published to branch 7.0.1.1"),
+        ("user", "one of your user skills"),
+    ],
+)
+def test_source_label_words_synced_scopes(source, wording):
+    from pathlib import Path
+
+    info = skills_store.SkillInfo(
+        id="fit", name="fit", description="", source=source, distribution=None,
+        path=Path("fit"),
+    )
+    assert skill_tools._source_label(info) == wording

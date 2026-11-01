@@ -63,7 +63,17 @@ def _source_label(info: Any) -> str:
         "beamline": "a beamline skill",
         "plugin": "a Lightfall plugin's skill",
         "user": "one of your user skills",
-    }.get(info.source, info.source)
+    }.get(info.source) or _scope_label(info.source)
+
+
+def _scope_label(scope: str) -> str:
+    """Wording for a synced scope: "published to branch 7.0.1.1"."""
+    kind, sep, rest = scope.partition(":")
+    if kind == "facility" and not sep:
+        return "published to the facility"
+    if kind in ("beamline", "branch") and rest:
+        return f"published to {kind} {rest}"
+    return scope
 
 
 def _matches(info: Any, query: str) -> bool:

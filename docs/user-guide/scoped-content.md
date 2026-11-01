@@ -70,12 +70,20 @@ neither loads. Folder plugins cannot install pip dependencies.
 - **"Content not loaded"** (a dialog): a plan or plugin was skipped because
   something with higher precedence already has that name. Each line names the
   item, where it came from, and who kept the name, for example *plan xafs_scan
-  from branch:7.0.1.1 was not loaded: package has one with the same name*. To fix
-  it, rename the skipped item. Long lists show the first 20 lines and a count of
-  the rest.
+  from branch:7.0.1.1 was not loaded: package has one with the same name*. For a
+  plugin that lost a tool or panel the line names the plugin and the key, for
+  example *plugin my_tools (tool fit_tool) from local was not loaded: core has one
+  with the same name*. To fix it, rename the skipped item (the dialog ends with
+  that reminder). Long lists show the first 20 lines and a count of the rest.
 - **"Content shadowed"** (a toast): an agent or skill is replacing a less
   specific one with the same name, for example *agent helper from
   branch:7.0.1.1 shadows the one from package*. This is informational.
 
 Each clash is reported once per run of Lightfall, and no warning appears when
-there are none.
+there are none. Warnings found while Lightfall starts wait until you have signed
+in and the main window has finished loading its plugins, then appear together.
+
+In the Agents & Skills editor, an agent or skill that shadows others is listed as
+*name (shadows …)*, naming the sources it replaces. When an agent asks to load a
+synced skill, the approval prompt says where it was published, for example
+*published to branch 7.0.1.1*.

@@ -349,6 +349,33 @@ class TestSkillRows:
         assert rows["fit"].editable is False
         assert rows["fit"].path == synced
 
+    def test_skill_rows_show_what_a_skill_shadows(self, tmp_path, monkeypatch):
+        from lightfall.content.sources import SourceItem
+
+        builtin, user = tmp_path / "builtin", tmp_path / "user"
+        builtin.mkdir()
+        user.mkdir()
+        _skill(builtin, "fit")
+        _skill(builtin, "plain")
+        _skill(user, "fit")
+        synced = _skill(tmp_path / "s", "fit@3")
+        item = SourceItem("skill", "fit", "branch:7.0.1.1", synced)
+        monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: builtin)
+        monkeypatch.setattr(skills_store, "user_skills_dir", lambda: user)
+        monkeypatch.setattr(skills_store, "plugin_skill_dirs", lambda: {})
+        monkeypatch.setattr(skills_store, "_entry_point_winners", lambda: {})
+        monkeypatch.setattr(
+            skills_store, "default_synced_items", lambda type_: [item]
+        )
+
+        rows = {r.name: r for r in models.skill_rows()}
+
+        assert rows["fit"].scope == "user"
+        assert rows["fit"].shadowed_scopes == ("core", "branch:7.0.1.1")
+        assert rows["plain"].shadowed_scopes == ()
+        assert models.skill_label(rows["fit"]) == "fit  (shadows core, branch:7.0.1.1)"
+        assert models.skill_label(rows["plain"]) == "plain"
+
 
 def test_group_skill_rows_shows_synced_and_plugin_skills():
     from lightfall.ui.panels.agent_editor import panel

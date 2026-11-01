@@ -234,9 +234,10 @@ def _label(source: str) -> str:
     return _CLASH_LABELS.get(source, source)
 
 
-def _resolve_located(
-    extra_dirs: list[Path] | None, synced: list[SourceItem] | None = None
-) -> dict[str, _Located]:
+def _layers(
+    extra_dirs: list[Path] | None, synced: list[SourceItem] | None
+) -> list[tuple[str, _Located]]:
+    """Every skill definition as (name, location), lowest precedence first."""
     if synced is None:
         synced = default_synced_items("skill")
     layers: list[tuple[str, _Located]] = []
@@ -253,7 +254,27 @@ def _resolve_located(
         layers.append((item.name, _Located(item.path, item.source)))
     for skill_dir in _iter_skill_dirs(user_skills_dir()):
         layers.append((skill_dir.name, _Located(skill_dir, "user")))
+    return layers
 
+
+def skill_sources(
+    extra_dirs: list[Path] | None = None, synced: list[SourceItem] | None = None
+) -> dict[str, list[str]]:
+    """Skill name -> the sources that define it, lowest precedence first.
+
+    The last source is the winner; the others are the ones it shadows. Sources are
+    the raw labels ("builtin", "package", "plugin", "user", a synced scope string).
+    """
+    sources: dict[str, list[str]] = {}
+    for name, located in _layers(extra_dirs, synced):
+        sources.setdefault(name, []).append(located.source)
+    return sources
+
+
+def _resolve_located(
+    extra_dirs: list[Path] | None, synced: list[SourceItem] | None = None
+) -> dict[str, _Located]:
+    layers = _layers(extra_dirs, synced)
     resolved: dict[str, _Located] = {}
     defined: dict[str, list[str]] = {}
     for name, located in layers:
