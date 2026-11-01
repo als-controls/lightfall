@@ -520,8 +520,15 @@ class PreferencesManager(QObject):
         scoped = self._active_scoped()
         if scoped is not None:
             return scoped.item_origins(key)
+        if self._local_scopes is not None and self._local_scopes.owns(key):
+            return self._local_scopes.item_origins(key)
         value = self.get(key, None)
         return dict.fromkeys(value, "local") if isinstance(value, dict) else {}
+
+    def resolved_items(self, key: str) -> dict[str, Any]:
+        """An item-merged key's merged map as ``get`` returns it ({} when nothing is set)."""
+        value = self.get(key, None)
+        return dict(value) if isinstance(value, dict) else {}
 
     def layer_value(self, key: str, scope: str) -> Any:
         """The value stored at one layer, or None.

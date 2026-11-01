@@ -15,12 +15,20 @@ from lightfall.scopes.store import MISSING, ScopedStore
 from lightfall.ui.preferences.backend import PreferenceBackend
 
 
+def _items(value: Any) -> dict[str, Any]:
+    """The console YAML's item map of an item-merged key (None entries remove nothing)."""
+    if isinstance(value, dict):
+        return {k: v for k, v in value.items() if v is not None}
+    return {}
+
+
 class LocalScopesBackend(PreferenceBackend):
     def __init__(self, local: Any, state: FetchedState,
                  registry: SpecRegistry | None = None) -> None:
         super().__init__()
         self._local = local
-        self._store = ScopedStore(registry or client_registry(), state)
+        self._registry = registry or client_registry()
+        self._store = ScopedStore(self._registry, state)
         self._keys = frozenset(k for k in self._store.keys() if not is_local_only(k))
 
     @property
@@ -42,6 +50,17 @@ class LocalScopesBackend(PreferenceBackend):
             return MISSING if value is None else value
         return self._store.scope_value(scope, key)
 
+    def item_origins(self, key: str) -> dict[str, str]:
+        """For an item-merged key: item id -> the scope it comes from (``"local"`` = this
+        console's YAML, which overrides the files item by item)."""
+        res = self._store.resolve(key)
+        if self._registry.get(key).policy != "union":
+            return {}
+        origins = {name: str(scope) for name, scope in res.item_origins.items()}
+        if res.locked_at is None:
+            origins.update(dict.fromkeys(_items(self._local.get(key, None)), "local"))
+        return origins
+
     def keys(self) -> set[str]:
         return set(self._keys)
 
@@ -52,6 +71,10 @@ class LocalScopesBackend(PreferenceBackend):
         res = self._store.resolve(key)
         if res.locked_at is not None:
             return res.value
+        if self._registry.get(key).policy == "union":
+            local = _items(self._local.get(key, None))
+            if local:
+                return {**(res.value if res.origin is not None else {}), **local}
         value = self._local.get(key, MISSING)
         if value is not MISSING and value is not None:  # remove() stores None
             return value

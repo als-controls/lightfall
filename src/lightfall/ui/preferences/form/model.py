@@ -26,6 +26,8 @@ def _same(a: Any, b: Any) -> bool:
     """Equality that keeps None, False, 0 and "" distinct from one another."""
     if a is None or b is None:
         return a is None and b is None
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
     return type(a) is type(b) and a == b
 
 
@@ -167,7 +169,7 @@ class FormModel:
     def edit(self, scope: str, key: str, value: Any) -> None:
         cell = (scope, key)
         loaded = self.loaded(scope, key)
-        self._edits[cell] = value
+        self._edits[cell] = dict(value) if isinstance(value, dict) else value
         if _same(value, loaded):
             self._conflicts.discard(cell)
 

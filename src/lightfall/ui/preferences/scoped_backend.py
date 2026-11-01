@@ -342,10 +342,17 @@ class ScopedBackend(PreferenceBackend):
         return (merged if found else MISSING), origins
 
     def item_origins(self, key: str) -> dict[str, str]:
-        """For a row key: item id -> the scope it comes from (``"local"`` = this console)."""
-        if self._store is None or key not in LOCAL_LAYER_KEYS:
+        """For an item-merged key: item id -> the scope it comes from (``"local"`` = this
+        console). Device rows include the console layer; other union keys come straight
+        from the store's resolution."""
+        if self._store is None:
             return {}
-        return self._layered(key)[1]
+        if key in LOCAL_LAYER_KEYS:
+            return self._layered(key)[1]
+        if self._registry.get(key).policy != "union":
+            return {}
+        res = self._store.resolve(key)
+        return {name: str(scope) for name, scope in res.item_origins.items()}
 
     def awaiting_approval(self, key: str, scope: str) -> Any:
         """The write of ``key`` at ``scope`` waiting for key approval (None = a remove),
