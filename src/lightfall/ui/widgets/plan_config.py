@@ -792,7 +792,7 @@ class PlanConfigWidget(QWidget):
 
         service = UserPlanService.get_instance()
         if self._plan.name in service._loaded_plans:
-            return service._loaded_plans[self._plan.name]
+            return service._loaded_plans[self._plan.name][0]
 
         # Fall back to inspect for built-in plans
         try:

@@ -261,3 +261,13 @@ def _no_real_synced_skills(monkeypatch):
     except Exception:
         return
     monkeypatch.setattr(skills_store, "default_synced_items", lambda type_: [])
+
+
+@pytest.fixture(autouse=True)
+def _no_real_synced_plans(monkeypatch):
+    """Keep plan loading off the developer's real content store unless a test opts in."""
+    try:
+        from lightfall.acquire.plans import user_plans
+    except Exception:
+        return
+    monkeypatch.setattr(user_plans, "default_synced_items", lambda type_: [])

@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from loguru import logger
 from PySide6.QtCore import QFileSystemWatcher, QObject, Signal
 
+from lightfall.content.clashes import Clash, ClashLog
+from lightfall.content.sources import SourceItem, default_synced_items, specificity
 from lightfall.utils.git_tracker import GitTracker
 
 if TYPE_CHECKING:
@@ -91,7 +93,10 @@ class UserPlanService(QObject):
         """Initialize the user plan service."""
         super().__init__(parent)
         self._plans_dir = Path.home() / "lightfall" / "plans"
-        self._loaded_plans: dict[str, Path] = {}  # name -> file path
+        # name -> (file path, source label)
+        self._loaded_plans: dict[str, tuple[Path, str]] = {}
+        # synced plan candidates seen at the last load_all_plans, by stem
+        self._synced_by_stem: dict[str, list[SourceItem]] = {}
         self._watcher = QFileSystemWatcher(self)
         self._watcher.fileChanged.connect(self._on_file_changed)
         self._watcher.directoryChanged.connect(self._on_directory_changed)
@@ -166,8 +171,19 @@ class UserPlanService(QObject):
             logger.error("Failed to open plans folder: {}", e)
             return False
 
-    def load_all_plans(self) -> list[tuple[Path, PlanInfo | Exception]]:
-        """Load all plans from the plans directory.
+    def load_all_plans(
+        self, synced: list[SourceItem] | None = None
+    ) -> list[tuple[Path, PlanInfo | Exception]]:
+        """Load plans from synced scopes and the local plans directory.
+
+        For each plan name (file stem) the most specific candidate wins
+        (local > branch > beamline > facility); it is imported and registered.
+        Losing candidates are not imported and are reported to the ClashLog.
+        A winner whose name a core or package plan already owns is refused
+        (also reported).
+
+        Args:
+            synced: Synced plan items; None reads this machine's content store.
 
         Returns:
             List of (path, PlanInfo or Exception) tuples.
@@ -176,24 +192,61 @@ class UserPlanService(QObject):
 
         results: list[tuple[Path, PlanInfo | Exception]] = []
 
-        if not self._plans_dir.exists():
+        if synced is None:
+            synced = default_synced_items("plan")
+
+        by_stem: dict[str, list[SourceItem]] = {}
+        for item in synced:
+            if item.type == "plan":
+                by_stem.setdefault(item.name, []).append(item)
+        self._synced_by_stem = by_stem
+
+        local_files: dict[str, Path] = {}
+        if self._plans_dir.exists():
+            for py_file in self._plans_dir.glob("*.py"):
+                if not py_file.name.startswith("_"):  # skip private files
+                    local_files[py_file.stem] = py_file
+        else:
             logger.debug("Plans directory does not exist: {}", self._plans_dir)
-            return results
 
         registry = PlanRegistry.get_instance()
+        clashes: list[Clash] = []
 
-        for py_file in self._plans_dir.glob("*.py"):
-            if py_file.name.startswith("_"):
-                continue  # Skip private files
-
-            result = self._load_plan_from_file(py_file, registry)
+        for stem in list(by_stem) + [n for n in local_files if n not in by_stem]:
+            candidates = self._candidates(stem, local_files.get(stem))
+            winner = candidates[0]
+            clashes.extend(
+                Clash("plan", stem, winner.source, loser.source, False)
+                for loser in candidates[1:]
+            )
+            result = self._load_plan_from_file(winner.path, registry, winner.source)
             if result is not None:
-                results.append((py_file, result))
+                results.append((winner.path, result))
+
+        if clashes:
+            ClashLog.get_instance().report(clashes)
 
         self.plans_refreshed.emit()
         logger.info("Loaded {} user plans from {}", len(self._loaded_plans), self._plans_dir)
 
         return results
+
+    def _candidates(self, stem: str, local_path: Path | None) -> list[SourceItem]:
+        """Candidates for ``stem``, most specific first (local, then synced scopes)."""
+        items = list(self._synced_by_stem.get(stem, []))
+        if local_path is not None:
+            items.append(SourceItem("plan", stem, "local", local_path))
+        return sorted(items, key=lambda i: specificity(i.source), reverse=True)
+
+    def _load_synced_fallback(self, stem: str) -> None:
+        """Load the most specific synced candidate for ``stem``, if there is one."""
+        from lightfall.acquire.plans.registry import PlanRegistry
+
+        candidates = self._candidates(stem, None)
+        if candidates:
+            self._load_plan_from_file(
+                candidates[0].path, PlanRegistry.get_instance(), candidates[0].source
+            )
 
     def _commit_change(self, path: Path, commit_msg: str | None) -> None:
         """Commit a change to ``path`` via the GitTracker singleton.
@@ -249,19 +302,32 @@ class UserPlanService(QObject):
         return None
 
     def _load_plan_from_file(
-        self, path: Path, registry: Any
+        self, path: Path, registry: Any, source: str = "local"
     ) -> PlanInfo | Exception | None:
         """Internal: Load a plan from file and register it.
 
         Args:
             path: Path to the Python file.
             registry: PlanRegistry to register with.
+            source: Source label of the file ("local" or a synced scope).
 
         Returns:
             PlanInfo on success, Exception on error, None if no plan variable.
         """
 
         plan_name = path.stem
+
+        # A core or package plan owns the name: refuse before running any code.
+        existing = registry.get_plan(plan_name)
+        if existing is not None and existing.source in ("core", "package"):
+            ClashLog.get_instance().report(
+                [Clash("plan", plan_name, existing.source, source, False)]
+            )
+            logger.warning(
+                "Plan {} from {} refused: name belongs to a {} plan",
+                plan_name, source, existing.source,
+            )
+            return None
 
         try:
             # Load the module
@@ -303,12 +369,24 @@ class UserPlanService(QObject):
                 self.plan_error.emit(str(path), "'plan' is not callable")
                 return ValueError("'plan' is not callable")
 
-            # Register or replace the plan
-            plan_info = registry.register_or_replace(plan_name, plan_func, "user")
+            # Reloading our own earlier copy of this plan: drop it first so the
+            # new function replaces it instead of tying with it.
+            previous = self._loaded_plans.pop(plan_name, None)
+            if previous is not None:
+                registry.unregister(plan_name)
+                if previous[1] == "local" and previous[0] != path:
+                    self._unwatch(previous[0])
 
-            # Track loaded plan and watch file
-            self._loaded_plans[plan_name] = path
-            if str(path) not in self._watcher.files():
+            clash = registry.register_ranked(plan_name, plan_func, "user", source)
+            if clash is not None:
+                ClashLog.get_instance().report([clash])
+                if clash.winner != source:
+                    return None
+            plan_info = registry.get_plan(plan_name)
+
+            # Track loaded plan; only local files are watched
+            self._loaded_plans[plan_name] = (path, source)
+            if source == "local" and str(path) not in self._watcher.files():
                 self._watcher.addPath(str(path))
 
             self.plan_loaded.emit(plan_info)
@@ -320,6 +398,10 @@ class UserPlanService(QObject):
             logger.error("Failed to load plan from {}: {}", path, e)
             self.plan_error.emit(str(path), str(e))
             return e
+
+    def _unwatch(self, path: Path) -> None:
+        if str(path) in self._watcher.files():
+            self._watcher.removePath(str(path))
 
     def _unload_plan(self, name: str) -> bool:
         """Unload a plan by name.
@@ -338,9 +420,8 @@ class UserPlanService(QObject):
         registry = PlanRegistry.get_instance()
         registry.unregister(name)
 
-        path = self._loaded_plans.pop(name)
-        if str(path) in self._watcher.files():
-            self._watcher.removePath(str(path))
+        path, _source = self._loaded_plans.pop(name)
+        self._unwatch(path)
 
         # Remove from sys.modules
         module_name = f"lightfall_user_plans.{name}"
@@ -413,6 +494,11 @@ class UserPlanService(QObject):
         # Reload all plans
         self.load_all_plans()
 
+    def _is_local(self, name: str) -> bool:
+        """True when the loaded plan ``name`` came from the local plans directory."""
+        entry = self._loaded_plans.get(name)
+        return entry is not None and entry[1] == "local"
+
     def _on_file_changed(self, path: str) -> None:
         """Handle file change notification.
 
@@ -423,11 +509,12 @@ class UserPlanService(QObject):
         if not file_path.exists():
             # File was deleted
             plan_name = file_path.stem
-            if plan_name in self._loaded_plans:
+            if self._is_local(plan_name):
                 self._unload_plan(plan_name)
                 self._commit_removal(
                     file_path, f"external delete: {file_path.name}"
                 )
+                self._load_synced_fallback(plan_name)
                 self.plans_refreshed.emit()
         else:
             # File was modified - reload it (commit happens in load_plan_from_file)
@@ -451,7 +538,7 @@ class UserPlanService(QObject):
             p.stem for p in self._plans_dir.glob("*.py")
             if not p.name.startswith("_")
         }
-        loaded_names = set(self._loaded_plans.keys())
+        loaded_names = {n for n in self._loaded_plans if self._is_local(n)}
 
         # Load new files
         for name in current_files - loaded_names:
@@ -462,9 +549,9 @@ class UserPlanService(QObject):
 
         # Unload deleted files
         for name in loaded_names - current_files:
-            path = self._loaded_plans.get(name)
+            path = self._loaded_plans[name][0]
             self._unload_plan(name)
-            if path is not None:
-                self._commit_removal(path, f"external delete: {path.name}")
+            self._commit_removal(path, f"external delete: {path.name}")
+            self._load_synced_fallback(name)
 
         self.plans_refreshed.emit()
