@@ -95,6 +95,10 @@ def _pending_reason(key_status: str | None) -> str:
             "proposal was filed; ask a facility admin to approve it")
 
 
+# Key statuses that end a proposal without approval -> how the notice words it.
+_REFUSED = {"rejected": "rejected", "revoked": "withdrawn"}
+
+
 def _toast(title: str, text: str) -> None:
     try:
         from lightfall.ui.toast import ToastManager
@@ -212,7 +216,7 @@ class ScopedBackend(PreferenceBackend):
             self._debounce.start(self._debounce_ms)
 
     def _on_keys_event(self, subject: str, data: Any, reply: str | None) -> None:
-        """A facility admin approved or rejected a proposed key."""
+        """A facility admin approved, rejected or withdrew (revoked) a proposed key."""
         if not self._active or not isinstance(data, dict):
             return
         key, status = data.get("key"), data.get("status")
@@ -220,12 +224,13 @@ class ScopedBackend(PreferenceBackend):
             return
         if status == "approved":
             self._resend_queued({key})
-        elif status == "rejected":
+        elif status in _REFUSED:
             for scope, queued_key in self._approvals.entries():
                 if queued_key == key:
                     self._approvals.remove(scope, key)
             self.awaiting_changed.emit(key)
-            self._notify("Setting not saved", f"{key} was rejected by a facility admin; not saved")
+            self._notify("Setting not saved",
+                         f"{key} was {_REFUSED[status]} by a facility admin; not saved")
 
     def _on_ipc_connection(self, connected: bool) -> None:
         if connected and self._active:
@@ -528,14 +533,16 @@ class ScopedBackend(PreferenceBackend):
             return client.put_setting(scope, key, value, version=version, proposed_spec=spec)
 
         def done(_version: Any) -> None:
-            self._resending.discard((scope, key))
+            if resend:
+                self._resending.discard((scope, key))
             # A direct write supersedes whatever was queued; a resend clears only itself.
             if not resend or self._queued_is(scope, key, value):
                 self._dequeue(scope, key)
             self.refresh()
 
         def failed(exc: Exception) -> None:
-            self._resending.discard((scope, key))
+            if resend:
+                self._resending.discard((scope, key))
             pending = getattr(exc, "code", None) == "key_pending"
             if pending and getattr(exc, "key_status", None) == "pending":
                 if not resend:  # a resend that raced the approval just stays queued
@@ -547,8 +554,9 @@ class ScopedBackend(PreferenceBackend):
             if resend:
                 if is_transient(exc):
                     return  # stays queued; sent again on the next refresh
-                if self._queued_is(scope, key, value):
-                    self._dequeue(scope, key)
+                if not self._queued_is(scope, key, value):
+                    return  # superseded by a newer save: nothing of this one to report
+                self._dequeue(scope, key)
             if pending:
                 self._notify("Setting not saved", f"{key} at {scope}: " + _pending_reason(
                     getattr(exc, "key_status", None)))

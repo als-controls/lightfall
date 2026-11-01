@@ -15,7 +15,7 @@ from lightfall.scopes.store import MISSING
 from lightfall.ui.preferences.scoped_backend import KEYS_SUBJECT, ScopedBackend
 from tests.ui.preferences import test_dialog_scopes as tds
 from tests.ui.preferences.test_dialog_scopes import env  # noqa: F401 - fixture
-from tests.ui.preferences.test_scoped_backend import CHAIN, FakeLocal, Server, sync_run
+from tests.ui.preferences.test_scoped_backend import CHAIN, Deferred, FakeLocal, Server, sync_run
 
 BL = "beamline:7.0.1"
 KEY = "tiled_url"
@@ -31,19 +31,23 @@ class PendingServer(Server):
         self.pending = set(pending)
         self.specs: tuple[dict, ...] = ()
         self.fail_with: ScopesError | None = None
+        self.key_status = "pending"
+        self.on_put = None  # called before answering a put (to interleave user actions)
 
     def chain(self, bind):
         base = super().chain(bind)
         return dataclasses.replace(base, specs=self.specs)
 
     def put_setting(self, scope, key, value, *, version=None, proposed_spec=None):
+        if self.on_put is not None:
+            self.on_put()
         if self.fail_with is not None:
             self.calls.append(("put", scope, key, value, version))
             raise self.fail_with
         if key in self.pending and not scope.startswith("user:"):
             self.calls.append(("put", scope, key, value, version))
             raise ScopesError("not approved", status=409, code="key_pending",
-                              key_status="pending")
+                              key_status=self.key_status)
         return super().put_setting(scope, key, value, version=version)
 
     def approve(self, key):
@@ -70,14 +74,14 @@ class FakeIPC(QObject):
 
 @pytest.fixture
 def make(tmp_path, qapp):
-    def _make(server=None, ipc=None):
+    def _make(server=None, ipc=None, run=sync_run):
         server = server or PendingServer(pending={KEY})
         ipc = ipc or FakeIPC()
         notes = []
         backend = ScopedBackend(
             FakeLocal(), client=server, cache=SnapshotCache(tmp_path / "cache"),
             journal=WriteJournal(tmp_path / "journal.json"), bind=BL, identity="u1",
-            approvals=ApprovalQueue(tmp_path / "approvals.json"), run=sync_run,
+            approvals=ApprovalQueue(tmp_path / "approvals.json"), run=run,
             notify=lambda t, m: notes.append((t, m)), poll_ms=0, ipc=lambda: ipc,
             debounce_ms=0)
         backend.activate()
@@ -183,6 +187,73 @@ def test_scope_outside_chain_waits(make, tmp_path):
     ipc.publish_key(KEY, "approved")
     assert not [c for c in server.calls if c[1] == "beamline:9.9.9"]
     assert backend.awaiting_approval(KEY, "beamline:9.9.9") == "https://far"
+
+
+def _puts(server, value):
+    return [c for c in server.calls if c[0] == "put" and c[3] == value]
+
+
+def test_event_and_refresh_send_once(make):
+    run = Deferred()
+    backend, server, ipc, _ = make(run=run)
+    run.run_all()
+    backend.set(KEY, "https://x", scope=BL)
+    run.run_all()
+    assert backend.awaiting_approval(KEY, BL) == "https://x"
+    server.approve(KEY)
+    ipc.publish_key(KEY, "approved")  # resend queued, not yet run
+    backend.refresh()                 # this refresh also sees the approved spec
+    run.run_all()
+    assert len(_puts(server, "https://x")) == 2  # the refused write + one resend
+    assert server.rows[(BL, KEY)] == ("https://x", 1)
+    assert backend.awaiting_approval(KEY, BL) is MISSING
+
+
+def test_direct_write_discards_queued_entry(make):
+    backend, server, ipc, _ = make()
+    backend.set(KEY, "https://old", scope=BL)
+    server.pending.discard(KEY)       # approved, but this console saw nothing yet
+    backend.set(KEY, "https://new", scope=BL)
+    assert backend.awaiting_approval(KEY, BL) is MISSING
+    server.specs = (APPROVED_SPEC,)
+    ipc.publish_key(KEY, "approved")
+    backend.refresh()
+    assert len(_puts(server, "https://old")) == 1  # the refused write; never resent
+    assert server.rows[(BL, KEY)][0] == "https://new"
+
+
+@pytest.mark.parametrize("status, text", [
+    ("rejected", "a facility admin rejected this setting"),
+    ("unproposed", "no proposal was filed"),
+])
+def test_refused_without_proposal_keeps_old_notice(make, status, text):
+    server = PendingServer(pending={KEY})
+    server.key_status = status
+    backend, _, _, notes = make(server=server)
+    backend.set(KEY, "https://x", scope=BL)
+    assert backend.awaiting_approval(KEY, BL) is MISSING
+    assert notes[-1][0] == "Setting not saved" and text in notes[-1][1]
+
+
+def test_revoked_drops_and_notifies(make):
+    backend, server, ipc, notes = make()
+    backend.set(KEY, "https://x", scope=BL)
+    ipc.publish_key(KEY, "revoked")
+    assert backend.awaiting_approval(KEY, BL) is MISSING
+    assert notes[-1] == ("Setting not saved",
+                         f"{KEY} was withdrawn by a facility admin; not saved")
+
+
+def test_superseded_resend_failure_is_silent(make):
+    backend, server, ipc, notes = make()
+    backend.set(KEY, "https://old", scope=BL)
+    before = len(notes)
+    server.fail_with = ScopesError("bad value", status=422)
+    # The user saves again while the resend is in flight.
+    server.on_put = lambda: backend._approvals.add(BL, KEY, "https://new")
+    ipc.publish_key(KEY, "approved")
+    assert len(notes) == before
+    assert backend.awaiting_approval(KEY, BL) == "https://new"
 
 
 def test_queue_file_roundtrip(tmp_path):
