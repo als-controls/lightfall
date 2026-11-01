@@ -142,6 +142,21 @@ def skill_rows() -> list[SkillRow]:
     return sorted(rows, key=lambda r: r.name)
 
 
+def group_skill_rows(
+    rows: list[SkillRow], order: tuple[str, ...]
+) -> list[tuple[str, list[SkillRow]]]:
+    """Group skill rows by scope kind in ``order``; unlisted kinds fall under "unknown"."""
+    groups: list[tuple[str, list[SkillRow]]] = []
+    for kind in order:
+        members = [
+            r for r in rows
+            if (scope_kind(r.scope) if scope_kind(r.scope) in order else "unknown") == kind
+        ]
+        if members:
+            groups.append((kind, members))
+    return groups
+
+
 def draft_rows() -> list[DraftRow]:
     """Thin wrapper over list_drafts() adding the active SKILL.md diff target."""
     resolved = skills_store.resolve_skills()

@@ -46,13 +46,14 @@ _HINT_STYLE = "color: #6b7280; font-size: 11px;"
 _SCOPE_LABEL = {
     "core": "Shipped (core)",
     "package": "Package",
+    "plugin": "Plugin",
     "facility": "Facility",
     "beamline": "Beamline",
     "branch": "Branch",
     "user": "User",
     "unknown": "Unknown",
 }
-_SCOPE_ORDER = ("user", "branch", "beamline", "facility", "package", "core", "unknown")
+_SCOPE_ORDER = ("user", "branch", "beamline", "facility", "plugin", "package", "core", "unknown")
 _MODEL_CHOICES = ("", "opus", "sonnet", "haiku")
 _EFFORT_CHOICES = ("", "low", "medium", "high")
 _ON_MESSAGE_CHOICES = ("queue", "auto")
@@ -332,10 +333,7 @@ class AgentEditorPanel(BasePanel):
 
         rows = models.skill_rows()
         self._skill_rows = {r.name: r for r in rows}
-        for scope in _SCOPE_ORDER:
-            in_scope = [r for r in rows if r.scope == scope]
-            if not in_scope:
-                continue
+        for scope, in_scope in models.group_skill_rows(rows, _SCOPE_ORDER):
             self._skill_list.addItem(_header_item(_SCOPE_LABEL.get(scope, scope)))
             for row in in_scope:
                 item = QListWidgetItem(row.name)

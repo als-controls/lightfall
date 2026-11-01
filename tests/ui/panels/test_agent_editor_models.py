@@ -348,3 +348,19 @@ class TestSkillRows:
         assert rows["fit"].scope == "beamline:7.0.1"
         assert rows["fit"].editable is False
         assert rows["fit"].path == synced
+
+
+def test_group_skill_rows_shows_synced_and_plugin_skills():
+    from lightfall.ui.panels.agent_editor import panel
+
+    def row(name, scope):
+        return models.SkillRow(name=name, scope=scope, path=Path(name), editable=False)
+
+    rows = [row("a", "branch:7.0.1.1"), row("b", "plugin"), row("c", "beamline:7.0.1"),
+            row("d", "core"), row("e", "weird")]
+    groups = dict(models.group_skill_rows(rows, panel._SCOPE_ORDER))
+    assert [r.name for r in groups["branch"]] == ["a"]
+    assert [r.name for r in groups["plugin"]] == ["b"]
+    assert [r.name for r in groups["beamline"]] == ["c"]
+    assert [r.name for r in groups["unknown"]] == ["e"]
+    assert "plugin" in panel._SCOPE_LABEL

@@ -251,3 +251,13 @@ def _reset_qt_service_singletons():
         theater_manager._overlay = None
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _no_real_synced_skills(monkeypatch):
+    """Keep skill resolution off the developer's real content store unless a test opts in."""
+    try:
+        from lightfall.agents import skills_store
+    except Exception:
+        return
+    monkeypatch.setattr(skills_store, "default_synced_items", lambda type_: [])
