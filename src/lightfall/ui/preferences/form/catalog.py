@@ -37,6 +37,7 @@ from lightfall.ui.preferences.form.schema import CatalogItem, EditorSpec
 HERE_HEADER = "Here"
 INHERITED_HEADER = "Inherited"
 DEFAULT_ORIGIN = "default"
+PROTECTED_TEXT = "On (always)"
 ON_OFF_OPTIONS: tuple[tuple[bool, str], ...] = ((True, "On"), (False, "Off"))
 
 
@@ -58,7 +59,6 @@ class TableEditor(FieldEditor):
     """
 
     full_width = True
-    fills_row = True
 
     def __init__(
         self, headers: Sequence[str], filter_placeholder: str, stretch_column: int = 0, parent: QWidget | None = None
@@ -79,7 +79,10 @@ class TableEditor(FieldEditor):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # The height fits the rows, so neither scrollbar is shown: a horizontal
+        # one would cover the last row. The stretch column elides instead.
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
@@ -179,8 +182,12 @@ class CatalogEditor(TableEditor):
 
     def _show_inherited(self) -> None:
         for row, item in enumerate(self._items):
-            value, origin = self._inherited.get(item.id, (item.default_enabled, DEFAULT_ORIGIN))
-            self._text_cell(row, self._inherited_column, f"{on_off_text(value)} ({origin})", muted=True)
+            if item.protected:  # broader layers cannot turn it off
+                text = PROTECTED_TEXT
+            else:
+                value, origin = self._inherited.get(item.id, (item.default_enabled, DEFAULT_ORIGIN))
+                text = f"{on_off_text(value)} ({origin})"
+            self._text_cell(row, self._inherited_column, text, muted=True)
 
     # Catalog API --------------------------------------------------------
     def item_combo(self, item_id: str) -> QComboBox:

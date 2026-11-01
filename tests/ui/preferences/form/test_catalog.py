@@ -93,7 +93,7 @@ def test_inherited_column_shows_origin(qtbot):
     col = t.columnCount() - 1
     assert t.item(0, col).text() == "Off (Beamline 7.0.1)"
     assert t.item(1, col).text() == "Off (default)"
-    assert t.item(2, col).text() == "On (default)"
+    assert t.item(2, col).text() == "On (always)"
     # The scope's own entry does not change what is inherited.
     editor.set_value({"alpha": True})
     assert t.item(0, col).text() == "Off (Beamline 7.0.1)"
@@ -290,3 +290,47 @@ def test_manager_inherited_items_from_scope_files(files_pm):
         "a": (False, "Facility — facility"),
         "b": (False, "Facility — facility"),
     }
+
+
+# Fix round 1 ------------------------------------------------------------------
+def test_narrow_table_shows_every_row_in_full(qtbot):
+    editor = make_editor(qtbot)
+    editor.resize(160, 400)  # far narrower than the columns' contents
+    editor.show()
+    qtbot.waitExposed(editor)
+    t = table(editor)
+    rows_height = sum(t.rowHeight(r) for r in range(t.rowCount()))
+    assert t.viewport().height() >= rows_height
+
+
+def test_protected_item_inherits_always_on(qtbot):
+    editor = make_editor(qtbot)
+    editor.set_inherited({"core": (False, "Beamline 7.0.1")})
+    assert inherited_text(editor, 2) == "On (always)"
+
+
+def test_filter_menu_has_no_clear(qtbot, menus):  # noqa: F811
+    from qtpy.QtCore import QPoint, QTimer
+    from qtpy.QtGui import QContextMenuEvent
+    from qtpy.QtWidgets import QApplication, QMenu
+
+    prefs = CatalogPrefs(inherited={USER: {}})
+    form, _model, row = catalog_form(qtbot, prefs)
+    form.show()
+    line = row.editor.filter_edit
+    seen: list[list[str]] = []
+
+    def grab_and_close():
+        for menu in QApplication.topLevelWidgets():
+            if isinstance(menu, QMenu) and menu.isVisible():
+                seen.append([a.text() for a in menu.actions()])
+                menu.close()
+
+    QTimer.singleShot(0, grab_and_close)  # the line edit's own menu may run a local loop
+    pos = QPoint(2, 2)
+    QApplication.sendEvent(line, QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, line.mapToGlobal(pos)))
+    qtbot.wait(20)
+    grab_and_close()
+    assert not menus  # the row's menu was not shown
+    assert seen, "the line edit's own menu should open"
+    assert all("Clear (not set)" not in texts for texts in seen)
