@@ -11,9 +11,11 @@ increasing precedence:
 3. Beamline-provided skills (caller-supplied ``extra_dirs``).
 4. Skills packaged inside ToolPlugins (``ToolPlugin.get_skill_dir()``,
    collected via ``plugin_skill_dirs()``).
-5. User skills under ``~/lightfall/skills`` (``user_skills_dir()``).
+5. Synced scopes (facility < beamline < branch), from the content store.
+6. User skills under ``~/lightfall/skills`` (``user_skills_dir()``).
 
-Later sources override earlier ones for skills sharing the same name. A
+Later sources override earlier ones for skills sharing the same name; each
+shadow is reported to the ``ClashLog``. A
 ``_drafts`` subdirectory under any skill root is never resolved (phase-3
 prep: drafts are staged there before promotion).
 
@@ -34,6 +36,8 @@ from pathlib import Path
 import yaml
 
 from lightfall.agents.spec import _FRONTMATTER_RE, AgentSpecError, resolve_template
+from lightfall.content.clashes import Clash, ClashLog
+from lightfall.content.sources import SourceItem, default_synced_items, specificity
 from lightfall.utils.logging import logger
 
 _DRAFTS_DIR_NAME = "_drafts"
@@ -201,38 +205,67 @@ def _iter_skill_dirs(root: Path):
             yield child
 
 
-def resolve_skills(extra_dirs: list[Path] | None = None) -> dict[str, Path]:
+def resolve_skills(
+    extra_dirs: list[Path] | None = None, synced: list[SourceItem] | None = None
+) -> dict[str, Path]:
     """Resolve skill name -> skill directory across all roots.
 
     Precedence (later wins): builtin < entry points < extra_dirs (beamline)
-    < plugin < user.
+    < plugin < synced (facility < beamline < branch) < user.
 
     "entry points" are skills advertised by installed packages through the
     ``agent_skills`` group (see ``entry_point_skill_dirs``). "plugin" skills are single dirs contributed by registered ToolPlugins
     via ``get_skill_dir()``, keyed by plugin name (see ``plugin_skill_dirs``).
     """
-    return {name: located.path for name, located in _resolve_located(extra_dirs).items()}
+    return {name: located.path for name, located in _resolve_located(extra_dirs, synced).items()}
 
 
 @dataclass(frozen=True)
 class _Located:
     path: Path
-    source: str  # "builtin" | "package" | "beamline" | "plugin" | "user"
+    source: str  # "builtin" | "package" | "beamline" | "plugin" | "user" | a synced scope string
 
 
-def _resolve_located(extra_dirs: list[Path] | None) -> dict[str, _Located]:
-    resolved: dict[str, _Located] = {}
+#: Source label as shown in clash reports.
+_CLASH_LABELS = {"builtin": "core", "user": "local"}
+
+
+def _label(source: str) -> str:
+    return _CLASH_LABELS.get(source, source)
+
+
+def _resolve_located(
+    extra_dirs: list[Path] | None, synced: list[SourceItem] | None = None
+) -> dict[str, _Located]:
+    if synced is None:
+        synced = default_synced_items("skill")
+    layers: list[tuple[str, _Located]] = []
     for skill_dir in _iter_skill_dirs(builtin_skills_dir()):
-        resolved[skill_dir.name] = _Located(skill_dir, "builtin")
+        layers.append((skill_dir.name, _Located(skill_dir, "builtin")))
     for name, ep_skill in _entry_point_winners().items():
-        resolved[name] = _Located(ep_skill.path, "package")
+        layers.append((name, _Located(ep_skill.path, "package")))
     for root in extra_dirs or []:
         for skill_dir in _iter_skill_dirs(root):
-            resolved[skill_dir.name] = _Located(skill_dir, "beamline")
+            layers.append((skill_dir.name, _Located(skill_dir, "beamline")))
     for name, skill_dir in plugin_skill_dirs().items():
-        resolved[name] = _Located(skill_dir, "plugin")
+        layers.append((name, _Located(skill_dir, "plugin")))
+    for item in sorted(synced, key=lambda i: specificity(i.source)):
+        layers.append((item.name, _Located(item.path, item.source)))
     for skill_dir in _iter_skill_dirs(user_skills_dir()):
-        resolved[skill_dir.name] = _Located(skill_dir, "user")
+        layers.append((skill_dir.name, _Located(skill_dir, "user")))
+
+    resolved: dict[str, _Located] = {}
+    defined: dict[str, list[str]] = {}
+    for name, located in layers:
+        resolved[name] = located
+        defined.setdefault(name, []).append(located.source)
+    # Like agents: the final winner against every source it shadowed.
+    clashes = [
+        Clash("skill", name, _label(sources[-1]), _label(loser), False)
+        for name, sources in defined.items()
+        for loser in sources[:-1]
+    ]
+    ClashLog.get_instance().report(clashes)
     return resolved
 
 
@@ -241,9 +274,9 @@ class SkillInfo:
     """One entry of the skill catalog an agent can browse."""
 
     id: str  #: ``<entry point>:<name>`` for package skills, else the bare name
-    name: str  #: folder name; the name the skill is materialized under
+    name: str  #: the name the skill is materialized under (the listing's name for synced items)
     description: str  #: the SKILL.md frontmatter ``description`` ("" if none)
-    source: str  #: "builtin" | "package" | "beamline" | "plugin" | "user"
+    source: str  #: "builtin" | "package" | "beamline" | "plugin" | "user" | a synced scope string
     distribution: str | None  #: installing distribution, for package skills
     path: Path
 
@@ -259,7 +292,9 @@ def read_skill_description(skill_dir: Path) -> str:
     return " ".join(description.split()) if isinstance(description, str) else ""
 
 
-def skill_catalog(extra_dirs: list[Path] | None = None) -> dict[str, SkillInfo]:
+def skill_catalog(
+    extra_dirs: list[Path] | None = None, synced: list[SourceItem] | None = None
+) -> dict[str, SkillInfo]:
     """Every skill an agent could load, keyed by id.
 
     Package skills (from ``agent_skills`` entry points) always get namespaced
@@ -270,19 +305,21 @@ def skill_catalog(extra_dirs: list[Path] | None = None) -> dict[str, SkillInfo]:
     """
     catalog: dict[str, SkillInfo] = {}
 
-    def add(skill_id: str, path: Path, source: str, distribution: str | None) -> None:
+    def add(
+        skill_id: str, path: Path, source: str, distribution: str | None, name: str | None = None
+    ) -> None:
         catalog[skill_id] = SkillInfo(
             id=skill_id,
-            name=path.name,
+            name=name or path.name,
             description=read_skill_description(path),
             source=source,
             distribution=distribution,
             path=path,
         )
 
-    for name, located in _resolve_located(extra_dirs).items():
+    for name, located in _resolve_located(extra_dirs, synced).items():
         if located.source != "package":
-            add(name, located.path, located.source, None)
+            add(name, located.path, located.source, None, name)
     for ep_skill in entry_point_skills():
         add(f"{ep_skill.entry_point}:{ep_skill.path.name}", ep_skill.path, "package",
             ep_skill.distribution)

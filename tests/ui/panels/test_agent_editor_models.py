@@ -120,39 +120,6 @@ class TestSyncedRows:
         assert "branch prompt" in dest.read_text(encoding="utf-8")
 
 
-class TestSkillRows:
-    def test_scope_attribution(self, tmp_path, monkeypatch):
-        builtin, bl, user = tmp_path / "builtin", tmp_path / "bl", tmp_path / "user"
-        _skill(builtin, "core-skill")
-        _skill(bl, "bl-skill")
-        _skill(user, "user-skill")
-        monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: builtin)
-        monkeypatch.setattr(skills_store, "user_skills_dir", lambda: user)
-        monkeypatch.setattr(
-            skills_store, "resolve_skills", lambda extra_dirs=None: _real_resolve(builtin, bl, user)
-        )
-
-        rows = {r.name: r for r in models.skill_rows()}
-
-        assert rows["core-skill"].scope == "core"
-        assert rows["core-skill"].editable is False
-        assert rows["bl-skill"].scope == "beamline"
-        assert rows["bl-skill"].editable is False
-        assert rows["user-skill"].scope == "user"
-        assert rows["user-skill"].editable is True
-
-
-def _real_resolve(builtin: Path, bl: Path, user: Path) -> dict[str, Path]:
-    resolved: dict[str, Path] = {}
-    for root in (builtin, bl, user):
-        if not root.is_dir():
-            continue
-        for child in sorted(root.iterdir()):
-            if (child / "SKILL.md").is_file():
-                resolved[child.name] = child
-    return resolved
-
-
 class TestDraftRows:
     def test_diff_target_set_for_revision(self, tmp_path, monkeypatch):
         user = tmp_path / "user"
@@ -352,3 +319,32 @@ class TestNewAgentFile:
         models.new_agent_file("dup")
         with pytest.raises(models.EditorError):
             models.new_agent_file("dup")
+
+
+class TestSkillRows:
+    def test_skill_rows_use_catalog_source(self, tmp_path, monkeypatch):
+        from lightfall.content.sources import SourceItem
+
+        builtin, user = tmp_path / "builtin", tmp_path / "user"
+        builtin.mkdir()
+        user.mkdir()
+        _skill(builtin, "core-skill")
+        _skill(user, "user-skill")
+        synced = _skill(tmp_path / "s", "fit@3")
+        item = SourceItem("skill", "fit", "beamline:7.0.1", synced)
+        monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: builtin)
+        monkeypatch.setattr(skills_store, "user_skills_dir", lambda: user)
+        monkeypatch.setattr(skills_store, "plugin_skill_dirs", lambda: {})
+        monkeypatch.setattr(skills_store, "_entry_point_winners", lambda: {})
+        monkeypatch.setattr(
+            skills_store, "default_synced_items", lambda type_: [item]
+        )
+
+        rows = {r.name: r for r in models.skill_rows()}
+
+        assert rows["core-skill"].scope == "core"
+        assert rows["user-skill"].scope == "user"
+        assert rows["user-skill"].editable is True
+        assert rows["fit"].scope == "beamline:7.0.1"
+        assert rows["fit"].editable is False
+        assert rows["fit"].path == synced

@@ -218,3 +218,75 @@ def test_tool_plugin_get_skill_dir_default_is_none():
             return "d"
 
     assert P().get_skill_dir() is None
+
+
+# ---------------------------------------------------------------------------
+# synced scopes
+# ---------------------------------------------------------------------------
+
+
+def _item(root: Path, folder: str, name: str, source: str):
+    from lightfall.content.sources import SourceItem
+
+    d = _skill(root, folder)
+    return SourceItem("skill", name, source, d)
+
+
+def _roots(tmp_path, monkeypatch):
+    from lightfall.content.clashes import ClashLog
+
+    ClashLog.reset_instance()
+    builtin, user = tmp_path / "builtin", tmp_path / "user"
+    builtin.mkdir()
+    user.mkdir()
+    monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: builtin)
+    monkeypatch.setattr(skills_store, "user_skills_dir", lambda: user)
+    monkeypatch.setattr(skills_store, "plugin_skill_dirs", lambda: {})
+    monkeypatch.setattr(skills_store, "_entry_point_winners", lambda: {})
+    return builtin, user
+
+
+def test_synced_skill_between_plugin_and_user(tmp_path, monkeypatch):
+    builtin, user = _roots(tmp_path, monkeypatch)
+    plug = _skill(tmp_path / "plug", "shared")
+    monkeypatch.setattr(skills_store, "plugin_skill_dirs", lambda: {"shared": plug})
+    fac = _item(tmp_path / "s", "shared@1", "shared", "facility")
+    bl = _item(tmp_path / "s", "shared@2", "shared", "beamline:7.0.1")
+    assert skills_store.resolve_skills(synced=[fac, bl])["shared"] == bl.path
+    assert skills_store.resolve_skills(synced=[fac])["shared"] == fac.path
+    _skill(user, "shared")
+    assert skills_store.resolve_skills(synced=[fac, bl])["shared"] == user / "shared"
+
+
+def test_synced_name_comes_from_listing_not_folder(tmp_path, monkeypatch):
+    _roots(tmp_path, monkeypatch)
+    it = _item(tmp_path / "s", "fit@7", "fit", "facility")
+    assert skills_store.resolve_skills(synced=[it]) == {"fit": it.path}
+    info = skills_store.skill_catalog(synced=[it])["fit"]
+    assert info.name == "fit"
+
+
+def test_catalog_source_is_scope(tmp_path, monkeypatch):
+    builtin, user = _roots(tmp_path, monkeypatch)
+    _skill(builtin, "b")
+    _skill(user, "u")
+    it = _item(tmp_path / "s", "x@1", "x", "beamline:7.0.1")
+    cat = skills_store.skill_catalog(synced=[it])
+    assert cat["x"].source == "beamline:7.0.1"
+    assert cat["b"].source == "builtin"
+    assert cat["u"].source == "user"
+
+
+def test_skill_shadows_reported(tmp_path, monkeypatch):
+    from lightfall.content.clashes import Clash, ClashLog
+
+    builtin, user = _roots(tmp_path, monkeypatch)
+    _skill(builtin, "a")
+    _skill(user, "a")
+    it = _item(tmp_path / "s", "a@1", "a", "branch:7.0.1.1")
+    skills_store.resolve_skills(synced=[it])
+    skills_store.resolve_skills(synced=[it])
+    assert ClashLog.get_instance().all() == [
+        Clash("skill", "a", "local", "core", False),
+        Clash("skill", "a", "local", "branch:7.0.1.1", False),
+    ]
