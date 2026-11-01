@@ -271,3 +271,13 @@ def _no_real_synced_plans(monkeypatch):
     except Exception:
         return
     monkeypatch.setattr(user_plans, "default_synced_items", lambda type_: [])
+
+
+@pytest.fixture(autouse=True)
+def _no_real_synced_plugins(monkeypatch):
+    """Keep user plugin loading off the developer's real content store unless a test opts in."""
+    try:
+        from lightfall.plugins import user_plugins
+    except Exception:
+        return
+    monkeypatch.setattr(user_plugins, "default_synced_items", lambda type_: [], raising=False)

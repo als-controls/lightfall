@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from loguru import logger
 from PySide6.QtCore import QFileSystemWatcher, QObject, QTimer, Signal
 
+from lightfall.content.clashes import Clash, ClashLog
+from lightfall.content.sources import SourceItem, default_synced_items, specificity
 from lightfall.utils.git_tracker import GitTracker
 
 if TYPE_CHECKING:
@@ -47,6 +49,7 @@ class PluginInfo:
     is_temp: bool = False
     load_error: str | None = None
     is_package: bool = False  # folder plugin loaded as a real package
+    source: str = "local"  # "local" or the synced scope it came from
 
 
 
@@ -96,6 +99,9 @@ class UserPluginService(QObject):
         self._temp_dir: Path | None = None
         self._temp_plugins: set[Path] = set()
         self._current_load: PluginInfo | None = None  # set during load_plugin_from_file
+        # keys the in-flight load tried to register that a package owns:
+        # (registry_type, key); a non-empty list refuses the whole plugin
+        self._current_refusals: list[tuple[str, str]] = []
         # folder plugin path string -> single-shot debounce timer for hot reload
         self._reload_timers: dict[str, QTimer] = {}
 
@@ -170,47 +176,185 @@ class UserPluginService(QObject):
             logger.error("Failed to open plugins folder: {}", e)
             return False
 
-    def load_all_plugins(self) -> list[tuple[Path, Exception | None]]:
-        """Load all plugins from the plugins directory.
+    def load_all_plugins(
+        self, synced: list[SourceItem] | None = None
+    ) -> list[tuple[Path, Exception | None]]:
+        """Load plugins from synced scopes and the local plugins directory.
+
+        For each plugin name (file stem, folder name, or for synced items the
+        listing's item name) the most specific candidate loads (local >
+        branch > beamline > facility); the others are not loaded and are
+        reported to the ClashLog. Synced plugins are read-only: never
+        committed, never watched, never hot-reloaded. Clashes with package
+        plugins are settled when the packages register (post-login wave);
+        see :meth:`owner_of`.
+
+        Args:
+            synced: Synced plugin items; None reads this machine's content store.
 
         Returns:
             List of (path, Exception or None) tuples.
         """
         results: list[tuple[Path, Exception | None]] = []
 
-        if not self._plugins_dir.exists():
+        if synced is None:
+            synced = default_synced_items("plugin")
+        by_name: dict[str, list[SourceItem]] = {}
+        for item in synced:
+            if item.type == "plugin":
+                by_name.setdefault(item.name, []).append(item)
+
+        local: dict[str, Path] = {}
+        if self._plugins_dir.exists():
+            entries, errors = self._discover(self._plugins_dir)
+            for bad_path, message in errors:
+                logger.warning("Plugin conflict, not loading {}: {}", bad_path, message)
+                self.plugin_error.emit(str(bad_path), message)
+                results.append((bad_path, Exception(message)))
+            for entry in entries:
+                local[self._entry_name(entry)] = entry
+        else:
             logger.debug("Plugins directory does not exist: {}", self._plugins_dir)
-            return results
 
-        entries, errors = self._discover(self._plugins_dir)
-        for bad_path, message in errors:
-            logger.warning("Plugin conflict, not loading {}: {}", bad_path, message)
-            self.plugin_error.emit(str(bad_path), message)
-            results.append((bad_path, Exception(message)))
-
-        for py_file in entries:
+        clashes: list[Clash] = []
+        for name in list(by_name) + [n for n in local if n not in by_name]:
+            candidates = list(by_name.get(name, []))
+            if name in local:
+                candidates.append(SourceItem("plugin", name, "local", local[name]))
+            candidates.sort(key=lambda i: specificity(i.source), reverse=True)
+            winner = candidates[0]
+            clashes.extend(
+                Clash("plugin", name, winner.source, loser.source, False)
+                for loser in candidates[1:]
+            )
             # Skip per-file commits on bulk startup load: each commit costs
             # 2 subprocess calls (git add + git diff --cached --quiet) even
             # when the file is unchanged. With 50 staff plugins that's 100
             # subprocesses fired on every Lightfall startup. The hot-reload
             # watcher and explicit edits still commit normally.
-            success = self.load_plugin_from_file(py_file, _skip_commit=True)
+            success = self.load_plugin_from_file(
+                winner.path,
+                _skip_commit=True,
+                module_name=name,
+                source=winner.source,
+            )
             error = None
             if not success:
-                info = self._loaded_plugins.get(str(py_file))
+                info = self._loaded_plugins.get(str(winner.path))
                 if info and info.load_error:
                     error = Exception(info.load_error)
                 else:
                     error = Exception("Unknown error loading plugin")
-            results.append((py_file, error if not success else None))
+            results.append((winner.path, error))
+
+        if clashes:
+            ClashLog.get_instance().report(clashes)
 
         self.plugins_refreshed.emit()
         loaded_count = sum(1 for _, err in results if err is None)
         logger.info(
-            "Loaded {} user plugin(s) from {}", loaded_count, self._plugins_dir
+            "Loaded {} user plugin(s) from {} and {} synced item(s)",
+            loaded_count, self._plugins_dir, len(synced),
         )
 
         return results
+
+    @staticmethod
+    def _entry_name(entry: Path) -> str:
+        """Plugin name of a local entry point: file stem or folder name."""
+        return entry.name if entry.is_dir() else entry.stem
+
+    def owner_of(self, registry_type: str, key: str) -> str | None:
+        """Path of the loaded user plugin that registered ``key``, or None."""
+        for path_str, info in self._loaded_plugins.items():
+            for reg in info.registrations:
+                if reg.registry_type == registry_type and reg.key == key:
+                    return path_str
+        return None
+
+    def refuse_plugin(self, path: Path, reason: str) -> PluginInfo | None:
+        """Unload the whole plugin at ``path`` and keep it as a load error.
+
+        Used when a package plugin takes a tool or panel key the user plugin
+        registered. The error record stays in the loaded list so local
+        rescans don't load it again; editing the file reloads it (and it is
+        refused again while the clash stands).
+
+        Returns:
+            The previous PluginInfo, or None if ``path`` was not loaded.
+        """
+        old = self._loaded_plugins.get(str(path))
+        if old is None:
+            return None
+        self.unload_plugin(path)
+        self._store_refused(old, reason)
+        return old
+
+    def _store_refused(self, info: PluginInfo, reason: str) -> None:
+        """Record ``info`` as a refused load: no registrations, error set."""
+        path = info.file_path
+        self._loaded_plugins[str(path)] = PluginInfo(
+            file_path=path,
+            module_name=info.module_name,
+            is_temp=info.is_temp,
+            load_error=reason,
+            is_package=info.is_package,
+            source=info.source,
+        )
+        if info.source == "local":
+            # keep watching so an edit that renames the key reloads it
+            if info.is_package:
+                self._watch_folder(path)
+            elif path.exists() and str(path) not in self._watcher.files():
+                self._watcher.addPath(str(path))
+        self.plugin_error.emit(str(path), reason)
+        logger.warning("User plugin {} refused: {}", path.name, reason)
+
+    def _package_owns(self, registry_type: str, key: str) -> bool:
+        """True when ``key`` is registered and no user plugin registered it."""
+        if registry_type == "tool":
+            from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+
+            present = ToolRegistry.get_instance().get_plugin(key) is not None
+        elif registry_type == "panel":
+            from lightfall.ui.panels.registry import PanelRegistry
+
+            present = PanelRegistry.get_instance().get(key) is not None
+        else:
+            return False
+        if not present or self.owner_of(registry_type, key) is not None:
+            return False
+        current = self._current_load
+        return not (
+            current is not None
+            and any(
+                r.registry_type == registry_type and r.key == key
+                for r in current.registrations
+            )
+        )
+
+    def _finish_refused_load(self, info: PluginInfo) -> None:
+        """Undo the in-flight load ``info`` after a package-owned key was hit."""
+        refusals, self._current_refusals = self._current_refusals, []
+        for reg in info.registrations:
+            self._unregister(reg)
+        if info.is_package:
+            self._purge_modules(info.module_name)
+        else:
+            sys.modules.pop(info.module_name, None)
+        keys = ", ".join(f"{t} '{k}'" for t, k in refusals)
+        self._store_refused(info, f"Refused: {keys} belongs to a package plugin")
+        ClashLog.get_instance().report(
+            [Clash("plugin", key, "package", info.source, False) for _, key in refusals]
+        )
+
+    @staticmethod
+    def _panel_snapshot() -> dict[str, type]:
+        """Panel id -> class currently in PanelRegistry."""
+        from lightfall.ui.panels.registry import PanelRegistry
+
+        registry = PanelRegistry.get_instance()
+        return {pid: registry.get(pid) for pid in registry.list_panel_ids()}
 
     @staticmethod
     def _discover(root: Path) -> tuple[list[Path], list[tuple[Path, str]]]:
@@ -280,6 +424,7 @@ class UserPluginService(QObject):
         *,
         _skip_commit: bool = False,
         module_name: str | None = None,
+        source: str = "local",
     ) -> bool:
         """Load a single plugin from a file or a package folder.
 
@@ -301,6 +446,8 @@ class UserPluginService(QObject):
                 bulk startup scan doesn't fire 2 subprocesses per file.
                 Underscore-prefixed because it is not part of the public
                 contract -- callers writing the file should always commit.
+            source: ``"local"`` or the synced scope the plugin came from.
+                Synced plugins are never committed and never watched.
 
         Returns:
             True if successful.
@@ -311,9 +458,16 @@ class UserPluginService(QObject):
         if path_str in self._loaded_plugins:
             return self.reload_plugin(path, commit_msg=commit_msg)
 
+        if source != "local":
+            _skip_commit = True  # synced content is read-only, never committed
+
         if path.is_dir():
             return self._load_folder_plugin(
-                path, commit_msg, _skip_commit=_skip_commit, module_name=module_name
+                path,
+                commit_msg,
+                _skip_commit=_skip_commit,
+                module_name=module_name,
+                source=source,
             )
 
         try:
@@ -330,6 +484,7 @@ class UserPluginService(QObject):
                     file_path=path,
                     module_name=f"lightfall_user_plugins.{path.stem}",
                     load_error=error_msg,
+                    source=source,
                 )
                 self.plugin_error.emit(path_str, error_msg)
                 if not _skip_commit:
@@ -349,6 +504,7 @@ class UserPluginService(QObject):
                 file_path=path,
                 module_name=module_name,
                 is_temp=path in self._temp_plugins,
+                source=source,
             )
 
             # Pre-register a stub module in sys.modules BEFORE exec() so that
@@ -363,7 +519,9 @@ class UserPluginService(QObject):
             stub_module.__spec__ = None
             sys.modules[module_name] = stub_module
 
+            panels_before = self._panel_snapshot()
             self._current_load = info
+            self._current_refusals = []
             try:
                 try:
                     exec(code, namespace)
@@ -384,9 +542,15 @@ class UserPluginService(QObject):
                 # don't go through PluginType.__init_subclass__ / enqueue, so
                 # we discover them here and add them to registrations so unload
                 # and hot-reload can remove them.
-                self._track_self_registered_panels(namespace, info)
+                self._track_self_registered_panels(namespace, info, panels_before)
             finally:
                 self._current_load = None
+
+            if self._current_refusals:
+                self._finish_refused_load(info)
+                if not _skip_commit:
+                    self._commit_change(path, commit_msg)
+                return False
 
             # Store plugin info (registrations list was populated by enqueue()
             # and _track_self_registered_panels())
@@ -397,8 +561,8 @@ class UserPluginService(QObject):
                 "module", (), {"__dict__": namespace, "__name__": module_name}
             )()
 
-            # Watch file for changes
-            if str(path) not in self._watcher.files():
+            # Watch file for changes (local files only; synced ones never reload)
+            if source == "local" and str(path) not in self._watcher.files():
                 self._watcher.addPath(str(path))
 
             self.plugin_loaded.emit(path_str)
@@ -419,6 +583,7 @@ class UserPluginService(QObject):
                 file_path=path,
                 module_name=f"lightfall_user_plugins.{path.stem}",
                 load_error=error_msg,
+                source=source,
             )
             self.plugin_error.emit(path_str, error_msg)
             if not _skip_commit:
@@ -432,11 +597,14 @@ class UserPluginService(QObject):
         *,
         _skip_commit: bool,
         module_name: str | None,
+        source: str = "local",
     ) -> bool:
         """Load ``folder`` as the real package ``lightfall_user_plugins.<name>``."""
         path_str = str(folder)
         full_name = f"lightfall_user_plugins.{module_name or folder.name}"
-        info = PluginInfo(file_path=folder, module_name=full_name, is_package=True)
+        info = PluginInfo(
+            file_path=folder, module_name=full_name, is_package=True, source=source
+        )
 
         def fail(error_msg: str) -> bool:
             logger.warning("Error loading folder plugin {}: {}", folder.name, error_msg)
@@ -467,8 +635,12 @@ class UserPluginService(QObject):
             sys.modules[full_name] = module
             # No stale bytecode (same-second same-size edits) and none left
             # in the user's git-tracked folder.
-            self._remove_bytecode(folder)
+            if source == "local":
+                # synced folders are read-only; never touch them
+                self._remove_bytecode(folder)
+            panels_before = self._panel_snapshot()
             self._current_load = info
+            self._current_refusals = []
             old_dwb = sys.dont_write_bytecode
             sys.dont_write_bytecode = True
             try:
@@ -480,7 +652,7 @@ class UserPluginService(QObject):
                     if mod_name == full_name or mod_name.startswith(full_name + "."):
                         ns = getattr(mod, "__dict__", None)
                         if ns:
-                            self._track_self_registered_panels(ns, info)
+                            self._track_self_registered_panels(ns, info, panels_before)
             finally:
                 sys.dont_write_bytecode = old_dwb
                 self._current_load = None
@@ -488,8 +660,15 @@ class UserPluginService(QObject):
             logger.error("Failed to load folder plugin {}: {}", folder, e)
             return fail(str(e))
 
+        if self._current_refusals:
+            self._finish_refused_load(info)
+            if not _skip_commit:
+                self._commit_change(folder, commit_msg)
+            return False
+
         self._loaded_plugins[path_str] = info
-        self._watch_folder(folder)
+        if source == "local":
+            self._watch_folder(folder)
         self.plugin_loaded.emit(path_str)
         logger.debug(
             "Loaded folder plugin: {} ({} registrations)",
@@ -636,6 +815,8 @@ class UserPluginService(QObject):
         if path.exists():
             # Need to re-add to watcher since we removed it
             kwargs: dict[str, Any] = {}
+            if old_info is not None:
+                kwargs["source"] = old_info.source
             if old_info is not None and old_info.is_package:
                 # keep the module name a caller (e.g. synced folder) chose
                 kwargs["module_name"] = old_info.module_name.split(".", 1)[1]
@@ -709,16 +890,20 @@ class UserPluginService(QObject):
         try:
             if registry_type == "tool":
                 from lightfall.ui.panels.claude.tool_registry import ToolRegistry
-                ToolRegistry.get_instance().register(instance)
                 registration_key = plugin_name
+                if self._refuse_if_package_owned("tool", registration_key):
+                    return
+                ToolRegistry.get_instance().register(instance)
             elif registry_type == "panel":
                 from lightfall.ui.panels.registry import PanelRegistry
                 # PanelRegistry.register expects the BasePanel subclass (it reads
                 # panel_metadata off it); the auto-discovered cls is the PanelPlugin
                 # subclass, so route through get_panel_class().
                 panel_class = instance.get_panel_class()
-                PanelRegistry.get_instance().register(panel_class)
                 registration_key = panel_class.panel_metadata.id
+                if self._refuse_if_package_owned("panel", registration_key):
+                    return
+                PanelRegistry.get_instance().register(panel_class)
             else:
                 logger.warning(
                     "auto-enqueue for type '{}' not supported (plugin {})",
@@ -739,8 +924,26 @@ class UserPluginService(QObject):
 
         logger.debug("auto-enqueued user plugin: {} (type={})", plugin_name, registry_type)
 
+    def _refuse_if_package_owned(self, registry_type: str, key: str) -> bool:
+        """During a load: note and skip ``key`` if a package already owns it.
+
+        A noted refusal makes the whole in-flight plugin fail once its code
+        has run (see ``_finish_refused_load``).
+        """
+        if self._current_load is None or not self._package_owns(registry_type, key):
+            return False
+        logger.warning(
+            "User plugin {} wants {} '{}', which a package plugin owns",
+            self._current_load.file_path.name, registry_type, key,
+        )
+        self._current_refusals.append((registry_type, key))
+        return True
+
     def _track_self_registered_panels(
-        self, namespace: dict[str, Any], info: PluginInfo,
+        self,
+        namespace: dict[str, Any],
+        info: PluginInfo,
+        before: dict[str, type] | None = None,
     ) -> None:
         """Track BasePanel subclasses self-registered at module scope.
 
@@ -760,6 +963,12 @@ class UserPluginService(QObject):
         subclasses whose ``panel_metadata.id`` is now in ``PanelRegistry`` and
         not already tracked from this load (e.g. via a PanelPlugin wrapper),
         and append a registration entry.
+
+        ``before`` is the PanelRegistry content from before the plugin's code
+        ran. With it, a panel whose registration is unchanged (e.g. a package
+        panel class merely imported) is not tracked, and a panel id that a
+        package had registered and the plugin replaced is put back and the
+        plugin refused.
         """
         from lightfall.ui.panels.base import BasePanel
         from lightfall.ui.panels.registry import PanelRegistry
@@ -777,7 +986,22 @@ class UserPluginService(QObject):
             panel_id = getattr(metadata, "id", None)
             if not panel_id or panel_id in already_tracked:
                 continue
-            if registry.get(panel_id) is not None:
+            current = registry.get(panel_id)
+            if before is not None and current is not None:
+                previous = before.get(panel_id)
+                if previous is current:
+                    continue  # registered before this load ran; not ours
+                if previous is not None and self.owner_of("panel", panel_id) is None:
+                    # replaced a package's panel: put it back, refuse the plugin
+                    registry.register(previous, replace=True)
+                    self._current_refusals.append(("panel", panel_id))
+                    already_tracked.add(panel_id)
+                    logger.warning(
+                        "User plugin {} replaced package panel '{}'; refused",
+                        info.file_path.name, panel_id,
+                    )
+                    continue
+            if current is not None:
                 info.registrations.append(
                     PluginRegistration(registry_type="panel", key=panel_id)
                 )
@@ -918,14 +1142,19 @@ class UserPluginService(QObject):
                 self.unload_plugin(bad_path)
             logger.warning("Plugin conflict, not loading {}: {}", bad_path, message)
             self.plugin_error.emit(str(bad_path), message)
+        # Only local plugins belong to this rescan: synced and temp plugins
+        # live elsewhere and must not be unloaded for being absent here.
         loaded_paths = {
             info.file_path
             for info in self._loaded_plugins.values()
-            if not info.is_temp and info.file_path not in conflicted
+            if not info.is_temp
+            and info.source == "local"
+            and info.file_path not in conflicted
         }
 
         # Load new files
         for file_path in current_files - loaded_paths:
+            self._displace_synced(self._entry_name(file_path))
             self.load_plugin_from_file(
                 file_path, commit_msg=f"external add: {file_path.name}"
             )
@@ -939,6 +1168,16 @@ class UserPluginService(QObject):
                 )
 
         self.plugins_refreshed.emit()
+
+    def _displace_synced(self, name: str) -> None:
+        """Unload a loaded synced plugin called ``name``: a new local one wins."""
+        for info in list(self._loaded_plugins.values()):
+            if info.source == "local" or info.module_name != f"lightfall_user_plugins.{name}":
+                continue
+            ran = info.load_error is None
+            self.unload_plugin(info.file_path)
+            ClashLog.get_instance().report([Clash("plugin", name, "local", info.source, ran)])
+            logger.info("Local plugin {} replaces the {} one", name, info.source)
 
     # Introspection
 

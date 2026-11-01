@@ -670,7 +670,8 @@ def _setup_user_plugins(app: LFApplication) -> None:
     # Create and initialize the service
     service = UserPluginService.get_instance()
 
-    # Load all user plugins
+    # Load user plugins: synced scopes (this machine's content store) plus
+    # ~/lightfall/plugins/, the most specific copy of each name winning
     results = service.load_all_plugins()
     user_plugin_count = sum(1 for _, err in results if err is None)
 
@@ -681,7 +682,7 @@ def _setup_user_plugins(app: LFApplication) -> None:
     services.register_instance(UserPluginService, service)
 
     if user_plugin_count > 0:
-        logger.info("Loaded {} user plugin(s) from ~/lightfall/plugins/", user_plugin_count)
+        logger.info("Loaded {} user plugin(s)", user_plugin_count)
     else:
         logger.debug("No user plugins loaded")
 

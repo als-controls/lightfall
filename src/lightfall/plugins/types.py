@@ -18,10 +18,19 @@ def _user_plugin_roots() -> list[Path]:
 
     Used by PluginType.__init_subclass__ to decide whether a newly-defined
     subclass came from a user plugin file (and thus should auto-enqueue).
+    Includes the synced content store, where plugins from facility,
+    beamline and branch scopes live.
     """
     home = Path.home()
+    candidates = [home / "lightfall" / "plugins", home / ".lightfall" / "plugins"]
+    try:
+        from lightfall.content import store
+
+        candidates.append(store.default_content_dir())
+    except Exception:  # noqa: BLE001 — never break class definition over this
+        pass
     roots: list[Path] = []
-    for candidate in (home / "lightfall" / "plugins", home / ".lightfall" / "plugins"):
+    for candidate in candidates:
         try:
             roots.append(candidate.resolve())
         except (OSError, RuntimeError):
