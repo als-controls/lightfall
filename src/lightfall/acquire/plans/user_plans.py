@@ -242,11 +242,36 @@ class UserPlanService(QObject):
         """Load the most specific synced candidate for ``stem``, if there is one."""
         from lightfall.acquire.plans.registry import PlanRegistry
 
+        registry = PlanRegistry.get_instance()
+        existing = registry.get_plan(stem)
+        if existing is not None and existing.source in ("core", "package"):
+            return  # a core or package plan owns the name; nothing to fall back to
         candidates = self._candidates(stem, None)
         if candidates:
             self._load_plan_from_file(
-                candidates[0].path, PlanRegistry.get_instance(), candidates[0].source
+                candidates[0].path, registry, candidates[0].source
             )
+
+    def _owns_registered(self, name: str) -> bool:
+        """True when the registry's plan ``name`` is the one this service loaded.
+
+        False once a package plan displaced ours in the post-login wave: the
+        ``_loaded_plans`` entry still records our file (so it stays watched),
+        but the registered plan is no longer ours to unregister or edit.
+        """
+        from lightfall.acquire.plans.registry import PlanRegistry
+
+        entry = self._loaded_plans.get(name)
+        if entry is None:
+            return False
+        plan = PlanRegistry.get_instance().get_plan(name)
+        return plan is not None and plan.source == entry[1]
+
+    def loaded_plan_path(self, name: str) -> Path | None:
+        """File of the registered user plan ``name``; None when it isn't ours."""
+        if not self._owns_registered(name):
+            return None
+        return self._loaded_plans[name][0]
 
     def _commit_change(self, path: Path, commit_msg: str | None) -> None:
         """Commit a change to ``path`` via the GitTracker singleton.
@@ -371,9 +396,11 @@ class UserPlanService(QObject):
 
             # Reloading our own earlier copy of this plan: drop it first so the
             # new function replaces it instead of tying with it.
+            owned = self._owns_registered(plan_name)
             previous = self._loaded_plans.pop(plan_name, None)
             if previous is not None:
-                registry.unregister(plan_name)
+                if owned:
+                    registry.unregister(plan_name)
                 if previous[1] == "local" and previous[0] != path:
                     self._unwatch(previous[0])
 
@@ -417,8 +444,9 @@ class UserPlanService(QObject):
         if name not in self._loaded_plans:
             return False
 
-        registry = PlanRegistry.get_instance()
-        registry.unregister(name)
+        # A package plan may have displaced ours since: leave it registered.
+        if self._owns_registered(name):
+            PlanRegistry.get_instance().unregister(name)
 
         path, _source = self._loaded_plans.pop(name)
         self._unwatch(path)

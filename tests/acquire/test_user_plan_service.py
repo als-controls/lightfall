@@ -265,3 +265,68 @@ def test_synced_plans_are_not_committed(
 
     assert _git_log_subjects(tracked_plan_dir.parent) == []
     assert str(item.path) not in service._watcher.files()
+
+
+def _package_plan(detectors):
+    yield from []
+
+
+def _displace_with_package(service, tracked_plan_dir, tmp_path):
+    """Local xafs (with a branch xafs behind it), then a package registers xafs."""
+    local = _write_user_plan(tracked_plan_dir, "xafs")
+    item = _synced_plan(tmp_path / "synced", "xafs", "branch:7.0.1.1")
+    service.load_all_plans(synced=[item])
+    registry = PlanRegistry.get_instance()
+    registry.register_ranked("xafs", _package_plan, "scan", "package")
+    assert registry.get_plan("xafs").source == "package"
+    return local
+
+
+def test_renaming_displaced_local_plan_keeps_package_plan(
+    tracked_plan_dir, monkeypatch, tmp_path, clean_registries
+):
+    service = _service(tracked_plan_dir, monkeypatch)
+    local = _displace_with_package(service, tracked_plan_dir, tmp_path)
+
+    local.rename(tracked_plan_dir / "xafs_mine.py")
+    service._on_directory_changed(str(tracked_plan_dir))
+
+    registry = PlanRegistry.get_instance()
+    assert registry.get_plan("xafs").source == "package"
+    assert registry.get_plan("xafs").func is _package_plan
+    assert registry.get_plan("xafs_mine").source == "local"
+
+
+def test_deleting_displaced_local_plan_keeps_package_plan(
+    tracked_plan_dir, monkeypatch, tmp_path, clean_registries
+):
+    service = _service(tracked_plan_dir, monkeypatch)
+    local = _displace_with_package(service, tracked_plan_dir, tmp_path)
+
+    local.unlink()
+    service._on_file_changed(str(local))
+
+    assert PlanRegistry.get_instance().get_plan("xafs").func is _package_plan
+
+
+def test_refresh_after_package_displacement_keeps_package_plan(
+    tracked_plan_dir, monkeypatch, tmp_path, clean_registries
+):
+    service = _service(tracked_plan_dir, monkeypatch)
+    _displace_with_package(service, tracked_plan_dir, tmp_path)
+
+    service._unload_plan("xafs")
+
+    assert PlanRegistry.get_instance().get_plan("xafs").func is _package_plan
+
+
+def test_displaced_plan_has_no_user_file(
+    tracked_plan_dir, monkeypatch, tmp_path, clean_registries
+):
+    service = _service(tracked_plan_dir, monkeypatch)
+    _displace_with_package(service, tracked_plan_dir, tmp_path)
+
+    assert service.loaded_plan_path("xafs") is None
+    _write_user_plan(tracked_plan_dir, "other")
+    service._on_directory_changed(str(tracked_plan_dir))
+    assert service.loaded_plan_path("other") == tracked_plan_dir / "other.py"

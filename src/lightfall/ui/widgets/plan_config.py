@@ -778,7 +778,7 @@ class PlanConfigWidget(QWidget):
     def _get_plan_file_path(self) -> Path | None:
         """Get the file path for the current plan.
 
-        For user plans, retrieves from UserPlanService._loaded_plans.
+        For user plans, asks UserPlanService for the loaded plan's file.
         For built-in plans, uses inspect.getfile() on the plan function.
 
         Returns:
@@ -791,8 +791,9 @@ class PlanConfigWidget(QWidget):
         from lightfall.acquire.plans.user_plans import UserPlanService
 
         service = UserPlanService.get_instance()
-        if self._plan.name in service._loaded_plans:
-            return service._loaded_plans[self._plan.name][0]
+        user_path = service.loaded_plan_path(self._plan.name)
+        if user_path is not None:
+            return user_path
 
         # Fall back to inspect for built-in plans
         try:
