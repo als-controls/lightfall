@@ -30,13 +30,13 @@ def _discovered_plugins() -> list[CatalogItem]:
     """One catalog item per discovered plugin, sorted by type then name."""
     try:
         registry = ServiceRegistry.get_instance().get(PluginRegistry)
-        plugins = registry.get_all() if registry is not None else []
-        if registry is None:
-            logger.warning("PluginRegistry not registered")
     except Exception as e:  # noqa: BLE001 - an unavailable registry shows an empty list
         logger.warning("Failed to get PluginRegistry: {}", e)
-        plugins = []
-    plugins = sorted(plugins, key=lambda p: (p.type_name, p.name))
+        return []
+    if registry is None:
+        logger.warning("PluginRegistry not registered")
+        return []
+    plugins = sorted(registry.get_all(), key=lambda p: (p.type_name, p.name))
     return [
         CatalogItem(
             id=p.unique_id,

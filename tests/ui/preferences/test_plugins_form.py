@@ -157,8 +157,11 @@ def test_toggles_at_user_write_the_enabled_map(qtbot, env):
 def test_inherited_default_shown_for_default_disabled_plugin(qtbot, env):
     dialog = _dialog(qtbot)
     table = _row(dialog).editor.findChild(QTableWidget)
-    assert table.item(0, table.columnCount() - 1).text() == "Off (default)"
-    assert table.item(2, table.columnCount() - 1).text() == "On (default)"
+    last = table.columnCount() - 1
+    inherited = {table.item(r, 0).text(): table.item(r, last).text() for r in range(table.rowCount())}
+    assert inherited["local"] == "Off (default)"
+    assert inherited["alpha"] == "On (default)"
+    assert inherited["plugins"] == "On (always)"
 
 
 def test_plugins_at_this_console(qtbot, env):
@@ -212,3 +215,34 @@ def test_no_restart_prompt_without_change(qtbot, env):
     assert dialog._apply() is True
     assert prompts == []
     assert env.prefs.calls == []
+
+
+def test_here_combos_keep_theme_colours_on_first_load(qtbot, env):
+    """Set rows show normal text, only Not set is muted, straight after the dialog is built.
+
+    The app stylesheet rewrites each combo's palette when it first polishes; the editor
+    must re-apply its muting after that (a scope switch used to be the only fix).
+    """
+    from PySide6.QtGui import QColor, QPalette
+
+    from lightfall.ui.theme import ThemeManager
+
+    theme = ThemeManager.get_instance()
+    theme.set_theme_by_name("dark")
+    theme.apply_to_application()
+    env.prefs.layers[(USER, KEY)] = {"tool:alpha": False, "auth_provider:local": True}
+    dialog = _dialog(qtbot)
+    dialog.resize(900, 600)
+    dialog.show()
+    dialog.select_page("plugins")
+    qtbot.wait(50)
+
+    def text_color(plugin_id):
+        pal = _combo(dialog, plugin_id).palette()
+        return pal.color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
+
+    normal, muted = QColor(theme.colors.text), QColor(theme.colors.text_secondary)
+    assert normal != muted
+    assert text_color("tool:alpha") == normal  # Off
+    assert text_color("auth_provider:local") == normal  # On
+    assert text_color("tool:beta") == muted  # Not set

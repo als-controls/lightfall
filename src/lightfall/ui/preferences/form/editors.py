@@ -196,15 +196,34 @@ class ChoiceEditor(FieldEditor):
         options = spec.options() if callable(spec.options) else spec.options
         self._values: list[Any] = [None]
         self._loading = False
+        self._muting = False
         self._combo.addItem(NOT_SET)
         for val, label in options:
             self._values.append(val)
             self._combo.addItem(label)
         self._mute_not_set()
         self._combo.currentIndexChanged.connect(self._on_index)
+        # The app stylesheet styles QComboBox; its (re)polish rewrites the combo's own
+        # palette (the per-role resolve mask lets the muted Disabled Text leak into the
+        # Active group), so the palette is re-applied whenever the combo's changes.
+        self._combo.installEventFilter(self)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if obj is self._combo and event.type() == QEvent.Type.PaletteChange and not self._muting:
+            self._mute_not_set()
+        return super().eventFilter(obj, event)
 
     def _mute_not_set(self) -> None:
         """Mute the "Not set" list entry, the closed combo while it shows it, and disabled text."""
+        if self._muting:
+            return
+        self._muting = True
+        try:
+            self._apply_mute()
+        finally:
+            self._muting = False
+
+    def _apply_mute(self) -> None:
         muted = muted_color(self._combo)
         normal = _theme_color("text") or QApplication.palette().color(QPalette.ColorRole.Text)
         self._combo.setItemData(0, muted, Qt.ItemDataRole.ForegroundRole)
