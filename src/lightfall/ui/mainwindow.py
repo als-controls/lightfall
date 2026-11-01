@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.auth.session import AuthState, SessionManager
+from lightfall.ui.content_clashes import ClashNotifier
 from lightfall.ui.docking import DockingManager
 from lightfall.ui.panels.base import BasePanel
 from lightfall.ui.panels.registry import PanelRegistry
@@ -91,6 +92,7 @@ class LFMainWindow(QMainWindow):
         self._prefs_manager = PreferencesManager.get_instance()
         self._panel_registry = PanelRegistry.get_instance()
         self._content_sync = self._build_content_sync()
+        self._clash_notifier = ClashNotifier(self)
 
         # Setup UI
         self._setup_window()

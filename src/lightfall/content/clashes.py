@@ -29,6 +29,8 @@ class ClashLog(QObject):
         super().__init__()
         self._clashes: list[Clash] = []
         self._seen: set[Clash] = set()
+        # Reports can arrive from worker threads (skills resolve inside agent tool calls).
+        self._data_lock = threading.Lock()
 
     @classmethod
     def get_instance(cls) -> ClashLog:
@@ -45,13 +47,15 @@ class ClashLog(QObject):
 
     def report(self, clashes: Iterable[Clash]) -> None:
         new: list[Clash] = []
-        for clash in clashes:
-            if clash not in self._seen:
-                self._seen.add(clash)
-                self._clashes.append(clash)
-                new.append(clash)
-        if new:
+        with self._data_lock:
+            for clash in clashes:
+                if clash not in self._seen:
+                    self._seen.add(clash)
+                    self._clashes.append(clash)
+                    new.append(clash)
+        if new:  # emit outside the lock; queued to receivers living on another thread
             self.added.emit(new)
 
     def all(self) -> list[Clash]:
-        return list(self._clashes)
+        with self._data_lock:
+            return list(self._clashes)

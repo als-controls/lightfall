@@ -34,6 +34,8 @@ involve writing code (user plans, for example), it says so up front.
    device backends.
 10. **[Updates and Source Checkouts](updates.md)** — the update and git-state
     status bar indicators, and updating Lightfall from inside the app.
+11. **[Scoped Content](scoped-content.md)** — where plans, plugins, agents and
+    skills come from, which one wins a name clash, and what the warnings mean.
 
 ```{toctree}
 :maxdepth: 2
@@ -45,6 +47,7 @@ panels
 running-plans
 claude-assistant
 agent-customization
+scoped-content
 logbook
 preferences
 updates
