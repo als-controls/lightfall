@@ -173,14 +173,6 @@ def _migrated_targets(prefs: Any) -> set[str]:
     return {str(x) for x in done} if isinstance(done, list) else set()
 
 
-def _may_migrate(prefs: Any) -> bool:
-    """With server scopes: only once online (an offline-cache user scope may be stale)."""
-    if prefs.scope_info.mode != "server":
-        return True
-    store = getattr(prefs.scoped_backend, "store", None)
-    return store is not None and not store.offline
-
-
 def _legacy_pending(prefs: Any) -> bool:
     """An old allow-list is still waiting for the registry to fill so it can be converted."""
     if prefs.get(DISABLED_PLUGINS_PREF, None) is not None:
@@ -197,11 +189,15 @@ def migrate_tool_lists(prefs: Any) -> bool:
     """Carry the two old lists into ``tools.enabled`` at ``prefs.default_scope()``.
 
     Once per target (marker ``_tools_enabled_migrated``); a name in both lists is off,
-    as before. Values already set at the target win. Returns True if this run migrated.
+    as before. Same gating as plugins (``_may_migrate_to_server``): with server scopes only
+    online, on an unbound console whose YAML is its user's; a bound console's lists stay in
+    its own console layer (``tools.enabled`` is a LOCAL_LAYER_KEY), migrated to "local" at startup. Values already set at the target win. Returns True if this run migrated.
     """
+    from lightfall.plugins.enablement import _may_migrate_to_server
+
     target = prefs.default_scope()
     done = _migrated_targets(prefs)
-    if (target in done or not _may_migrate(prefs) or _legacy_pending(prefs)
+    if (target in done or not _may_migrate_to_server(prefs) or _legacy_pending(prefs)
             or not prefs.writable_at(TOOLS_KEY, target)):
         return False
     disabled = _as_names(prefs.get(DISABLED_PLUGINS_PREF, None))

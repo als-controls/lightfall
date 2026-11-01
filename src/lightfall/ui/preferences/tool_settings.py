@@ -31,9 +31,12 @@ _SCOPES = frozenset({"user", "branch", "beamline", "facility"})
 def _registered_tools() -> list[CatalogItem]:
     """One catalog item per registered tool plugin, sorted by category then display name."""
     try:
-        from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+        from lightfall.ui.panels.claude.tool_registry import ToolRegistry, _migrate_tools_quietly
 
-        plugins = ToolRegistry.get_instance().get_plugins()
+        registry = ToolRegistry.get_instance()
+        if registry._migrate_legacy_pref_if_needed():  # as the old load_settings did
+            _migrate_tools_quietly()
+        plugins = registry.get_plugins()
     except Exception as e:  # noqa: BLE001 - an unavailable registry shows an empty list
         logger.warning("Failed to get ToolRegistry: {}", e)
         return []

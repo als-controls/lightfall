@@ -169,20 +169,28 @@ def test_offline_scopes_do_not_migrate_the_user_scope(pm, serve):  # noqa: F811
     assert pm.get(MIGRATED_PREF) is None
 
 
-def test_bound_console_user_scope_still_migrates(pm, serve):  # noqa: F811
-    """tools.enabled has no console layer: a bound console's user gets their own lists."""
-    pm.set_config_manager(FakeCM(BL, **_legacy()))
-    server = serve(ChainServer("u1"), "u1", bind=BL)
-    assert migrate_tool_lists(pm) is True
-    assert server.rows[("user:u1", TOOLS_KEY)][0]["alpha"] is False
+def test_bound_console_keeps_its_lists_in_the_console_layer(pm, serve, registry):  # noqa: F811
+    from lightfall.scopes.keys import register_client_specs
+    from lightfall.ui.preferences.tool_settings import ClaudeToolsSettingsPlugin
+
+    register_client_specs(ClaudeToolsSettingsPlugin().specs())
+    cm = FakeCM(BL, **_legacy())
+    pm.set_config_manager(cm)
+    start_tool_migration(pm)  # before login: this console's YAML
+    assert cm.data["preferences.tools.enabled"] == LEGACY_MAP
+    server = serve(ChainServer("u2"), "u2", bind=BL)  # another user logs in here
+    assert migrate_tool_lists(pm) is False
+    assert not [c for c in server.calls if c[0] == "put" and c[2] == TOOLS_KEY]
+    assert pm.get(MIGRATED_PREF) == ["local"]
+    assert _names(registry) == {"beta", "gamma"}  # the console's choice applies via the local layer
 
 
 def test_yaml_upload_at_first_login_has_no_junk_tools_key():
     """The YAML's nested ``tools:`` group flattens to ``tools.enabled``, never a ``tools`` key.
 
-    tools.enabled is not a shared/deployment spec, so the first-login upload treats it as
-    any user key: the console's value (migrated there from the old lists) lands in the
-    user's still-empty scope, the same value migrate_tool_lists writes for that target.
+    tools.enabled is not a shared/deployment spec, so migrate_user_prefs uploads it like any
+    user key (ScopedBackend only calls it on an unbound, non-foreign console): the console's
+    value lands in the user's still-empty scope, the same value migrate_tool_lists writes.
     """
     from lightfall.scopes.keys import client_registry, flatten_preferences
     from lightfall.scopes.ops import migrate_user_prefs
@@ -191,5 +199,5 @@ def test_yaml_upload_at_first_login_has_no_junk_tools_key():
     server = FakeServer()
     yaml = flatten_preferences({"tools": {"enabled": {"alpha": False}}, "theme": "dark"})
     assert set(yaml) == {"tools.enabled", "theme"}
-    migrate_user_prefs(server, "user:u1", yaml, client_registry())
+    assert migrate_user_prefs(server, "user:u1", yaml, client_registry()) == ["theme", "tools.enabled"]
     assert ("user:u1", "tools") not in server.rows

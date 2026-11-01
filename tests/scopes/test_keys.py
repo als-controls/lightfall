@@ -90,7 +90,7 @@ def test_client_registry_uses_deployment_specs():
 
 def test_local_layer_keys_are_the_device_rows_and_plugins():
     assert LOCAL_LAYER_KEYS == {"device_backends", "device_backends_exclusive_restore",
-                                "plugins.enabled"}
+                                "plugins.enabled", "tools.enabled"}
 
 
 def test_beamline_capable():
