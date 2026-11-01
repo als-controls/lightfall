@@ -128,10 +128,37 @@ def lock_at(prefs: PreferencesManager, key: str, scope: str) -> LockInfo | None:
     res: Any = prefs.resolution(key)
     if res is None or res.locked_at is None or res.lock is None:
         return None
-    here = _LOCAL_RANK if scope == LOCAL else KIND_RANK[ScopeId.parse(scope).kind]
-    if KIND_RANK[res.locked_at.kind] >= here:
+    if KIND_RANK[res.locked_at.kind] >= _rank(scope):
         return None
     return LockInfo(str(res.locked_at), res.lock.locked_by, res.lock.reason)
+
+
+def _rank(scope: str) -> float:
+    """Breadth order of a scope: facility < beamline < branch < this console < user."""
+    return _LOCAL_RANK if scope == LOCAL else KIND_RANK[ScopeId.parse(scope).kind]
+
+
+def inherited_items(prefs: PreferencesManager, key: str, scope: str) -> dict[str, tuple[Any, str]]:
+    """For an item-merged key: item id -> (value, origin label) from every layer broader than ``scope``.
+
+    Layers merge broadest first, item by item; an item set to None in a layer
+    drops what broader layers gave it. Layers the key cannot live at (the
+    console layer of a server-mode union key) are skipped. Origins are the
+    scope choice labels ("Beamline 7.0.1"). Items no broader layer sets are absent.
+    """
+    here = _rank(scope)
+    broader = [c for c in prefs.scope_choices() if _rank(c.scope) < here and prefs.allowed_at(key, c.scope)]
+    merged: dict[str, tuple[Any, str]] = {}
+    for choice in sorted(broader, key=lambda c: _rank(c.scope)):
+        layer = prefs.layer_value(key, choice.scope)
+        if not isinstance(layer, dict):
+            continue
+        for item, value in layer.items():
+            if value is None:
+                merged.pop(item, None)
+            else:
+                merged[item] = (value, choice.label)
+    return merged
 
 
 def default_scope(prefs: PreferencesManager) -> str:

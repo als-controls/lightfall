@@ -530,6 +530,12 @@ class PreferencesManager(QObject):
         value = self.get(key, None)
         return dict(value) if isinstance(value, dict) else {}
 
+    def inherited_items(self, key: str, scope: str) -> dict[str, tuple[Any, str]]:
+        """For an item-merged key: item id -> (value, origin label) from the layers broader than `scope`."""
+        from lightfall.ui.preferences import scope_api
+
+        return scope_api.inherited_items(self, key, scope)
+
     def layer_value(self, key: str, scope: str) -> Any:
         """The value stored at one layer, or None.
 

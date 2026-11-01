@@ -34,16 +34,29 @@ Predicate = Callable[["FormValues"], bool]
 
 
 @dataclass(frozen=True)
+class CatalogItem:
+    """One discovered item (plugin, tool, monitor) listed by a Catalog field."""
+
+    id: str
+    label: str
+    default_enabled: bool = True
+    protected: bool = False  # can never be set Off (shown read-only, fixed On)
+    columns: tuple[str, ...] = ()  # extra read-only text, one per Catalog column
+
+
+@dataclass(frozen=True)
 class EditorSpec:
     """Which editor widget to build for a field, and its parameters."""
 
-    kind: str  # "toggle" | "choice" | "integer" | "number" | "text" | "url" | "secret"
+    kind: str  # "toggle" | "choice" | "integer" | "number" | "text" | "url" | "secret" | "catalog"
     options: Sequence[tuple[Any, str]] | Callable[[], Sequence[tuple[Any, str]]] = ()
     minimum: float | None = None
     maximum: float | None = None
     step: float | None = None
     schemes: tuple[str, ...] = ("http", "https")  # url only
     require_host: bool = True  # url only
+    items: Callable[[], Sequence[CatalogItem]] | None = None  # catalog only
+    columns: tuple[str, ...] = ()  # catalog only: headers of the items' extra text columns
 
 
 def Toggle() -> EditorSpec:  # noqa: N802
@@ -72,6 +85,11 @@ def Url(schemes: tuple[str, ...] = ("http", "https"), require_host: bool = True)
 
 def Secret() -> EditorSpec:  # noqa: N802
     return EditorSpec("secret")
+
+
+def Catalog(items: Callable[[], Sequence[CatalogItem]], columns: Sequence[str] = ()) -> EditorSpec:  # noqa: N802
+    """An item-merged ``{id: bool}`` setting, shown as a table of ``items()`` with extra ``columns``."""
+    return EditorSpec("catalog", items=items, columns=tuple(columns))
 
 
 @dataclass(frozen=True)

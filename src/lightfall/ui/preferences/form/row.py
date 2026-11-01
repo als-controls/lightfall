@@ -1,5 +1,7 @@
 """One settings row: label and description on the left, editor on the right.
 
+A full-width editor (a table) goes below the label column and spans the row.
+
 Markers (accent bar when set at the scope, dirty dot, lock and reason,
 restart tag, conflict note) are painted from the widget palette so they
 follow the theme. The row has no buttons of its own: right-clicking it
@@ -22,6 +24,7 @@ from qtpy.QtWidgets import (
 )
 
 from lightfall.ui.preferences.form.editors import (
+    NO_CLEAR_MENU,
     TEXT_ROLES,
     FieldEditor,
     RoleColor,
@@ -197,30 +200,40 @@ class SettingRow(QWidget):
         left_box.setLayout(left)
         left_box.setMinimumWidth(LABEL_COLUMN_MIN)
         left_box.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        outer.addWidget(left_box, LABEL_STRETCH)
 
-        editor_box = QWidget(self)
-        editor_box.setMinimumWidth(EDITOR_COLUMN_MIN)
-        editor_box.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        editor_line = QHBoxLayout(editor_box)
-        editor_line.setContentsMargins(0, 0, 0, 0)
-        editor.setParent(editor_box)
-        editor.setMinimumWidth(EDITOR_COLUMN_MIN)
-        if editor.fills_row:
-            editor_line.addWidget(editor)
+        if editor.full_width:
+            column = QVBoxLayout()
+            column.setSpacing(TEXT_SPACING)
+            column.addWidget(left_box)
+            editor.setParent(self)
+            column.addWidget(editor)
+            outer.addLayout(column, 1)
         else:
-            editor_line.addWidget(editor, 0, Qt.AlignmentFlag.AlignLeft)
-            editor_line.addStretch(1)
-        outer.addWidget(editor_box, EDITOR_STRETCH, Qt.AlignmentFlag.AlignTop)
+            outer.addWidget(left_box, LABEL_STRETCH)
+            editor_box = QWidget(self)
+            editor_box.setMinimumWidth(EDITOR_COLUMN_MIN)
+            editor_box.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            editor_line = QHBoxLayout(editor_box)
+            editor_line.setContentsMargins(0, 0, 0, 0)
+            editor.setParent(editor_box)
+            editor.setMinimumWidth(EDITOR_COLUMN_MIN)
+            if editor.fills_row:
+                editor_line.addWidget(editor)
+            else:
+                editor_line.addWidget(editor, 0, Qt.AlignmentFlag.AlignLeft)
+                editor_line.addStretch(1)
+            outer.addWidget(editor_box, EDITOR_STRETCH, Qt.AlignmentFlag.AlignTop)
 
         self.clear_action = QAction(CLEAR_TEXT, self)
         self.clear_action.setToolTip("Remove this setting at the selected scope")
         self.clear_action.triggered.connect(self.clear_requested)
         # Combos swallow context-menu events and line edits have their own
         # menu, so both are filtered: combos show the row menu, line edits
-        # get Clear added to their standard one.
+        # get Clear added to their standard one (except line edits that opt
+        # out, like a table's filter box, which is not the setting's value).
         for child in (*editor.findChildren(QComboBox), *editor.findChildren(QLineEdit)):
-            child.installEventFilter(self)
+            if not child.property(NO_CLEAR_MENU):
+                child.installEventFilter(self)
 
     # Right-click offers "Clear (not set)".
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
