@@ -45,6 +45,7 @@ def test_flatten_preferences_expands_dotted_groups_only():
         "theme": "dark",
         "visualization": {"colormap": "viridis", "show_grid": True},
         "ui": {"remember_geometry": True},
+        "plugins": {"enabled": {"panel:a": False}},
         "monitor_feed_intervals": {"a": 5},
         "beamlines": {"7.0.1": {"default_data_dir": "/data"}},
     }
@@ -53,6 +54,7 @@ def test_flatten_preferences_expands_dotted_groups_only():
         "visualization.colormap": "viridis",
         "visualization.show_grid": True,
         "ui.remember_geometry": True,
+        "plugins.enabled": {"panel:a": False},
         "monitor_feed_intervals": {"a": 5},
     }
 

@@ -189,7 +189,7 @@ def beamline_capable(spec: SettingSpec) -> bool:
 
 # Preference groups stored nested in YAML but addressed as dotted keys
 # ("visualization.colormap" lives at preferences.visualization.colormap).
-_DOTTED_GROUPS = frozenset({"visualization", "ui"})
+_DOTTED_GROUPS = frozenset({"visualization", "ui", "plugins"})
 
 
 def flatten_preferences(prefs: Mapping[str, Any]) -> dict[str, Any]:

@@ -27,11 +27,9 @@ def configure_auth(config: ConfigManager, *, register: bool = True,
     leaves a signed-in session's provider alone; the next sign-in uses the new config.
     """
     from lightfall.auth.provider_registry import AuthProviderRegistry
-    from lightfall.auth.providers.builtin_plugins import (
-        register_builtin_auth_plugins,
-        seed_default_disabled_plugins,
-    )
+    from lightfall.auth.providers.builtin_plugins import register_builtin_auth_plugins
     from lightfall.auth.session import SessionManager
+    from lightfall.plugins.enablement import start_plugin_migration
 
     session_manager = SessionManager.get_instance()
     if keep_session and session_manager.is_authenticated:
@@ -49,9 +47,9 @@ def configure_auth(config: ConfigManager, *, register: bool = True,
 
     registry = AuthProviderRegistry.get_instance()
     if register:
-        # Apply ship-disabled-by-default plugin state once, before registration so
-        # the disabled ones (e.g. local) are honored here and by the plugin loader.
-        seed_default_disabled_plugins()
+        # Carry the old disabled_plugins list into plugins.enabled before anything reads
+        # it (here and the plugin loader); again for the user's scope once scopes resolve.
+        start_plugin_migration()
         register_builtin_auth_plugins(
             registry, config=config, include_pam=(sys.platform != "win32")
         )
