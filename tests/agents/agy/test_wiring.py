@@ -52,8 +52,8 @@ def sdk(monkeypatch):
     mock = MagicMock(side_effect=lambda **kw: MagicMock(name="sdk_client"))
     monkeypatch.setattr("lightfall.claude.agent.ClaudeSDKClient", mock)
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._read_list_pref",
-        lambda self, key: None,
+        "lightfall.scopes.enablement.enabled_overrides",
+        lambda key: {},
     )
     monkeypatch.setattr(
         "lightfall.ui.panels.claude.tool_registry.ToolRegistry._migrate_legacy_pref_if_needed",

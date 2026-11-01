@@ -30,6 +30,7 @@ def configure_auth(config: ConfigManager, *, register: bool = True,
     from lightfall.auth.providers.builtin_plugins import register_builtin_auth_plugins
     from lightfall.auth.session import SessionManager
     from lightfall.plugins.enablement import start_plugin_migration
+    from lightfall.ui.panels.claude.tool_registry import start_tool_migration
 
     session_manager = SessionManager.get_instance()
     if keep_session and session_manager.is_authenticated:
@@ -50,6 +51,7 @@ def configure_auth(config: ConfigManager, *, register: bool = True,
         # Carry the old disabled_plugins list into plugins.enabled before anything reads
         # it (here and the plugin loader); again for the user's scope once scopes resolve.
         start_plugin_migration()
+        start_tool_migration()
         register_builtin_auth_plugins(
             registry, config=config, include_pam=(sys.platform != "win32")
         )

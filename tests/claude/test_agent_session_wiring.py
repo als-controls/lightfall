@@ -54,8 +54,8 @@ def test_qtclaudeagent_uses_per_plugin_servers_and_plugins_param(mock_sdk, qtbot
     ToolRegistry.get_instance().register(_ToolAgent())
     # Both agents default to enabled_by_default=True; stub pref reads to no overrides.
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._read_list_pref",
-        lambda self, key: None,
+        "lightfall.scopes.enablement.enabled_overrides",
+        lambda key: {},
     )
     monkeypatch.setattr(
         "lightfall.ui.panels.claude.tool_registry.ToolRegistry._migrate_legacy_pref_if_needed",
@@ -120,8 +120,8 @@ def test_always_allowed_skill_is_materialized_into_new_session(mock_sdk, qtbot, 
     monkeypatch.setattr(skill_approvals, "approvals_path", lambda: tmp_path / "approvals.json")
     skill_approvals.approve_skill("lightfall", "approved-one")
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._read_list_pref",
-        lambda self, key: None,
+        "lightfall.scopes.enablement.enabled_overrides",
+        lambda key: {},
     )
     monkeypatch.setattr(
         "lightfall.ui.panels.claude.tool_registry.ToolRegistry._migrate_legacy_pref_if_needed",

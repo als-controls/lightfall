@@ -30,8 +30,8 @@ def mock_sdk(monkeypatch):
     """Replace ClaudeSDKClient so __init__ doesn't spawn/connect the CLI."""
     monkeypatch.setattr("lightfall.claude.agent.ClaudeSDKClient", MagicMock())
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._read_list_pref",
-        lambda self, key: None,
+        "lightfall.scopes.enablement.enabled_overrides",
+        lambda key: {},
     )
     monkeypatch.setattr(
         "lightfall.ui.panels.claude.tool_registry.ToolRegistry._migrate_legacy_pref_if_needed",
