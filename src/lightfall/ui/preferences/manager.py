@@ -225,6 +225,7 @@ class PreferencesManager(QObject):
     """
 
     scopes_changed = Signal(object)  # ScopeInfo
+    awaiting_approval_changed = Signal(str)  # key whose writes awaiting approval changed
 
     _instance: PreferencesManager | None = None
     _lock = threading.RLock()
@@ -496,6 +497,14 @@ class PreferencesManager(QObject):
 
         return scope_api.needs_approval(self, key, scope)
 
+    def awaiting_approval(self, key: str, scope: str) -> Any:
+        """The write of `key` at `scope` queued until a facility admin approves the key
+        (None = a queued remove), or MISSING when nothing waits."""
+        from lightfall.scopes.store import MISSING
+
+        scoped = self._active_scoped()
+        return scoped.awaiting_approval(key, scope) if scoped is not None else MISSING
+
     def lock_at(self, key: str, scope: str) -> Any:
         from lightfall.ui.preferences import scope_api
 
@@ -560,6 +569,7 @@ class PreferencesManager(QObject):
                                           user_preferences=self._user_preferences)
         backend.changed.connect(self._on_backend_changed)
         backend.chain_changed.connect(self._on_scoped_chain)
+        backend.awaiting_changed.connect(self.awaiting_approval_changed)
         backend.set_fallback(self._pre_scope_get)
         self._scoped = backend
         backend.activate()
@@ -577,6 +587,7 @@ class PreferencesManager(QObject):
         # The manager reports the net change itself: one emission per key that moved.
         backend.changed.disconnect(self._on_backend_changed)
         backend.chain_changed.disconnect(self._on_scoped_chain)
+        backend.awaiting_changed.disconnect(self.awaiting_approval_changed)
         self._scoped = None
         backend.deactivate()
         backend.deleteLater()

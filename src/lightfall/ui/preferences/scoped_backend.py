@@ -17,6 +17,7 @@ from typing import Any
 from lightfall_settings import Resolution, ScopeId, SpecRegistry, role_at_least, spec_to_dict
 from PySide6.QtCore import QTimer, Signal
 
+from lightfall.scopes.approval_queue import ApprovalQueue, approval_queue_path
 from lightfall.scopes.cache import SnapshotCache
 from lightfall.scopes.client import is_transient
 from lightfall.scopes.journal import WriteJournal
@@ -66,6 +67,7 @@ def _is_json(value: Any) -> bool:
 
 
 SETTINGS_SUBJECT = "lightfall.settings.changed"  # lightfall_logbook.scoped_api.SETTINGS_SUBJECT
+KEYS_SUBJECT = "lightfall.settings.keys"  # lightfall_logbook.scoped_api.KEYS_SUBJECT
 
 
 def _default_ipc() -> Any:
@@ -104,18 +106,23 @@ def _toast(title: str, text: str) -> None:
 
 class ScopedBackend(PreferenceBackend):
     chain_changed = Signal(object)  # ChainInfo, when the resolved chain changes
+    awaiting_changed = Signal(str)  # key, when its writes awaiting key approval change
 
     def __init__(self, local: Any, *, client: Any, cache: SnapshotCache, journal: WriteJournal,
                  bind: str, identity: str, registry: SpecRegistry | None = None,
                  user_preferences: Callable[[], Mapping[str, Any]] = dict,
                  run: Runner | None = None, notify: Callable[[str, str], None] | None = None,
                  poll_ms: int = 60_000, ipc: Callable[[], Any] | None = None,
-                 debounce_ms: int = 500) -> None:
+                 debounce_ms: int = 500, approvals: ApprovalQueue | None = None) -> None:
         super().__init__()
         self._local = local
         self._client = client
         self._cache = cache
         self._journal = journal
+        # Scoped writes refused with key_pending, sent again once the key is approved.
+        self._approvals = approvals if approvals is not None else ApprovalQueue(
+            approval_queue_path(journal.path.parent, identity))
+        self._resending: set[tuple[str, str]] = set()
         self._bind = bind
         self._identity = identity
         self._registry = registry or client_registry()
@@ -172,6 +179,7 @@ class ScopedBackend(PreferenceBackend):
             return
         try:
             ipc.subscribe(SETTINGS_SUBJECT, self._on_settings_event, main_thread=True)
+            ipc.subscribe(KEYS_SUBJECT, self._on_keys_event, main_thread=True)
             ipc.sigConnectionChanged.connect(self._on_ipc_connection)
         except Exception as e:
             logger.warning("Could not subscribe to settings events: {}", e)
@@ -182,8 +190,12 @@ class ScopedBackend(PreferenceBackend):
         ipc, self._ipc = self._ipc, None
         if ipc is None:
             return
+        for subject in (SETTINGS_SUBJECT, KEYS_SUBJECT):
+            try:
+                ipc.unsubscribe(subject)
+            except Exception:
+                pass
         try:
-            ipc.unsubscribe(SETTINGS_SUBJECT)
             ipc.sigConnectionChanged.disconnect(self._on_ipc_connection)
         except Exception:
             pass
@@ -198,6 +210,22 @@ class ScopedBackend(PreferenceBackend):
             self.refresh()
         else:
             self._debounce.start(self._debounce_ms)
+
+    def _on_keys_event(self, subject: str, data: Any, reply: str | None) -> None:
+        """A facility admin approved or rejected a proposed key."""
+        if not self._active or not isinstance(data, dict):
+            return
+        key, status = data.get("key"), data.get("status")
+        if not isinstance(key, str) or key not in self._approvals.keys():
+            return
+        if status == "approved":
+            self._resend_queued({key})
+        elif status == "rejected":
+            for scope, queued_key in self._approvals.entries():
+                if queued_key == key:
+                    self._approvals.remove(scope, key)
+            self.awaiting_changed.emit(key)
+            self._notify("Setting not saved", f"{key} was rejected by a facility admin; not saved")
 
     def _on_ipc_connection(self, connected: bool) -> None:
         if connected and self._active:
@@ -244,6 +272,7 @@ class ScopedBackend(PreferenceBackend):
         self._refreshing = False
         self._migrating = False
         self._written.clear()
+        self._resending.clear()
         self._timer.stop()
         self._debounce.stop()
         self._refresh_again = False
@@ -312,6 +341,11 @@ class ScopedBackend(PreferenceBackend):
         if self._store is None or key not in LOCAL_LAYER_KEYS:
             return {}
         return self._layered(key)[1]
+
+    def awaiting_approval(self, key: str, scope: str) -> Any:
+        """The write of ``key`` at ``scope`` waiting for key approval (None = a remove),
+        or MISSING."""
+        return self._approvals.entries().get((scope, key), MISSING)
 
     def layer_value(self, key: str, scope: str) -> Any:
         """The value stored at one layer (a chain scope or ``"local"``), or MISSING."""
@@ -479,7 +513,9 @@ class ScopedBackend(PreferenceBackend):
         self._emit_if_moved(key, before)
         self._notify("Setting not saved", f"{key}: {exc}")
 
-    def _write_scope(self, scope: str, key: str, value: Any) -> None:
+    def _write_scope(self, scope: str, key: str, value: Any, *, resend: bool = False) -> None:
+        """Write ``key`` at a shared scope (None removes it). ``resend``: a queued write
+        going out again after its key was approved."""
         store = self._store
         version = store.version(scope, key) if store is not None else None
         spec = spec_to_dict(self._registry.get(key)) if self._registry.is_declared(key) else None
@@ -491,14 +527,59 @@ class ScopedBackend(PreferenceBackend):
                 return 0
             return client.put_setting(scope, key, value, version=version, proposed_spec=spec)
 
+        def done(_version: Any) -> None:
+            self._resending.discard((scope, key))
+            # A direct write supersedes whatever was queued; a resend clears only itself.
+            if not resend or self._queued_is(scope, key, value):
+                self._dequeue(scope, key)
+            self.refresh()
+
         def failed(exc: Exception) -> None:
-            if getattr(exc, "code", None) == "key_pending":
+            self._resending.discard((scope, key))
+            pending = getattr(exc, "code", None) == "key_pending"
+            if pending and getattr(exc, "key_status", None) == "pending":
+                if not resend:  # a resend that raced the approval just stays queued
+                    self._approvals.add(scope, key, value)
+                    self.awaiting_changed.emit(key)
+                    self._notify("Setting waiting for approval",
+                                 f"Saved once a facility admin approves {key}")
+                return
+            if resend:
+                if is_transient(exc):
+                    return  # stays queued; sent again on the next refresh
+                if self._queued_is(scope, key, value):
+                    self._dequeue(scope, key)
+            if pending:
                 self._notify("Setting not saved", f"{key} at {scope}: " + _pending_reason(
                     getattr(exc, "key_status", None)))
             else:
                 self._notify("Setting not saved", f"{key} at {scope}: {exc}")
 
-        self._run(work, self._guard(lambda _v: self.refresh()), self._guard(failed))
+        self._run(work, self._guard(done), self._guard(failed))
+
+    def _queued_is(self, scope: str, key: str, value: Any) -> bool:
+        """Whether the queued write of ``key`` at ``scope`` is still ``value``."""
+        queued = self._approvals.entries()
+        return (scope, key) in queued and queued[(scope, key)] == value
+
+    def _dequeue(self, scope: str, key: str) -> None:
+        if (scope, key) in self._approvals.entries():
+            self._approvals.remove(scope, key)
+            self.awaiting_changed.emit(key)
+
+    def _resend_queued(self, keys: set[str]) -> None:
+        """Send the queued writes of ``keys`` (now approved) through the normal write path.
+
+        Only scopes in the current chain: writes for other scopes wait until this user's
+        chain includes them again.
+        """
+        store = self._store
+        if store is None:
+            return
+        for (scope, key), value in self._approvals.entries().items():
+            if key in keys and scope in store.chain and (scope, key) not in self._resending:
+                self._resending.add((scope, key))
+                self._write_scope(scope, key, value, resend=True)
 
     # ── refresh ─────────────────────────────────────────────────────────
 
@@ -566,6 +647,10 @@ class ScopedBackend(PreferenceBackend):
             self.chain_changed.emit(state.chain)
         if not state.offline and user_ok:
             self._after_online(scope, state)
+        if not state.offline:
+            waiting = self._approvals.keys() & {str(spec.get("key")) for spec in state.chain.specs}
+            if waiting:  # approved while this console missed the event
+                self._resend_queued(waiting)
         self._maybe_refresh_again()
 
     def _overlay_written(self, store: ScopedStore, scope: str,
@@ -676,4 +761,5 @@ def build_scoped_backend(local: Any, *, identity: str, bind: str,
     directory = default_cache_dir()
     return ScopedBackend(local, client=ScopesClient(), cache=SnapshotCache(directory),
                          journal=WriteJournal(journal_path(directory, identity)),
+                         approvals=ApprovalQueue(approval_queue_path(directory, identity)),
                          bind=bind, identity=identity, user_preferences=user_preferences)

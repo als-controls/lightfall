@@ -8,6 +8,7 @@ from qtpy.QtCore import Signal
 from qtpy.QtWidgets import QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from lightfall.scopes.keys import client_registry
+from lightfall.scopes.store import MISSING
 from lightfall.ui.preferences.form.editors import create_editor
 from lightfall.ui.preferences.form.items import ActionItem, InfoItem
 from lightfall.ui.preferences.form.model import FormModel
@@ -46,7 +47,8 @@ class SettingsForm(QWidget):
     """Renders a form page's ``sections()`` for the scope chosen in the dialog.
 
     ``prefs`` is duck-typed: only ``allowed_at``, ``writable_at``, ``lock_at``
-    and ``scope_choices`` are used (``needs_approval`` too when present). Values come from and go to ``model``.
+    and ``scope_choices`` are used (``needs_approval`` and ``awaiting_approval`` too
+    when present). Values come from and go to ``model``.
     """
 
     edited = Signal()
@@ -277,6 +279,8 @@ class SettingsForm(QWidget):
             dirty=self._model.is_dirty(scope, key),
             conflict=self._model.conflict(scope, key),
         )
+        awaiting = getattr(self._prefs, "awaiting_approval", None)
+        row.set_awaiting_approval(bool(awaiting) and awaiting(key, scope) is not MISSING)
 
     def _apply_predicates(self) -> None:
         """Re-evaluate visible_when / enabled_when against the pending values."""

@@ -22,6 +22,10 @@ class WriteJournal:
         self._path = Path(path)
         self._entries = self._load()
 
+    @property
+    def path(self) -> Path:
+        return self._path
+
     def _load(self) -> dict[str, dict[str, Any]]:
         try:
             raw = json.loads(self._path.read_text(encoding="utf-8"))
