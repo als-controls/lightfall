@@ -11,6 +11,7 @@ on first hot-reload.
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import sys
 import tempfile
@@ -20,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from loguru import logger
-from PySide6.QtCore import QFileSystemWatcher, QObject, Signal
+from PySide6.QtCore import QFileSystemWatcher, QObject, QTimer, Signal
 
 from lightfall.utils.git_tracker import GitTracker
 
@@ -45,6 +46,7 @@ class PluginInfo:
     registrations: list[PluginRegistration] = field(default_factory=list)
     is_temp: bool = False
     load_error: str | None = None
+    is_package: bool = False  # folder plugin loaded as a real package
 
 
 
@@ -94,6 +96,8 @@ class UserPluginService(QObject):
         self._temp_dir: Path | None = None
         self._temp_plugins: set[Path] = set()
         self._current_load: PluginInfo | None = None  # set during load_plugin_from_file
+        # folder plugin path string -> single-shot debounce timer for hot reload
+        self._reload_timers: dict[str, QTimer] = {}
 
         # Ensure plugins directory exists
         self._ensure_directory()
@@ -178,10 +182,13 @@ class UserPluginService(QObject):
             logger.debug("Plugins directory does not exist: {}", self._plugins_dir)
             return results
 
-        for py_file in self._plugins_dir.glob("*.py"):
-            if py_file.name.startswith("_"):
-                continue  # Skip private files
+        entries, errors = self._discover(self._plugins_dir)
+        for bad_path, message in errors:
+            logger.warning("Plugin conflict, not loading {}: {}", bad_path, message)
+            self.plugin_error.emit(str(bad_path), message)
+            results.append((bad_path, Exception(message)))
 
+        for py_file in entries:
             # Skip per-file commits on bulk startup load: each commit costs
             # 2 subprocess calls (git add + git diff --cached --quiet) even
             # when the file is unchanged. With 50 staff plugins that's 100
@@ -204,6 +211,42 @@ class UserPluginService(QObject):
         )
 
         return results
+
+    @staticmethod
+    def _discover(root: Path) -> tuple[list[Path], list[tuple[Path, str]]]:
+        """Find plugin entry points directly under ``root``.
+
+        Entry points are ``x.py`` files and ``x/`` folders containing an
+        ``__init__.py``; names starting with ``_`` are skipped. When both
+        ``x.py`` and ``x/`` exist, neither loads and both paths are returned
+        as errors.
+
+        Returns:
+            ``(entries, errors)`` where errors are ``(path, message)`` pairs.
+        """
+        files: dict[str, Path] = {}
+        folders: dict[str, Path] = {}
+        if root.is_dir():
+            for child in sorted(root.iterdir()):
+                if child.name.startswith("_"):
+                    continue
+                if child.is_file() and child.suffix == ".py":
+                    files[child.stem] = child
+                elif child.is_dir() and (child / "__init__.py").is_file():
+                    folders[child.name] = child
+        entries: list[Path] = []
+        errors: list[tuple[Path, str]] = []
+        for name in sorted(set(files) | set(folders)):
+            if name in files and name in folders:
+                msg = (
+                    f"Both {files[name].name} and {folders[name].name}/ exist; "
+                    "rename or remove one"
+                )
+                errors.append((files[name], msg))
+                errors.append((folders[name], msg))
+            else:
+                entries.append(files.get(name) or folders[name])
+        return entries, errors
 
     def _commit_change(self, path: Path, commit_msg: str | None) -> None:
         """Commit a change to ``path`` via the GitTracker singleton.
@@ -236,8 +279,15 @@ class UserPluginService(QObject):
         commit_msg: str | None = None,
         *,
         _skip_commit: bool = False,
+        module_name: str | None = None,
     ) -> bool:
-        """Load a single plugin from a file.
+        """Load a single plugin from a file or a package folder.
+
+        A folder (``path.is_dir()``) is loaded as a real package
+        ``lightfall_user_plugins.<name>`` so relative imports and ``__file__``
+        work. ``module_name`` (keyword-only) overrides ``<name>`` (default:
+        the folder name); used for synced folders such as ``xas_tools@4``
+        loaded as ``xas_tools``. Ignored for single files.
 
         Args:
             path: Path to the Python file.
@@ -260,6 +310,11 @@ class UserPluginService(QObject):
         # If already loaded, this is a reload
         if path_str in self._loaded_plugins:
             return self.reload_plugin(path, commit_msg=commit_msg)
+
+        if path.is_dir():
+            return self._load_folder_plugin(
+                path, commit_msg, _skip_commit=_skip_commit, module_name=module_name
+            )
 
         try:
             # Read the code
@@ -370,6 +425,141 @@ class UserPluginService(QObject):
                 self._commit_change(path, commit_msg)
             return False
 
+    def _load_folder_plugin(
+        self,
+        folder: Path,
+        commit_msg: str | None,
+        *,
+        _skip_commit: bool,
+        module_name: str | None,
+    ) -> bool:
+        """Load ``folder`` as the real package ``lightfall_user_plugins.<name>``."""
+        path_str = str(folder)
+        full_name = f"lightfall_user_plugins.{module_name or folder.name}"
+        info = PluginInfo(file_path=folder, module_name=full_name, is_package=True)
+
+        def fail(error_msg: str) -> bool:
+            logger.warning("Error loading folder plugin {}: {}", folder.name, error_msg)
+            info.load_error = error_msg
+            self._purge_modules(full_name)
+            self._loaded_plugins[path_str] = info
+            self.plugin_error.emit(path_str, error_msg)
+            if not _skip_commit:
+                self._commit_change(folder, commit_msg)
+            return False
+
+        try:
+            init_file = folder / "__init__.py"
+            spec = importlib.util.spec_from_file_location(
+                full_name, init_file, submodule_search_locations=[str(folder)]
+            )
+            if spec is None or spec.loader is None:
+                return fail(f"Cannot import {init_file}")
+            module = importlib.util.module_from_spec(spec)
+            # Register before exec so relative imports and
+            # inspect.getfile() (auto-enqueue) resolve.
+            self._purge_modules(full_name)
+            if "lightfall_user_plugins" not in sys.modules:
+                # Namespace parent so the import system can resolve children.
+                parent = type(sys)("lightfall_user_plugins")
+                parent.__path__ = []
+                sys.modules["lightfall_user_plugins"] = parent
+            sys.modules[full_name] = module
+            self._current_load = info
+            try:
+                try:
+                    spec.loader.exec_module(module)
+                except Exception as e:
+                    return fail(f"Execution error: {type(e).__name__}: {e}")
+                for mod_name, mod in list(sys.modules.items()):
+                    if mod_name == full_name or mod_name.startswith(full_name + "."):
+                        ns = getattr(mod, "__dict__", None)
+                        if ns:
+                            self._track_self_registered_panels(ns, info)
+            finally:
+                self._current_load = None
+        except Exception as e:
+            logger.error("Failed to load folder plugin {}: {}", folder, e)
+            return fail(str(e))
+
+        self._loaded_plugins[path_str] = info
+        self._watch_folder(folder)
+        self.plugin_loaded.emit(path_str)
+        logger.debug(
+            "Loaded folder plugin: {} ({} registrations)",
+            folder.name, len(info.registrations),
+        )
+        if not _skip_commit:
+            self._commit_change(folder, commit_msg)
+        return True
+
+    @staticmethod
+    def _purge_modules(full_name: str) -> None:
+        """Remove ``full_name`` and all of its submodules from sys.modules."""
+        for key in list(sys.modules):
+            if key == full_name or key.startswith(full_name + "."):
+                del sys.modules[key]
+
+    @staticmethod
+    def _folder_watch_paths(folder: Path) -> list[str]:
+        """The folder, every subfolder and every file below it."""
+        paths = [str(folder)]
+        for p in folder.rglob("*"):
+            if "__pycache__" in p.parts:
+                continue
+            paths.append(str(p))
+        return paths
+
+    def _watch_folder(self, folder: Path) -> None:
+        """Watch a folder plugin's folder, subfolders and files."""
+        current = set(self._watcher.files()) | set(self._watcher.directories())
+        new = [p for p in self._folder_watch_paths(folder) if p not in current]
+        if new:
+            self._watcher.addPaths(new)
+
+    def _unwatch_folder(self, folder: Path) -> None:
+        """Stop watching everything at or below ``folder``."""
+        stale = [
+            p
+            for p in (*self._watcher.files(), *self._watcher.directories())
+            if Path(p) == folder or Path(p).is_relative_to(folder)
+        ]
+        if stale:
+            self._watcher.removePaths(stale)
+
+    def _folder_plugin_containing(self, path: Path) -> Path | None:
+        """Return the loaded folder plugin that contains ``path`` (or is it)."""
+        for info in self._loaded_plugins.values():
+            if info.is_package and (
+                path == info.file_path or path.is_relative_to(info.file_path)
+            ):
+                return info.file_path
+        return None
+
+    def _schedule_folder_reload(self, folder: Path) -> None:
+        """Debounce (300 ms) a reload of ``folder``; bursts of changes reload once."""
+        key = str(folder)
+        timer = self._reload_timers.get(key)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.setInterval(300)
+            timer.timeout.connect(lambda f=folder: self._reload_folder_plugin(f))
+            self._reload_timers[key] = timer
+        timer.start()
+
+    def _reload_folder_plugin(self, folder: Path) -> None:
+        """Reload (or unload, if deleted) a folder plugin after a change."""
+        if not self._hot_reload_enabled:
+            return
+        if not folder.exists():
+            if str(folder) in self._loaded_plugins:
+                self.unload_plugin(folder)
+                self._commit_removal(folder, f"external delete: {folder.name}")
+        else:
+            self.reload_plugin(folder, commit_msg=f"external edit: {folder.name}")
+        self.plugins_refreshed.emit()
+
     def unload_plugin(self, path: Path) -> bool:
         """Unload a plugin by path.
 
@@ -390,7 +580,10 @@ class UserPluginService(QObject):
             self._unregister(reg)
 
         # Remove from sys.modules
-        if info.module_name in sys.modules:
+        if info.is_package:
+            self._purge_modules(info.module_name)
+            self._unwatch_folder(path)
+        elif info.module_name in sys.modules:
             del sys.modules[info.module_name]
 
         # Remove from watcher
@@ -421,7 +614,8 @@ class UserPluginService(QObject):
         path_str = str(path)
 
         # Unload first
-        was_loaded = path_str in self._loaded_plugins
+        old_info = self._loaded_plugins.get(path_str)
+        was_loaded = old_info is not None
         if was_loaded:
             self.unload_plugin(path)
 
@@ -429,7 +623,11 @@ class UserPluginService(QObject):
         success = False
         if path.exists():
             # Need to re-add to watcher since we removed it
-            success = self.load_plugin_from_file(path, commit_msg=commit_msg)
+            kwargs: dict[str, Any] = {}
+            if old_info is not None and old_info.is_package:
+                # keep the module name a caller (e.g. synced folder) chose
+                kwargs["module_name"] = old_info.module_name.split(".", 1)[1]
+            success = self.load_plugin_from_file(path, commit_msg=commit_msg, **kwargs)
 
         # Show hot-reload warning on first reload
         if was_loaded and not self._has_shown_hot_reload_warning:
@@ -660,6 +858,11 @@ class UserPluginService(QObject):
         if not self._hot_reload_enabled:
             return
 
+        folder = self._folder_plugin_containing(file_path)
+        if folder is not None:
+            self._schedule_folder_reload(folder)
+            return
+
         if not file_path.exists():
             # File was deleted
             if str(file_path) in self._loaded_plugins:
@@ -689,10 +892,13 @@ class UserPluginService(QObject):
         if not self._hot_reload_enabled:
             return
 
-        # Rescan for new/deleted files
-        current_files = {
-            p for p in self._plugins_dir.glob("*.py") if not p.name.startswith("_")
-        }
+        folder = self._folder_plugin_containing(Path(path))
+        if folder is not None:
+            self._schedule_folder_reload(folder)
+            return
+
+        # Rescan for new/deleted files and folders
+        current_files = set(self._discover(self._plugins_dir)[0])
         loaded_paths = {
             info.file_path
             for info in self._loaded_plugins.values()
