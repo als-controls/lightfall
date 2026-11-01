@@ -226,6 +226,7 @@ class PreferencesManager(QObject):
 
     scopes_changed = Signal(object)  # ScopeInfo
     awaiting_approval_changed = Signal(str)  # key whose writes awaiting approval changed
+    scopes_online = Signal()  # server scopes fetched online (user scope included)
 
     _instance: PreferencesManager | None = None
     _lock = threading.RLock()
@@ -583,6 +584,7 @@ class PreferencesManager(QObject):
         backend.changed.connect(self._on_backend_changed)
         backend.chain_changed.connect(self._on_scoped_chain)
         backend.awaiting_changed.connect(self.awaiting_approval_changed)
+        backend.online.connect(self.scopes_online)
         backend.set_fallback(self._pre_scope_get)
         self._scoped = backend
         backend.activate()
@@ -601,6 +603,7 @@ class PreferencesManager(QObject):
         backend.changed.disconnect(self._on_backend_changed)
         backend.chain_changed.disconnect(self._on_scoped_chain)
         backend.awaiting_changed.disconnect(self.awaiting_approval_changed)
+        backend.online.disconnect(self.scopes_online)
         self._scoped = None
         backend.deactivate()
         backend.deleteLater()

@@ -54,14 +54,23 @@ def test_scalar_key_has_no_item_origins(make):
     assert backend.item_origins("tiled_url") == {}
 
 
-def test_union_item_origins_do_not_include_console_layer(make):
+def test_plugins_enabled_has_a_console_layer(make):
     server = Server()
-    server.rows[("user:u1", KEY)] = ({"b": True}, 1)
+    server.rows[("beamline:7.0.1", KEY)] = ({"c": False, "d": False}, 1)
+    server.rows[("user:u1", KEY)] = ({"b": True, "d": True}, 1)
     backend, *_ = make(server=server, local=FakeLocal(**{KEY: {"c": True}}))
     backend.activate()
-    # The console layer is only for LOCAL_LAYER_KEYS (device rows).
-    assert backend.get(KEY) == {"b": True}
-    assert backend.item_origins(KEY) == {"b": "user:u1"}
+    # plugins.enabled is a LOCAL_LAYER_KEY: this console's items sit between branch and user.
+    assert backend.get(KEY) == {"b": True, "c": True, "d": True}
+    assert backend.item_origins(KEY) == {"b": "user:u1", "c": "local", "d": "user:u1"}
+
+
+def test_union_key_without_console_layer_ignores_the_yaml(make):
+    server = Server()
+    server.rows[("user:u1", "monitors.enabled")] = ({"b": True}, 1)
+    backend, *_ = make(server=server, local=FakeLocal(**{"monitors.enabled": {"c": True}}))
+    backend.activate()
+    assert backend.get("monitors.enabled") == {"b": True}
 
 
 @pytest.fixture

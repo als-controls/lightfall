@@ -695,6 +695,11 @@ class LFMainWindow(QMainWindow):
 
         # Raise the window when login completes (user returns from browser)
         if new_state == AuthState.AUTHENTICATED:
+            # Resolve scoped preferences now, not at user_changed: this slot is connected
+            # before main arms the post-login plugin wave on the same signal, so the wave
+            # reads plugins.enabled through the user's scopes (from last session's cache
+            # until the fetch lands). Same user again at user_changed: a refresh only.
+            self._update_scoped_preferences(self._session_manager.current_user)
             self._force_window_to_front()
 
     @Slot(object)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from lightfall.auth.provider_registry import AuthProviderRegistry
 from lightfall.auth.providers.builtin_plugins import (
     KeycloakAuthPlugin,
@@ -25,7 +27,17 @@ def test_keycloak_and_pam_need_no_form():
     assert PamAuthPlugin().requires_password is False
 
 
-def test_register_builtins_respects_pam_flag():
+@pytest.fixture
+def pm(qapp):
+    """A fresh PreferencesManager with no settings: code defaults apply."""
+    from lightfall.ui.preferences.manager import PreferencesManager
+
+    PreferencesManager.reset()
+    yield PreferencesManager.get_instance()
+    PreferencesManager.reset()
+
+
+def test_register_builtins_respects_pam_flag(pm):
     AuthProviderRegistry.reset()
     reg = AuthProviderRegistry.get_instance()
     register_builtin_auth_plugins(reg, config=None, include_pam=False)

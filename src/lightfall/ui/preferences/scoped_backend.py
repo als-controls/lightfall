@@ -29,7 +29,7 @@ from lightfall.scopes.keys import (
     is_local_only,
 )
 from lightfall.scopes.ops import migrate_user_prefs, push_write, replay_journal
-from lightfall.scopes.state import FetchedState, fetch_state
+from lightfall.scopes.state import FetchedState, cached_state, fetch_state
 from lightfall.scopes.store import MISSING, ScopedStore
 from lightfall.ui.preferences.backend import PreferenceBackend
 from lightfall.utils.logging import logger
@@ -111,6 +111,7 @@ def _toast(title: str, text: str) -> None:
 class ScopedBackend(PreferenceBackend):
     chain_changed = Signal(object)  # ChainInfo, when the resolved chain changes
     awaiting_changed = Signal(str)  # key, when its writes awaiting key approval change
+    online = Signal()  # a fetch reached the server, user scope included
 
     def __init__(self, local: Any, *, client: Any, cache: SnapshotCache, journal: WriteJournal,
                  bind: str, identity: str, registry: SpecRegistry | None = None,
@@ -259,11 +260,27 @@ class ScopedBackend(PreferenceBackend):
     def serves(self, identity: str, bind: str) -> bool:
         return self._active and identity == self._identity and bind == self._bind
 
+    @property
+    def bind(self) -> str:
+        """The scope this console binds to ("facility" on an unbound workstation)."""
+        return self._bind
+
+    def yaml_is_foreign(self) -> bool:
+        """True if the console YAML holds another user's cached values (old clients)."""
+        return self._yaml_foreign()
+
     def activate(self) -> None:
         self._active = True
         if self._poll_ms:
             self._timer.start(self._poll_ms)
         self._subscribe_events()
+        if self._store is None:
+            # Resolve from last session's cache right away, so readers that run before
+            # the fetch lands (the post-login plugin wave) see scoped values; the fetch
+            # then replaces it as usual.
+            cached = cached_state(self._cache, self._bind, self._identity)
+            if cached is not None:
+                self._on_state(cached)
         self.refresh()
 
     def deactivate(self) -> None:
@@ -662,6 +679,7 @@ class ScopedBackend(PreferenceBackend):
             self.chain_changed.emit(state.chain)
         if not state.offline and user_ok:
             self._after_online(scope, state)
+            self.online.emit()
         if not state.offline:
             waiting = self._approvals.keys() & {str(spec.get("key")) for spec in state.chain.specs}
             if waiting:  # approved while this console missed the event

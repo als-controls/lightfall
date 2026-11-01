@@ -169,9 +169,10 @@ def _reset_client_registry() -> None:
 
 # Keys with a writable console layer: the console's own YAML sits between branch and user
 # scope (settings-layering design, Part 2). Everything else uses the YAML only as the
-# fallback below every scope.
+# fallback below every scope. plugins.enabled: a console can switch plugins on or off for
+# everyone who uses it, item by item.
 LOCAL_LAYER_KEYS: frozenset[str] = frozenset({
-    "device_backends", "device_backends_exclusive_restore",
+    "device_backends", "device_backends_exclusive_restore", "plugins.enabled",
 })
 
 
