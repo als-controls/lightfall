@@ -41,7 +41,11 @@ HERE_HEADER = "Here"
 INHERITED_HEADER = "Inherited"
 DEFAULT_ORIGIN = "default"
 PROTECTED_TEXT = "On (always)"
-VALUE_COLUMN_WIDTH = 150  # a mapping row with a text or number editor
+VALUE_COLUMN_WIDTH = 150  # a mapping row with a line-edit value editor
+LINE_EDIT_KINDS = frozenset({"integer", "number", "text", "url", "secret"})
+# Beyond the text's advance, a fitted cell needs the theme's item padding (4 px a side) and
+# the view's own text margins; the header's size hint does not count the stylesheet padding.
+CELL_TEXT_ALLOWANCE = 20
 ON_OFF_OPTIONS: tuple[tuple[bool, str], ...] = ((True, "On"), (False, "Off"))
 
 
@@ -108,6 +112,26 @@ class TableEditor(FieldEditor):
             cell.setForeground(QBrush(muted_color(self.table)))
         return cell
 
+    def _item_cells(self, row: int, item: CatalogItem, n_columns: int) -> None:
+        """Name and extra text columns of ``item``; muted, with the reason, when it is inactive."""
+        muted = bool(item.inactive_reason)
+        tip = f"{item.label} ({item.id})"
+        if muted:
+            tip += "\n" + item.inactive_reason
+        self._text_cell(row, 0, item.label, muted=muted).setToolTip(tip)
+        for offset in range(n_columns):
+            text = item.columns[offset] if offset < len(item.columns) else ""
+            self._text_cell(row, 1 + offset, text, muted=muted)
+
+    def _fit_text_column(self, column: int) -> None:
+        """Size ``column`` to its widest text so the theme's padding never clips it."""
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(column, QHeaderView.ResizeMode.Fixed)
+        metrics = self.table.fontMetrics()
+        texts = [self.table.item(r, column).text() for r in range(self.table.rowCount()) if self.table.item(r, column)]
+        widest = max((metrics.horizontalAdvance(t) for t in texts), default=0) + CELL_TEXT_ALLOWANCE
+        self.table.setColumnWidth(column, max(widest, header.sectionSizeHint(column)))
+
     def _finish_rows(self) -> None:
         """Call after filling the table: size rows to their widgets and fit the height."""
         self.table.resizeRowsToContents()
@@ -161,10 +185,7 @@ class CatalogEditor(TableEditor):
         self._inherited_column = self._here_column + 1
         self.table.setRowCount(len(self._items))
         for row, item in enumerate(self._items):
-            self._text_cell(row, 0, item.label).setToolTip(f"{item.label} ({item.id})")
-            for offset in range(len(self._columns)):
-                text = item.columns[offset] if offset < len(item.columns) else ""
-                self._text_cell(row, 1 + offset, text)
+            self._item_cells(row, item, len(self._columns))
             choice = ChoiceEditor(EditorSpec("choice", options=ON_OFF_OPTIONS))
             if item.protected:
                 choice.set_value(True)
@@ -192,6 +213,7 @@ class CatalogEditor(TableEditor):
                 value, origin = self._inherited.get(item.id, (item.default_enabled, DEFAULT_ORIGIN))
                 text = f"{on_off_text(value)} ({origin})"
             self._text_cell(row, self._inherited_column, text, muted=True)
+        self._fit_text_column(self._inherited_column)
 
     # Catalog API --------------------------------------------------------
     def item_combo(self, item_id: str) -> QComboBox:
@@ -248,9 +270,8 @@ class MappingEditor(TableEditor):
         self._value_spec = spec.value
         self._unit = unit
         self._columns = tuple(spec.columns)
-        super().__init__(
-            ("Name", *self._columns, HERE_HEADER, INHERITED_HEADER), "Filter by name", len(self._columns), parent
-        )
+        here = f"{HERE_HEADER} ({unit})" if unit else HERE_HEADER
+        super().__init__(("Name", *self._columns, here, INHERITED_HEADER), "Filter by name", len(self._columns), parent)
         self._items: list[CatalogItem] = list(spec.items() if spec.items is not None else ())
         self._editors: dict[str, FieldEditor] = {}
         self._stored: dict[str, Any] = {}
@@ -259,17 +280,14 @@ class MappingEditor(TableEditor):
         self._here_column = 1 + len(self._columns)
         self._inherited_column = self._here_column + 1
         self.table.setRowCount(len(self._items))
-        field = SettingField("", spec.value, unit=unit)
+        field = SettingField("", spec.value)  # the unit is in the column header, not after each editor
         for row, item in enumerate(self._items):
-            self._text_cell(row, 0, item.label).setToolTip(f"{item.label} ({item.id})")
-            for offset in range(len(self._columns)):
-                text = item.columns[offset] if offset < len(item.columns) else ""
-                self._text_cell(row, 1 + offset, text)
+            self._item_cells(row, item, len(self._columns))
             editor = create_editor(spec.value, field)
             editor.changed.connect(self._on_item_changed)
             self.table.setCellWidget(row, self._here_column, editor)
             self._editors[item.id] = editor
-        if spec.value.kind in ("integer", "number", "text"):
+        if spec.value.kind in LINE_EDIT_KINDS:
             # A line edit would otherwise size its column to its (wide) hint.
             self.table.horizontalHeader().setSectionResizeMode(self._here_column, QHeaderView.ResizeMode.Fixed)
             self.table.setColumnWidth(self._here_column, VALUE_COLUMN_WIDTH)
@@ -301,6 +319,7 @@ class MappingEditor(TableEditor):
         for row, item in enumerate(self._items):
             value, origin = self._inherited.get(item.id, (item.default, DEFAULT_ORIGIN))
             self._text_cell(row, self._inherited_column, f"{self._format(value)} ({origin})", muted=True)
+        self._fit_text_column(self._inherited_column)
 
     # Mapping API --------------------------------------------------------
     def item_editor(self, item_id: str) -> FieldEditor:

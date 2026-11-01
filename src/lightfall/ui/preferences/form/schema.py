@@ -43,6 +43,9 @@ class CatalogItem:
     protected: bool = False  # can never be set Off (shown read-only, fixed On)
     columns: tuple[str, ...] = ()  # extra read-only text, one per Catalog column
     default: Any = None  # Mapping only: the code default value, shown as "<value> (default)"; None = none
+    # Why the item has no effect right now (e.g. its monitor plugin is off): its text is drawn
+    # muted and this is added to its tooltip; the row stays editable. "" = active.
+    inactive_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -99,8 +102,8 @@ def Mapping(  # noqa: N802
 ) -> EditorSpec:
     """An item-merged ``{id: value}`` setting: a table of ``items()`` with a ``value`` editor per row.
 
-    The field's ``unit`` is shown after each value. Code defaults come from
-    ``CatalogItem.default``.
+    The field's ``unit`` is shown in the "Here" column header and after inherited values.
+    Code defaults come from ``CatalogItem.default``.
     """
     return EditorSpec("mapping", items=items, columns=tuple(columns), value=value)
 

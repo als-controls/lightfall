@@ -47,6 +47,8 @@ def test_flatten_preferences_expands_dotted_groups_only():
         "ui": {"remember_geometry": True},
         "plugins": {"enabled": {"panel:a": False}},
         "tools": {"enabled": {"alpha": False}},
+        "monitors": {"enabled": {"m": False}},
+        "monitor_feeds": {"interval": {"a": 7}},
         "monitor_feed_intervals": {"a": 5},
         "beamlines": {"7.0.1": {"default_data_dir": "/data"}},
     }
@@ -57,6 +59,8 @@ def test_flatten_preferences_expands_dotted_groups_only():
         "ui.remember_geometry": True,
         "plugins.enabled": {"panel:a": False},
         "tools.enabled": {"alpha": False},
+        "monitors.enabled": {"m": False},
+        "monitor_feeds.interval": {"a": 7},
         "monitor_feed_intervals": {"a": 5},
     }
 
@@ -90,7 +94,9 @@ def test_client_registry_uses_deployment_specs():
 
 def test_local_layer_keys_are_the_device_rows_and_plugins():
     assert LOCAL_LAYER_KEYS == {"device_backends", "device_backends_exclusive_restore",
-                                "plugins.enabled", "tools.enabled"}
+                                "plugins.enabled", "tools.enabled", "monitors.enabled",
+                                "monitor_feeds.enabled", "monitor_feeds.interval",
+                                "monitor_feeds.severity"}
 
 
 def test_beamline_capable():

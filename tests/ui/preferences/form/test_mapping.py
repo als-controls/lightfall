@@ -1,7 +1,7 @@
 """Mapping editor: a catalog-style table whose "Here" cell is a value editor."""
 from __future__ import annotations
 
-from qtpy.QtWidgets import QLineEdit, QTableWidget
+from qtpy.QtWidgets import QLabel, QLineEdit, QTableWidget
 
 from lightfall.ui.preferences.form.catalog import CatalogEditor, MappingEditor
 from lightfall.ui.preferences.form.editors import create_editor
@@ -12,7 +12,10 @@ from lightfall.ui.preferences.form.schema import (
     Integer,
     Mapping,
     Number,
+    Secret,
     SettingField,
+    Text,
+    Url,
 )
 
 ITEMS = (
@@ -50,7 +53,8 @@ def test_mapping_int_values(qtbot):
     assert isinstance(editor, MappingEditor) and editor.full_width
     t = table(editor)
     headers = [t.horizontalHeaderItem(c).text() for c in range(t.columnCount())]
-    assert headers == ["Name", "Source", "Here", "Inherited"]
+    assert headers == ["Name", "Source", "Here (s)", "Inherited"]  # the unit is in the header
+    assert not [lbl for lbl in editor.item_editor("feed.a").findChildren(QLabel) if lbl.text() == "s"]
     assert editor.value() is None
     with qtbot.waitSignal(editor.changed):
         type_into(editor, "feed.a", "15")
@@ -141,3 +145,40 @@ def test_mapping_filter(qtbot):
     editor.filter_edit.setText("feed c")
     t = table(editor)
     assert [t.isRowHidden(r) for r in range(3)] == [True, True, False]
+
+
+def test_mapping_stored_out_of_range_value_round_trips_untouched(qtbot):
+    editor = make_editor(qtbot, unit="s")
+    editor.set_value({"feed.a": 0, "feed.b": 40})  # 0 is below the minimum of 1
+    assert editor.is_valid()  # not flagged on load (only an edit is validated)
+    assert editor.value() == {"feed.a": 0, "feed.b": 40}
+
+
+def test_mapping_line_edit_kinds_get_a_fixed_here_width(qtbot):
+    from lightfall.ui.preferences.form.catalog import VALUE_COLUMN_WIDTH
+
+    for spec in (Integer(1, None), Text(), Url(), Secret()):
+        editor = make_editor(qtbot, value=spec)
+        t = table(editor)
+        here = t.columnCount() - 2
+        assert t.horizontalHeader().sectionResizeMode(here) == t.horizontalHeader().ResizeMode.Fixed, spec.kind
+        assert t.columnWidth(here) == VALUE_COLUMN_WIDTH, spec.kind
+
+
+def test_mapping_inherited_text_is_not_clipped(qtbot):
+    items = (CatalogItem("a", "A long feed name here", default=30, columns=("Some monitor",)),)
+    editor = make_editor(qtbot, items=items, unit="s")
+    editor.set_inherited({"a": (86400, "Branch 7.0.1.1 (the long name)")})
+    editor.resize(760, 200)
+    editor.show()
+    qtbot.waitExposed(editor)
+    t = table(editor)
+    last = t.columnCount() - 1
+    cell = t.item(0, last)
+    # room for the text plus the theme's item padding (4 px a side) and the cell margins
+    assert t.columnWidth(last) >= t.fontMetrics().horizontalAdvance(cell.text()) + 16
+    assert t.horizontalHeader().length() <= t.viewport().width()  # nothing pushed off the right edge
+    wide = t.columnWidth(last)
+    editor.set_inherited({})  # shorter text: the column follows it
+    assert t.item(0, last).text() == "30 s (default)"
+    assert t.columnWidth(last) < wide

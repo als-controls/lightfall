@@ -96,12 +96,9 @@ class MonitorService(QObject):
                 self._advisor_timer.start()  # (re)arm debounce
 
     def _advisor_floor_for(self, feed_name: str) -> str:
-        try:
-            from lightfall.ui.preferences.manager import PreferencesManager
-            floors = PreferencesManager.get_instance().get("monitor_feed_advisor_severity", {})
-            return str((floors or {}).get(feed_name, "info"))
-        except Exception:  # noqa: BLE001
-            return "info"
+        """The feed's advisor floor from the scoped ``monitor_feeds.severity`` map."""
+        from lightfall.monitor.registry import advisor_floor
+        return advisor_floor(feed_name)
 
     def set_advisor(self, advisor) -> None:
         self._advisor = advisor

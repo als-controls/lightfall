@@ -481,15 +481,21 @@ bypass either gate.
 
 ### Per-feed preferences
 
-Three preference keys (`lightfall.ui.preferences.monitor_settings`), one dict entry per
-feed name, control what advisor batching sees *before* the forwarding gate above ever
+Three scoped, item-merged settings (`lightfall.monitor.registry`; edited on the Monitor
+settings page at user, branch, beamline or facility scope, merged item by item), one entry
+per feed name, control what advisor batching sees *before* the forwarding gate above ever
 runs:
 
-| Pref key | Shape | Purpose |
-|----------|-------|---------|
-| `disabled_monitor_feeds` | `list[str]` | Feed names excluded from monitoring entirely |
-| `monitor_feed_intervals` | `dict[str, int]` | Per-feed polling interval override (seconds) |
-| `monitor_feed_advisor_severity` | `dict[str, str]` | Per-feed floor (`info`/`warn`/`critical`); an observation below its feed's floor never enters `_advisor_batch`, so it can't even contribute to a summary. Feeds absent from the dict default to `"info"` (nothing filtered). |
+| Setting | Shape | Purpose |
+|---------|-------|---------|
+| `monitor_feeds.enabled` | `dict[str, bool]` | `False` excludes a feed from monitoring entirely; absent feeds run |
+| `monitor_feeds.interval` | `dict[str, int]` | Per-feed polling interval override (whole seconds above 0) |
+| `monitor_feeds.severity` | `dict[str, str]` | Per-feed floor (`info`/`warn`/`critical`); an observation below its feed's floor never enters `_advisor_batch`, so it can't even contribute to a summary. Feeds absent from the map default to `"info"` (nothing filtered). |
+
+`monitors.enabled` (`dict[str, bool]`) switches whole monitor plugins on or off; a plugin it
+does not mention uses its `enabled_by_default`. The older keys (`disabled_monitor_feeds`,
+`monitor_feed_intervals`, `monitor_feed_advisor_severity` and the two monitor-plugin lists)
+are migrated into these once and no longer read.
 
 These feed-level floors and the `observer` spec's `forward_min_severity` floor are two
 independent gates in series: a feed can contribute low-severity noise to the advisor's

@@ -1,520 +1,203 @@
-"""Monitor settings plugin for NCS.
+"""Monitor settings page: which monitors and feeds run, per scope, and how.
 
-MonitorSettingsPlugin lets users enable/disable MonitorPlugin instances
-discovered by MonitorRegistry, toggle the LLM advisor, and set the tick
-interval. Mirrors ClaudeToolsSettingsPlugin (tool_settings.py:241).
+Two catalogs and two mappings over the monitor plugins in MonitorRegistry and their
+feeds, each writing one scoped, item-merged setting (see ``lightfall.monitor.registry``):
+``monitors.enabled``, ``monitor_feeds.enabled``, ``monitor_feeds.interval`` (whole
+seconds above zero) and ``monitor_feeds.severity`` (the advisor's floor per feed). The
+Inherited column shows what broader scopes or the code defaults give each item. Feeds
+of a monitor plugin that is off for this user are drawn grey (still editable).
+
+The advisor switch and the tick interval stay user settings. The scheduler and the
+service read everything as it is needed, so no change asks for a restart.
+
+The ``R1`` check: SettingSpec(policy="union", type=int / str) validates each item's
+type, not the range or the choice set; the page's editors enforce those (an Integer
+editor with minimum 1, a choice of the three severities), and the readers ignore any
+stored value outside them.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from lightfall_settings import SettingSpec
 
 from lightfall.monitor.registry import (
-    DISABLED_MONITORS_PREF,
-    FORCED_ENABLED_MONITORS_PREF,
+    DEFAULT_SEVERITY,
+    FEED_INTERVALS_KEY,
+    FEED_SEVERITY_KEY,
+    FEEDS_KEY,
+    MONITORS_KEY,
     MonitorRegistry,
 )
 from lightfall.plugins.settings_plugin import SettingsPlugin
-from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.ui.preferences.form.schema import (
+    Catalog,
+    CatalogItem,
+    Choice,
+    Integer,
+    Mapping,
+    Section,
+    SettingField,
+    Toggle,
+)
 from lightfall.utils.logging import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from lightfall.monitor.monitor_plugin import MonitorPlugin
 
 ADVISOR_ENABLED_PREF = "monitor_advisor_enabled"   # bool, default False
 TICK_INTERVAL_PREF = "monitor_tick_interval"        # int seconds, default 60
+DEFAULT_TICK_INTERVAL = 60
+MAX_TICK_INTERVAL = 86400
 
-DISABLED_FEEDS_PREF = "disabled_monitor_feeds"                 # list[str]
-FEED_INTERVALS_PREF = "monitor_feed_intervals"                 # dict[str, int]
-FEED_ADVISOR_SEVERITY_PREF = "monitor_feed_advisor_severity"   # dict[str, str]
+SEVERITY_OPTIONS: tuple[tuple[str, str], ...] = (("info", "Info"), ("warn", "Warn"), ("critical", "Critical"))
+MONITOR_OFF = "Not running: its monitor plugin is off"
 
-VALID_SEVERITIES = {"info", "warn", "critical"}
-DEFAULT_SEVERITY = "info"
-
-
-class MonitorPluginTableModel(QAbstractTableModel):
-    """Table model for displaying registered MonitorPlugin instances.
-
-    Columns:
-        0: Plugin (with checkbox for enabled/disabled)
-        1: Category
-        2: Description
-    """
-
-    COLUMNS = ["Plugin", "Category", "Description"]
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._plugins = []
-        self._enabled_names: set[str] = set()
-        self._original_enabled_names: set[str] = set()
-
-    def refresh(self) -> None:
-        self.beginResetModel()
-        try:
-            registry = MonitorRegistry.get_instance()
-            self._plugins = registry.get_plugins()
-            self._plugins.sort(key=lambda p: (p.category, p.display_name))
-        except Exception as e:
-            logger.warning("Failed to get MonitorRegistry: {}", e)
-            self._plugins = []
-        self.endResetModel()
-
-    def set_overrides(
-        self,
-        disabled_names: set[str],
-        forced_enabled_names: set[str],
-    ) -> None:
-        self.beginResetModel()
-        self._enabled_names = {
-            plugin.name
-            for plugin in self._plugins
-            if (plugin.enabled_by_default and plugin.name not in disabled_names)
-            or (not plugin.enabled_by_default and plugin.name in forced_enabled_names)
-        }
-        self._original_enabled_names = set(self._enabled_names)
-        self.endResetModel()
-
-    def get_overrides(self) -> tuple[set[str], set[str]]:
-        disabled: set[str] = set()
-        forced_enabled: set[str] = set()
-        for plugin in self._plugins:
-            checked = plugin.name in self._enabled_names
-            if plugin.enabled_by_default and not checked:
-                disabled.add(plugin.name)
-            elif not plugin.enabled_by_default and checked:
-                forced_enabled.add(plugin.name)
-        return disabled, forced_enabled
-
-    def has_changes(self) -> bool:
-        return self._enabled_names != self._original_enabled_names
-
-    def rowCount(self, parent: QModelIndex | None = None) -> int:
-        if parent is None:
-            parent = QModelIndex()
-        if parent.isValid():
-            return 0
-        return len(self._plugins)
-
-    def columnCount(self, parent: QModelIndex | None = None) -> int:
-        if parent is None:
-            parent = QModelIndex()
-        if parent.isValid():
-            return 0
-        return len(self.COLUMNS)
-
-    def headerData(
-        self,
-        section: int,
-        orientation: Qt.Orientation,
-        role: int = Qt.ItemDataRole.DisplayRole,
-    ) -> Any:
-        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
-            if 0 <= section < len(self.COLUMNS):
-                return self.COLUMNS[section]
-        return None
-
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
-        if not index.isValid():
-            return None
-
-        row = index.row()
-        col = index.column()
-
-        if row < 0 or row >= len(self._plugins):
-            return None
-
-        plugin = self._plugins[row]
-
-        if col == 0:  # Plugin column (with checkbox)
-            if role == Qt.ItemDataRole.CheckStateRole:
-                is_enabled = plugin.name in self._enabled_names
-                return Qt.CheckState.Checked if is_enabled else Qt.CheckState.Unchecked
-            elif role == Qt.ItemDataRole.DisplayRole:
-                return plugin.display_name
-
-        elif role == Qt.ItemDataRole.DisplayRole:
-            if col == 1:  # Category
-                return plugin.category.title()
-            elif col == 2:  # Description
-                return plugin.description
-
-        if role == Qt.ItemDataRole.ToolTipRole:
-            parts = [
-                f"Name: {plugin.name}",
-                f"Type: {plugin.type_name}",
-                f"Priority: {plugin.priority}",
-                f"Default: {'enabled' if plugin.enabled_by_default else 'disabled'}",
-            ]
-            return "\n".join(parts)
-
-        return None
-
-    def flags(self, index: QModelIndex) -> Qt.ItemFlag:
-        if not index.isValid():
-            return Qt.ItemFlag.NoItemFlags
-
-        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-
-        if index.column() == 0:  # Plugin column is checkable
-            flags |= Qt.ItemFlag.ItemIsUserCheckable
-
-        return flags
-
-    def setData(
-        self,
-        index: QModelIndex,
-        value: Any,
-        role: int = Qt.ItemDataRole.EditRole,
-    ) -> bool:
-        if not index.isValid():
-            return False
-
-        if index.column() == 0 and role == Qt.ItemDataRole.CheckStateRole:
-            row = index.row()
-            if 0 <= row < len(self._plugins):
-                plugin = self._plugins[row]
-                check_value = value.value if hasattr(value, 'value') else value
-                is_checked = check_value == Qt.CheckState.Checked.value
-                if is_checked:
-                    self._enabled_names.add(plugin.name)
-                else:
-                    self._enabled_names.discard(plugin.name)
-                self.dataChanged.emit(index, index, [role])
-                return True
-
-        return False
+_SCOPES = frozenset({"user", "branch", "beamline", "facility"})
+_USER = frozenset({"user"})
 
 
-class MonitorFeedTableModel(QAbstractTableModel):
-    """Table model for the per-feed monitor settings (enable, interval
-    override, advisor min severity). Roster = feeds of ALL registered
-    plugins (plugin-disabled ones shown greyed), mirroring the
-    set_overrides/get_overrides/has_changes triad of
-    MonitorPluginTableModel above but writing the Task 5 pref keys.
-    """
+def _plugins() -> tuple[list[MonitorPlugin], set[str]]:
+    """Registered monitor plugins and the names of those enabled for this user."""
+    try:
+        registry = MonitorRegistry.get_instance()
+        plugins = registry.get_plugins()
+        enabled = {p.name for p in registry.enabled_plugins()}
+    except Exception as e:  # noqa: BLE001 - an unavailable registry shows an empty list
+        logger.warning("Failed to get MonitorRegistry: {}", e)
+        return [], set()
+    return plugins, enabled
 
-    COLUMNS = ["Feed", "Plugin", "Interval (s)", "Advisor min severity"]
 
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._feeds = []  # list of MonitorFeed instances
-        self._feed_plugin_names: list[str] = []
-        self._enabled_plugin_names: set[str] = set()
-        self._disabled_feed_names: set[str] = set()
-        self._intervals: dict[str, int] = {}
-        self._severities: dict[str, str] = {}
-        self._original_disabled_feed_names: set[str] = set()
-        self._original_intervals: dict[str, int] = {}
-        self._original_severities: dict[str, str] = {}
-
-    def refresh(self) -> None:
-        self.beginResetModel()
-        self._feeds = []
-        self._feed_plugin_names = []
-        self._enabled_plugin_names = set()
-        try:
-            registry = MonitorRegistry.get_instance()
-            plugins = registry.get_plugins()
-            try:
-                self._enabled_plugin_names = {p.name for p in registry.enabled_plugins()}
-            except Exception as e:  # noqa: BLE001
-                logger.warning("Failed to get enabled monitor plugins: {}", e)
-            for plugin in plugins:
-                try:
-                    feeds = plugin.create_feeds()
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("Failed to create feeds for plugin '{}': {}", plugin.name, e)
-                    continue
-                for feed in feeds:
-                    self._feeds.append(feed)
-                    self._feed_plugin_names.append(plugin.name)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("Failed to get MonitorRegistry: {}", e)
-        self.endResetModel()
-
-    def load_from_prefs(self) -> None:
-        prefs = PreferencesManager.get_instance()
-        disabled = prefs.get(DISABLED_FEEDS_PREF, [])
-        intervals = prefs.get(FEED_INTERVALS_PREF, {})
-        severities = prefs.get(FEED_ADVISOR_SEVERITY_PREF, {})
-        self.beginResetModel()
-        self._disabled_feed_names = set(disabled) if isinstance(disabled, list) else set()
-        self._intervals = dict(intervals) if isinstance(intervals, dict) else {}
-        self._severities = dict(severities) if isinstance(severities, dict) else {}
-        self._original_disabled_feed_names = set(self._disabled_feed_names)
-        self._original_intervals = dict(self._intervals)
-        self._original_severities = dict(self._severities)
-        self.endResetModel()
-
-    def save_to_prefs(self) -> None:
-        prefs = PreferencesManager.get_instance()
-        prefs.set(DISABLED_FEEDS_PREF, sorted(self._disabled_feed_names))
-        prefs.set(FEED_INTERVALS_PREF, dict(self._intervals))
-        prefs.set(FEED_ADVISOR_SEVERITY_PREF, dict(self._severities))
-        self._original_disabled_feed_names = set(self._disabled_feed_names)
-        self._original_intervals = dict(self._intervals)
-        self._original_severities = dict(self._severities)
-
-    def has_changes(self) -> bool:
-        return (
-            self._disabled_feed_names != self._original_disabled_feed_names
-            or self._intervals != self._original_intervals
-            or self._severities != self._original_severities
+def _monitor_items() -> list[CatalogItem]:
+    """One catalog item per monitor plugin, sorted by category then display name."""
+    plugins, _enabled = _plugins()
+    return [
+        CatalogItem(
+            id=p.name,
+            label=p.display_name,
+            default_enabled=p.enabled_by_default,
+            columns=(p.category.title(), p.description),
         )
+        for p in sorted(plugins, key=lambda p: (p.category, p.display_name))
+    ]
 
-    def rowCount(self, parent: QModelIndex | None = None) -> int:
-        if parent is None:
-            parent = QModelIndex()
-        if parent.isValid():
-            return 0
-        return len(self._feeds)
 
-    def columnCount(self, parent: QModelIndex | None = None) -> int:
-        if parent is None:
-            parent = QModelIndex()
-        if parent.isValid():
-            return 0
-        return len(self.COLUMNS)
+def _feeds() -> list[tuple[Any, MonitorPlugin, bool]]:
+    """(feed, its plugin, plugin enabled) for every feed of every plugin, first name wins."""
+    plugins, enabled = _plugins()
+    out: list[tuple[Any, MonitorPlugin, bool]] = []
+    seen: set[str] = set()
+    for plugin in plugins:
+        try:
+            feeds = plugin.create_feeds()
+        except Exception as e:  # noqa: BLE001 - one broken plugin must not empty the page
+            logger.warning("Failed to create feeds for plugin '{}': {}", plugin.name, e)
+            continue
+        for feed in feeds:
+            if feed.name not in seen:
+                seen.add(feed.name)
+                out.append((feed, plugin, plugin.name in enabled))
+    return out
 
-    def headerData(
-        self,
-        section: int,
-        orientation: Qt.Orientation,
-        role: int = Qt.ItemDataRole.DisplayRole,
-    ) -> Any:
-        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
-            if 0 <= section < len(self.COLUMNS):
-                return self.COLUMNS[section]
-        return None
 
-    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
-        if not index.isValid():
-            return None
+def _seconds(value: Any) -> Any:
+    return int(value) if isinstance(value, float) and value.is_integer() else value
 
-        row = index.row()
-        col = index.column()
 
-        if row < 0 or row >= len(self._feeds):
-            return None
+def _feed_items(default: Any = None) -> list[CatalogItem]:
+    return [
+        CatalogItem(
+            id=feed.name,
+            label=feed.name,
+            columns=(plugin.display_name,),
+            default=default(feed) if callable(default) else default,
+            inactive_reason="" if on else MONITOR_OFF,
+        )
+        for feed, plugin, on in _feeds()
+    ]
 
-        feed = self._feeds[row]
-        plugin_name = self._feed_plugin_names[row]
 
-        if col == 0:
-            if role == Qt.ItemDataRole.CheckStateRole:
-                is_enabled = feed.name not in self._disabled_feed_names
-                return Qt.CheckState.Checked if is_enabled else Qt.CheckState.Unchecked
-            elif role == Qt.ItemDataRole.DisplayRole:
-                return feed.name
-            elif role == Qt.ItemDataRole.ForegroundRole and plugin_name not in self._enabled_plugin_names:
-                from PySide6.QtGui import QColor
-                return QColor(Qt.GlobalColor.gray)
+def _interval_items() -> list[CatalogItem]:
+    return _feed_items(lambda feed: _seconds(getattr(feed, "default_interval_s", None)))
 
-        elif col == 1:
-            if role == Qt.ItemDataRole.DisplayRole:
-                return plugin_name
-            elif role == Qt.ItemDataRole.ForegroundRole and plugin_name not in self._enabled_plugin_names:
-                from PySide6.QtGui import QColor
-                return QColor(Qt.GlobalColor.gray)
 
-        elif col == 2:
-            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
-                override = self._intervals.get(feed.name)
-                return str(override) if override is not None else ""
-            elif role == Qt.ItemDataRole.ToolTipRole:
-                default = getattr(feed, "default_interval_s", None)
-                return f"Default: {default}s" if default is not None else None
-
-        elif col == 3:
-            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
-                return self._severities.get(feed.name, DEFAULT_SEVERITY)
-
-        return None
-
-    def flags(self, index: QModelIndex) -> Qt.ItemFlag:
-        if not index.isValid():
-            return Qt.ItemFlag.NoItemFlags
-
-        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-
-        col = index.column()
-        if col == 0:
-            flags |= Qt.ItemFlag.ItemIsUserCheckable
-        elif col in (2, 3):
-            flags |= Qt.ItemFlag.ItemIsEditable
-
-        return flags
-
-    def setData(
-        self,
-        index: QModelIndex,
-        value: Any,
-        role: int = Qt.ItemDataRole.EditRole,
-    ) -> bool:
-        if not index.isValid():
-            return False
-
-        row = index.row()
-        col = index.column()
-        if row < 0 or row >= len(self._feeds):
-            return False
-
-        feed = self._feeds[row]
-
-        if col == 0 and role == Qt.ItemDataRole.CheckStateRole:
-            check_value = value.value if hasattr(value, "value") else value
-            is_checked = check_value == Qt.CheckState.Checked.value
-            if is_checked:
-                self._disabled_feed_names.discard(feed.name)
-            else:
-                self._disabled_feed_names.add(feed.name)
-            self.dataChanged.emit(index, index, [role])
-            return True
-
-        if col == 2 and role == Qt.ItemDataRole.EditRole:
-            text = "" if value is None else str(value).strip()
-            if text == "":
-                self._intervals.pop(feed.name, None)
-                self.dataChanged.emit(index, index, [role])
-                return True
-            try:
-                interval = int(text)
-            except (TypeError, ValueError):
-                return False
-            if interval <= 0:
-                return False
-            default_interval = getattr(feed, "default_interval_s", None)
-            if default_interval is not None and interval == default_interval:
-                # Explicitly-typed default is not an override; don't clutter prefs.
-                self._intervals.pop(feed.name, None)
-            else:
-                self._intervals[feed.name] = interval
-            self.dataChanged.emit(index, index, [role])
-            return True
-
-        if col == 3 and role == Qt.ItemDataRole.EditRole:
-            text = "" if value is None else str(value).strip()
-            if text in ("", DEFAULT_SEVERITY):
-                # Explicitly-typed default is not an override; don't clutter prefs.
-                self._severities.pop(feed.name, None)
-                self.dataChanged.emit(index, index, [role])
-                return True
-            if text not in VALID_SEVERITIES:
-                return False
-            self._severities[feed.name] = text
-            self.dataChanged.emit(index, index, [role])
-            return True
-
-        return False
+def _severity_items() -> list[CatalogItem]:
+    return _feed_items(DEFAULT_SEVERITY)
 
 
 class MonitorSettingsPlugin(SettingsPlugin):
-    """Monitor settings: per-feed enable table + advisor switch + tick interval.
-    Mirrors ClaudeToolsSettingsPlugin (tool_settings.py:241)."""
-
-    def __init__(self) -> None:
-        self._widget = None
-        self._table_view = None
-        self._model = None
-        self._advisor_check = None
-        self._interval_spin = None
-        self._feed_table_view = None
-        self._feed_model = None
+    """Monitor settings: monitor plugins, feeds, feed intervals and advisor severities per
+    scope, plus the advisor switch and tick interval."""
 
     @property
-    def name(self) -> str: return "monitor"
+    def name(self) -> str:
+        return "monitor"
+
     @property
-    def display_name(self) -> str: return "Monitor"
+    def display_name(self) -> str:
+        return "Monitor"
+
     @property
-    def category(self) -> str: return "advanced"
+    def category(self) -> str:
+        return "advanced"
+
     @property
-    def priority(self) -> int: return 95
+    def priority(self) -> int:
+        return 95
 
-    def create_widget(self, parent=None):
-        from PySide6.QtWidgets import (
-            QCheckBox,
-            QFormLayout,
-            QHeaderView,
-            QLabel,
-            QSpinBox,
-            QTableView,
-            QVBoxLayout,
-            QWidget,
-        )
-        widget = QWidget(parent)
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(QLabel(
-            "Enable or disable monitor feeds, the advisor, and the tick interval."))
-        form = QFormLayout()
-        self._advisor_check = QCheckBox("Enable monitor advisor (LLM)")
-        self._interval_spin = QSpinBox()
-        self._interval_spin.setRange(1, 86400)
-        self._interval_spin.setSuffix(" s")
-        form.addRow("Advisor:", self._advisor_check)
-        form.addRow("Tick interval:", self._interval_spin)
-        layout.addLayout(form)
-        self._model = MonitorPluginTableModel(widget)
-        self._table_view = QTableView(widget)
-        self._table_view.setModel(self._model)
-        self._table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
-        self._table_view.setAlternatingRowColors(True)
-        self._table_view.verticalHeader().setVisible(False)
-        header = self._table_view.horizontalHeader()
-        if header:
-            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        layout.addWidget(self._table_view, stretch=1)
+    def specs(self) -> Sequence[SettingSpec]:
+        return [
+            SettingSpec(key=ADVISOR_ENABLED_PREF, scopes=_USER, label="Monitor advisor"),
+            SettingSpec(key=TICK_INTERVAL_PREF, scopes=_USER, label="Tick interval"),
+            SettingSpec(key=MONITORS_KEY, type=bool, scopes=_SCOPES, policy="union",
+                        label="Enabled monitor plugins"),
+            SettingSpec(key=FEEDS_KEY, type=bool, scopes=_SCOPES, policy="union",
+                        label="Enabled monitor feeds"),
+            SettingSpec(key=FEED_INTERVALS_KEY, type=int, scopes=_SCOPES, policy="union",
+                        label="Monitor feed intervals"),
+            SettingSpec(key=FEED_SEVERITY_KEY, type=str, scopes=_SCOPES, policy="union",
+                        label="Monitor feed advisor severity"),
+        ]
 
-        layout.addWidget(QLabel("Per-feed overrides:"))
-        self._feed_model = MonitorFeedTableModel(widget)
-        self._feed_table_view = QTableView(widget)
-        self._feed_table_view.setModel(self._feed_model)
-        self._feed_table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
-        self._feed_table_view.setAlternatingRowColors(True)
-        self._feed_table_view.verticalHeader().setVisible(False)
-        feed_header = self._feed_table_view.horizontalHeader()
-        if feed_header:
-            feed_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-            feed_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-            feed_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-            feed_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        layout.addWidget(self._feed_table_view, stretch=1)
-
-        self._widget = widget
-        return widget
-
-    def load_settings(self) -> None:
-        if not self._model:
-            return
-        self._model.refresh()
-        prefs = PreferencesManager.get_instance()
-        disabled = prefs.get(DISABLED_MONITORS_PREF)
-        forced = prefs.get(FORCED_ENABLED_MONITORS_PREF)
-        self._model.set_overrides(
-            set(disabled) if isinstance(disabled, list) else set(),
-            set(forced) if isinstance(forced, list) else set(),
-        )
-        self._advisor_check.setChecked(bool(prefs.get(ADVISOR_ENABLED_PREF, False)))
-        self._interval_spin.setValue(int(prefs.get(TICK_INTERVAL_PREF, 60)))
-
-        if self._feed_model:
-            self._feed_model.refresh()
-            self._feed_model.load_from_prefs()
-
-    def save_settings(self) -> None:
-        if not self._model:
-            return
-        disabled, forced_enabled = self._model.get_overrides()
-        prefs = PreferencesManager.get_instance()
-        prefs.set(DISABLED_MONITORS_PREF, sorted(disabled))
-        prefs.set(FORCED_ENABLED_MONITORS_PREF, sorted(forced_enabled))
-        prefs.set(ADVISOR_ENABLED_PREF, self._advisor_check.isChecked())
-        prefs.set(TICK_INTERVAL_PREF, self._interval_spin.value())
-
-        if self._feed_model:
-            self._feed_model.save_to_prefs()
-
-    def validate(self) -> list[str]:
-        return []
+    def sections(self) -> Sequence[Section]:
+        feed_columns = ("Monitor",)
+        return [
+            Section(
+                "Monitor",
+                [
+                    SettingField(ADVISOR_ENABLED_PREF, Toggle(), label="Enable monitor advisor (LLM)"),
+                    SettingField(TICK_INTERVAL_PREF, Integer(1, MAX_TICK_INTERVAL), label="Tick interval",
+                                 unit="s", placeholder=str(DEFAULT_TICK_INTERVAL)),
+                ],
+                description="The advisor summarizes observations with an LLM; the tick is how often "
+                            "feeds are checked during a run.",
+            ),
+            Section(
+                "Monitor plugins",
+                [SettingField(MONITORS_KEY, Catalog(_monitor_items, columns=("Category", "Description")),
+                              label="Monitor plugins")],
+                description="Monitor plugins contribute the feeds below.",
+            ),
+            Section(
+                "Feeds",
+                [SettingField(FEEDS_KEY, Catalog(_feed_items, columns=feed_columns), label="Feeds")],
+                description="Feeds of a monitor plugin that is off are shown grey.",
+            ),
+            Section(
+                "Feed intervals",
+                [SettingField(FEED_INTERVALS_KEY, Mapping(_interval_items, Integer(1, None), columns=feed_columns),
+                              label="Feed intervals", unit="s")],
+                description="How often each feed is evaluated, in whole seconds.",
+            ),
+            Section(
+                "Advisor severity",
+                [SettingField(FEED_SEVERITY_KEY, Mapping(_severity_items, Choice(SEVERITY_OPTIONS),
+                                                         columns=feed_columns),
+                              label="Advisor severity")],
+                description="The lowest severity of each feed's observations that is passed to the advisor.",
+            ),
+        ]

@@ -29,6 +29,7 @@ def configure_auth(config: ConfigManager, *, register: bool = True,
     from lightfall.auth.provider_registry import AuthProviderRegistry
     from lightfall.auth.providers.builtin_plugins import register_builtin_auth_plugins
     from lightfall.auth.session import SessionManager
+    from lightfall.monitor.registry import start_monitor_migration
     from lightfall.plugins.enablement import start_plugin_migration
     from lightfall.ui.panels.claude.tool_registry import start_tool_migration
 
@@ -52,6 +53,7 @@ def configure_auth(config: ConfigManager, *, register: bool = True,
         # it (here and the plugin loader); again for the user's scope once scopes resolve.
         start_plugin_migration()
         start_tool_migration()
+        start_monitor_migration()
         register_builtin_auth_plugins(
             registry, config=config, include_pam=(sys.platform != "win32")
         )

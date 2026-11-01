@@ -63,7 +63,6 @@ def _registry():
         def create_feeds(self): return [_CountFeed()]
 
     reg.register(_P())
-    reg._read_list_pref = lambda key: []  # no prefs in test
     yield reg
     MonitorRegistry.reset_instance()
 
@@ -148,7 +147,6 @@ def test_interval_gate_prevents_early_re_evaluation(_app, _registry):
     MonitorRegistry.reset_instance()
     reg = MonitorRegistry.get_instance()
     reg.register(_IntervalPlugin())
-    reg._read_list_pref = lambda key: []
 
     t = [0.0]
     eng = _FakeEngine()

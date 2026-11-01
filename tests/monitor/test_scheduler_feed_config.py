@@ -63,7 +63,6 @@ def _register(*feeds):
         def create_feeds(self): return list(feeds)
 
     reg.register(_P())
-    reg._read_list_pref = lambda key: []
     return reg
 
 
