@@ -182,3 +182,65 @@ def test_change_in_folder_reloads_once_debounced(service, tmp_path, qtbot):
     qtbot.wait(500)
     assert reloads == [folder]
     assert ToolRegistry.get_instance().get_plugin("folder_tool").description == "fit=555 page=HTML"
+
+
+def test_load_leaves_no_bytecode_and_reload_sees_same_size_edit(service, tmp_path):
+    folder = _make_folder(tmp_path, value=1)
+    assert service.load_plugin_from_file(folder, _skip_commit=True)
+    assert not list(folder.rglob("__pycache__"))
+    (folder / "fitting.py").write_text("VALUE = 2\n", encoding="utf-8")  # same size
+    assert service.reload_plugin(folder)
+    plugin = ToolRegistry.get_instance().get_plugin("folder_tool")
+    assert plugin.description == "fit=2 page=HTML"
+    assert not list(folder.rglob("__pycache__"))
+
+
+def test_git_tracker_never_commits_bytecode(tmp_path):
+    import subprocess
+
+    from lightfall.utils.git_tracker import GitTracker
+    root = tmp_path / "repo"
+    root.mkdir()
+    tracker = GitTracker(repo_root=root)
+    folder = root / "pkg"
+    (folder / "__pycache__").mkdir(parents=True)
+    (folder / "__init__.py").write_text("X = 1\n", encoding="utf-8")
+    (folder / "__pycache__" / "a.cpython-314.pyc").write_bytes(b"x")
+    assert tracker.commit([folder], "add pkg")
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=root, capture_output=True, text=True, check=True
+    ).stdout.split()
+    assert tracked == ["pkg/__init__.py"]
+
+
+def test_clash_during_rescan_reports_both_and_no_delete_commit(
+    service, tmp_path, monkeypatch
+):
+    folder = _make_folder(tmp_path, "x")
+    service.load_plugin_from_file(folder, _skip_commit=True)
+    service.enable_hot_reload(True)
+    errors, removals = [], []
+    service.plugin_error.connect(lambda p, m: errors.append(p))
+    monkeypatch.setattr(service, "_commit_removal", lambda p, m: removals.append(p))
+    (tmp_path / "x.py").write_text("X = 1\n", encoding="utf-8")
+    service._on_directory_changed(str(tmp_path))
+    assert {Path(e) for e in errors} == {folder, tmp_path / "x.py"}
+    assert service.get_plugin_info(folder) is None
+    assert service.get_plugin_info(tmp_path / "x.py") is None
+    assert ToolRegistry.get_instance().get_plugin("folder_tool") is None
+    assert removals == []
+
+
+def test_deleted_folder_unloads_and_commits_removal(service, tmp_path, monkeypatch):
+    import shutil
+    folder = _make_folder(tmp_path)
+    service.load_plugin_from_file(folder, _skip_commit=True)
+    service.enable_hot_reload(True)
+    removals = []
+    monkeypatch.setattr(service, "_commit_removal", lambda p, m: removals.append(p))
+    service._watcher.removePaths(service._watcher.files() + service._watcher.directories())
+    shutil.rmtree(folder)
+    service._reload_folder_plugin(folder)
+    assert service.get_plugin_info(folder) is None
+    assert ToolRegistry.get_instance().get_plugin("folder_tool") is None
+    assert removals == [folder]

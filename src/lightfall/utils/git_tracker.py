@@ -59,17 +59,40 @@ class GitTracker:
             self.repo_root.mkdir(parents=True, exist_ok=True)
             if (self.repo_root / ".git").exists():
                 self._ensure_local_identity()
+                self._ensure_excludes()
                 return True
             subprocess.run(
                 ["git", "init"], cwd=self.repo_root, check=True,
                 capture_output=True,
             )
             self._ensure_local_identity()
+            self._ensure_excludes()
             logger.info("Initialized git repo at {}", self.repo_root)
             return True
         except (FileNotFoundError, subprocess.CalledProcessError) as e:
             logger.warning("Could not init git repo at {}: {}", self.repo_root, e)
             return False
+
+    def _ensure_excludes(self) -> None:
+        """Keep Python bytecode out of the history (``.git/info/exclude``).
+
+        Folder plugins are real packages, so importing them can leave
+        ``__pycache__`` directories inside the tracked tree.
+        """
+        try:
+            exclude = self.repo_root / ".git" / "info" / "exclude"
+            existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+            lines = existing.splitlines()
+            missing = [p for p in ("__pycache__/", "*.pyc") if p not in lines]
+            if not missing:
+                return
+            exclude.parent.mkdir(parents=True, exist_ok=True)
+            prefix = "" if not existing or existing.endswith("\n") else "\n"
+            exclude.write_text(
+                existing + prefix + "\n".join(missing) + "\n", encoding="utf-8"
+            )
+        except OSError as e:
+            logger.warning("Could not update git excludes: {}", e)
 
     def _ensure_local_identity(self) -> None:
         """Set local user.email/name to the Lightfall Agent identity if not already configured locally.

@@ -465,7 +465,12 @@ class UserPluginService(QObject):
                 parent.__path__ = []
                 sys.modules["lightfall_user_plugins"] = parent
             sys.modules[full_name] = module
+            # No stale bytecode (same-second same-size edits) and none left
+            # in the user's git-tracked folder.
+            self._remove_bytecode(folder)
             self._current_load = info
+            old_dwb = sys.dont_write_bytecode
+            sys.dont_write_bytecode = True
             try:
                 try:
                     spec.loader.exec_module(module)
@@ -477,6 +482,7 @@ class UserPluginService(QObject):
                         if ns:
                             self._track_self_registered_panels(ns, info)
             finally:
+                sys.dont_write_bytecode = old_dwb
                 self._current_load = None
         except Exception as e:
             logger.error("Failed to load folder plugin {}: {}", folder, e)
@@ -492,6 +498,12 @@ class UserPluginService(QObject):
         if not _skip_commit:
             self._commit_change(folder, commit_msg)
         return True
+
+    @staticmethod
+    def _remove_bytecode(folder: Path) -> None:
+        """Delete every ``__pycache__`` below ``folder``."""
+        for cache in list(folder.rglob("__pycache__")):
+            shutil.rmtree(cache, ignore_errors=True)
 
     @staticmethod
     def _purge_modules(full_name: str) -> None:
@@ -898,11 +910,18 @@ class UserPluginService(QObject):
             return
 
         # Rescan for new/deleted files and folders
-        current_files = set(self._discover(self._plugins_dir)[0])
+        discovered, errors = self._discover(self._plugins_dir)
+        current_files = set(discovered)
+        conflicted = {p for p, _ in errors}
+        for bad_path, message in errors:
+            if str(bad_path) in self._loaded_plugins:
+                self.unload_plugin(bad_path)
+            logger.warning("Plugin conflict, not loading {}: {}", bad_path, message)
+            self.plugin_error.emit(str(bad_path), message)
         loaded_paths = {
             info.file_path
             for info in self._loaded_plugins.values()
-            if not info.is_temp
+            if not info.is_temp and info.file_path not in conflicted
         }
 
         # Load new files
@@ -914,9 +933,10 @@ class UserPluginService(QObject):
         # Unload deleted files
         for file_path in loaded_paths - current_files:
             self.unload_plugin(file_path)
-            self._commit_removal(
-                file_path, f"external delete: {file_path.name}"
-            )
+            if not file_path.exists():
+                self._commit_removal(
+                    file_path, f"external delete: {file_path.name}"
+                )
 
         self.plugins_refreshed.emit()
 
