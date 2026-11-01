@@ -556,12 +556,13 @@ class PluginLoader(QObject):
             self._initializing.discard(unique_id)
 
     @staticmethod
-    def _displace_user_plugin(registry_type: str, key: str) -> None:
+    def _displace_user_plugin(registry_type: str, key: str, owner: object) -> None:
         """Package plugins win: unload the user plugin that registered ``key``.
 
         The whole user plugin goes (its other tools and panels too) and the
         clash is reported, so the package's registration that follows is the
-        only one.
+        only one. ``owner`` is the incoming tool instance or panel class (its
+        module tells a core plugin from a package one in the clash report).
         """
         from pathlib import Path
 
@@ -571,20 +572,27 @@ class PluginLoader(QObject):
         service = UserPluginService._instance
         if service is None:
             return
-        owner = service.owner_of(registry_type, key)
-        if owner is None:
+        owner_path = service.owner_of(registry_type, key)
+        if owner_path is None:
             return
         old = service.refuse_plugin(
-            Path(owner), f"{registry_type} '{key}' now belongs to a package plugin"
+            Path(owner_path), f"{registry_type} '{key}' now belongs to a package plugin"
         )
         source = old.source if old is not None else "local"
-        from lightfall.content.clashes import Clash, ClashLog
+        plugin = old.plugin_name if old is not None else Path(owner_path).stem
+        from lightfall.content.clashes import Clash, ClashLog, code_source, plugin_clash_name
 
         logger.warning(
             "Package {} '{}' displaces user plugin {} ({})",
-            registry_type, key, owner, source,
+            registry_type, key, owner_path, source,
         )
-        ClashLog.get_instance().report([Clash("plugin", key, "package", source, False)])
+        ClashLog.get_instance().report([Clash(
+            "plugin",
+            plugin_clash_name(plugin, registry_type, key),
+            code_source(owner),
+            source,
+            True,  # the user plugin had loaded and run before it was unloaded
+        )])
 
     def _register_with_type_registry(self, plugin_info: PluginInfo) -> None:
         """Register plugin with type-specific registry.
@@ -682,7 +690,7 @@ class PluginLoader(QObject):
                         plugin_info.name, type(instance).__name__,
                     )
                 else:
-                    self._displace_user_plugin("tool", instance.name)
+                    self._displace_user_plugin("tool", instance.name, instance)
                     ToolRegistry.get_instance().register(instance)
                     logger.debug("Registered agent plugin '{}' with ToolRegistry", instance.name)
             except ImportError:
@@ -713,7 +721,9 @@ class PluginLoader(QObject):
                 panel_plugin = plugin_info.instance
                 panel_class = panel_plugin.get_panel_class()
 
-                self._displace_user_plugin("panel", panel_class.panel_metadata.id)
+                self._displace_user_plugin(
+                    "panel", panel_class.panel_metadata.id, panel_class
+                )
                 panel_registry.register(panel_class, replace=True)
                 logger.debug(
                     "Registered panel '{}' with PanelRegistry",

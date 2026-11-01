@@ -31,3 +31,14 @@ def test_all_keeps_order(log):
     log.report([_c("c"), _c("b")])
     assert [c.name for c in log.all()] == ["b", "a", "c"]
     assert ClashLog.get_instance() is log
+
+
+def test_same_clash_with_different_loaded_loser_is_reported_once(log):
+    # Startup reports a synced plugin as not loaded; a later local reload that
+    # displaces the same synced plugin reports it as loaded. One clash.
+    seen = []
+    log.added.connect(seen.append)
+    log.report([Clash("plugin", "x", "local", "facility", False)])
+    log.report([Clash("plugin", "x", "local", "facility", True)])
+    assert len(log.all()) == 1
+    assert len(seen) == 1

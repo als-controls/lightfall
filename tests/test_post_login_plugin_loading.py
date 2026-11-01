@@ -259,6 +259,25 @@ def test_proactive_waits_for_window_shown(qapp, monkeypatch):
     assert "proactive" in calls
 
 
+def test_content_warnings_wait_for_shown_window_and_plugin_wave(qapp, monkeypatch):
+    """Clash warnings must not pop up over the login dialog: the notifier is armed
+    only once the window is shown and the post-login wave has finished."""
+    from lightfall.ui import LFMainWindow
+
+    window = LFMainWindow()
+    calls: list[str] = []
+    _patch_layout_recorders(window, monkeypatch, calls, default_layout_applied=True)
+    armed: list[bool] = []
+    monkeypatch.setattr(window._clash_notifier, "arm", lambda: armed.append(True))
+
+    window._on_plugin_loading_complete(1, 0)  # wave done while login is up
+    assert not armed
+
+    window._window_shown = True
+    window._finalize_layout_if_ready()
+    assert armed == [True]
+
+
 # --- early window-geometry restore (avoids default-size -> saved-size flash) --
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from PySide6.QtCore import QObject, Signal
 
@@ -14,7 +14,25 @@ class Clash:
     name: str
     winner: str  # source label that kept the name
     loser: str  # source label that lost it
-    loaded_loser: bool  # True when the loser's code had already run before it was unloaded
+    # True when the loser's code had already run before it was unloaded. Not part of
+    # equality: the same clash found by another path (startup vs a reload) is one clash.
+    loaded_loser: bool = field(compare=False)
+
+
+def code_source(obj: object) -> str:
+    """Source label for code that owns a plugin key: "core" when it is defined in
+    Lightfall itself, "package" for an installed package, "built-in" if unknown."""
+    if obj is None:
+        return "built-in"
+    module = getattr(obj, "__module__", None)
+    if not isinstance(module, str) or not module:
+        return "built-in"
+    return "core" if module.partition(".")[0] == "lightfall" else "package"
+
+
+def plugin_clash_name(plugin: str, registry_type: str, key: str) -> str:
+    """Clash name for a user plugin that lost ``key``: "my_tools (tool fit_tool)"."""
+    return f"{plugin} ({registry_type} {key})"
 
 
 class ClashLog(QObject):

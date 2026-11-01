@@ -1108,6 +1108,10 @@ class LFMainWindow(QMainWindow):
             return
         self._layout_finalized = True
 
+        # Content clash warnings held since startup (login dialog, plugin wave) go
+        # out now, as one batch over the shown window.
+        self._clash_notifier.arm()
+
         if (
             not self._default_layout_applied
             and self._config_manager

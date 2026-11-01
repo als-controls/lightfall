@@ -14,21 +14,14 @@ from typing import Any, ClassVar
 
 
 def _user_plugin_roots() -> list[Path]:
-    """Canonical user plugin root directories.
+    """Canonical local user plugin root directories.
 
     Used by PluginType.__init_subclass__ to decide whether a newly-defined
     subclass came from a user plugin file (and thus should auto-enqueue).
-    Includes the synced content store, where plugins from facility,
-    beamline and branch scopes live.
+    Synced plugins are matched separately (see :func:`_is_synced_plugin_file`).
     """
     home = Path.home()
     candidates = [home / "lightfall" / "plugins", home / ".lightfall" / "plugins"]
-    try:
-        from lightfall.content import store
-
-        candidates.append(store.default_content_dir())
-    except Exception:  # noqa: BLE001 — never break class definition over this
-        pass
     roots: list[Path] = []
     for candidate in candidates:
         try:
@@ -36,6 +29,25 @@ def _user_plugin_roots() -> list[Path]:
         except (OSError, RuntimeError):
             pass
     return roots
+
+
+def _is_synced_plugin_file(resolved: Path) -> bool:
+    """True for files in a synced plugin item: ``<content root>/<scope>/plugin/...``.
+
+    Only the ``plugin`` folders count, so a plugin class defined in a synced
+    plan, agent or skill folder does not auto-enqueue.
+    """
+    try:
+        from lightfall.content import store
+
+        content_root = store.default_content_dir().resolve()
+    except Exception:  # noqa: BLE001 — never break class definition over this
+        return False
+    try:
+        parts = resolved.relative_to(content_root).parts
+    except ValueError:
+        return False
+    return len(parts) >= 3 and parts[1] == "plugin"
 
 
 def _is_under_user_plugin_dir(p: Path) -> bool:
@@ -49,7 +61,7 @@ def _is_under_user_plugin_dir(p: Path) -> bool:
             return True
         except ValueError:
             continue
-    return False
+    return _is_synced_plugin_file(resolved)
 
 
 class PluginType(ABC):

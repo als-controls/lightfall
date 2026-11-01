@@ -21,6 +21,14 @@ class _FakeDocking:
         self.started += 1
 
 
+class _FakeNotifier:
+    def __init__(self):
+        self.armed = 0
+
+    def arm(self):
+        self.armed += 1
+
+
 class _Host:
     """Minimal stand-in carrying the latch attributes + real methods."""
 
@@ -37,6 +45,7 @@ class _Host:
         self._layout_finalized = False
         self._config_manager = None  # restore is skipped without a config
         self._docking_manager = _FakeDocking()
+        self._clash_notifier = _FakeNotifier()
         self.layout_build_count = 0
         self.restore_count = 0
 
@@ -85,3 +94,4 @@ class TestPostLoginLatch:
         host._on_plugin_loading_complete(1, 0)
         assert host.layout_build_count == 1
         assert host._docking_manager.started == 1
+        assert host._clash_notifier.armed == 1

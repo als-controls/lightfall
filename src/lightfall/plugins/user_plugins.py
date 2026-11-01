@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from loguru import logger
 from PySide6.QtCore import QFileSystemWatcher, QObject, QTimer, Signal
 
-from lightfall.content.clashes import Clash, ClashLog
+from lightfall.content.clashes import Clash, ClashLog, code_source, plugin_clash_name
 from lightfall.content.sources import SourceItem, default_synced_items, specificity
 from lightfall.utils.git_tracker import GitTracker
 
@@ -50,6 +50,11 @@ class PluginInfo:
     load_error: str | None = None
     is_package: bool = False  # folder plugin loaded as a real package
     source: str = "local"  # "local" or the synced scope it came from
+
+    @property
+    def plugin_name(self) -> str:
+        """The plugin's name: file stem or folder name (the listing name if synced)."""
+        return self.module_name.rpartition(".")[2]
 
 
 
@@ -310,18 +315,24 @@ class UserPluginService(QObject):
         self.plugin_error.emit(str(path), reason)
         logger.warning("User plugin {} refused: {}", path.name, reason)
 
-    def _package_owns(self, registry_type: str, key: str) -> bool:
-        """True when ``key`` is registered and no user plugin registered it."""
+    @staticmethod
+    def _registered(registry_type: str, key: str) -> object | None:
+        """The tool instance or panel class registered under ``key``, if any."""
         if registry_type == "tool":
             from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
-            present = ToolRegistry.get_instance().get_plugin(key) is not None
-        elif registry_type == "panel":
+            return ToolRegistry.get_instance().get_plugin(key)
+        if registry_type == "panel":
             from lightfall.ui.panels.registry import PanelRegistry
 
-            present = PanelRegistry.get_instance().get(key) is not None
-        else:
+            return PanelRegistry.get_instance().get(key)
+        return None
+
+    def _package_owns(self, registry_type: str, key: str) -> bool:
+        """True when ``key`` is registered and no user plugin registered it."""
+        if registry_type not in ("tool", "panel"):
             return False
+        present = self._registered(registry_type, key) is not None
         if not present or self.owner_of(registry_type, key) is not None:
             return False
         current = self._current_load
@@ -344,9 +355,16 @@ class UserPluginService(QObject):
             sys.modules.pop(info.module_name, None)
         keys = ", ".join(f"{t} '{k}'" for t, k in refusals)
         self._store_refused(info, f"Refused: {keys} belongs to a package plugin")
-        ClashLog.get_instance().report(
-            [Clash("plugin", key, "package", info.source, False) for _, key in refusals]
-        )
+        ClashLog.get_instance().report([
+            Clash(
+                "plugin",
+                plugin_clash_name(info.plugin_name, registry_type, key),
+                code_source(self._registered(registry_type, key)),
+                info.source,
+                False,
+            )
+            for registry_type, key in refusals
+        ])
 
     @staticmethod
     def _panel_snapshot() -> dict[str, type]:

@@ -234,10 +234,8 @@ def test_synced_plugin_with_error_reports_and_continues(service, local_dir, cont
 
 
 def test_synced_plugin_classes_auto_enqueue(content_dir, local_dir, monkeypatch, qapp):
-    # No _user_plugin_roots patch: the real roots must include the content dir.
+    # No _user_plugin_roots patch: synced plugin folders must count as user plugins.
     monkeypatch.setattr("lightfall.content.store.default_content_dir", lambda: content_dir)
-    from lightfall.plugins.types import _user_plugin_roots
-    assert content_dir.resolve() in _user_plugin_roots()
 
     svc = UserPluginService.get_instance()
     monkeypatch.setattr(svc, "_plugins_dir", local_dir)
@@ -246,6 +244,19 @@ def test_synced_plugin_classes_auto_enqueue(content_dir, local_dir, monkeypatch,
     assert ToolRegistry.get_instance().get_plugin("auto_tool") is not None
     regs = svc.get_plugin_info(item.path).registrations
     assert [(r.registry_type, r.key) for r in regs] == [("tool", "auto_tool")]
+
+
+def test_only_synced_plugin_folders_auto_enqueue(content_dir, monkeypatch):
+    monkeypatch.setattr("lightfall.content.store.default_content_dir", lambda: content_dir)
+    from lightfall.plugins.types import _is_under_user_plugin_dir
+
+    scope = content_dir / "branch-7.0.1.1"
+    assert _is_under_user_plugin_dir(scope / "plugin" / "auto@3" / "auto.py")
+    assert _is_under_user_plugin_dir(scope / "plugin" / "pkg@4" / "sub" / "mod.py")
+    assert not _is_under_user_plugin_dir(scope / "plan" / "xafs@3" / "xafs.py")
+    assert not _is_under_user_plugin_dir(scope / "skill" / "fit@2" / "helper.py")
+    assert not _is_under_user_plugin_dir(scope / "agent" / "a@1" / "x.py")
+    assert not _is_under_user_plugin_dir(content_dir / "plugin.py")
 
 
 def test_default_resolver_is_used_when_synced_omitted(service, content_dir, monkeypatch):
@@ -303,7 +314,7 @@ def test_package_tool_displaces_whole_user_plugin(service, local_dir):
     assert info is None or (info.load_error and not info.registrations)
     assert service.owner_of("tool", "shared_tool") is None
     assert ClashLog.get_instance().all() == [
-        Clash("plugin", "shared_tool", "package", "local", False)
+        Clash("plugin", "mixed (tool shared_tool)", "package", "local", True)
     ]
 
 
@@ -328,7 +339,7 @@ def test_package_panel_displaces_user_plugin(service, local_dir):
     assert PanelRegistry.get_instance().get(PANEL_ID) is pkg_cls
     assert ToolRegistry.get_instance().get_plugin("panel_buddy") is None
     assert ClashLog.get_instance().all() == [
-        Clash("plugin", PANEL_ID, "package", "local", False)
+        Clash("plugin", f"panelish (panel {PANEL_ID})", "package", "local", True)
     ]
 
 
@@ -345,7 +356,7 @@ def test_user_plugin_refused_when_package_owns_tool(service, local_dir):
     assert info.load_error and not info.registrations
     assert errors == [str(path)]
     assert ClashLog.get_instance().all() == [
-        Clash("plugin", "shared_tool", "package", "local", False)
+        Clash("plugin", "late (tool shared_tool)", "package", "local", False)
     ]
     # a later rescan of the local dir does not retry it
     service.enable_hot_reload(True)
@@ -361,7 +372,20 @@ def test_self_registered_panel_refused_when_package_owns_it(service, local_dir):
     assert PanelRegistry.get_instance().get(PANEL_ID) is pkg_cls
     assert ToolRegistry.get_instance().get_plugin("panel_buddy") is None
     assert ClashLog.get_instance().all() == [
-        Clash("plugin", PANEL_ID, "package", "local", False)
+        Clash("plugin", f"late_panel (panel {PANEL_ID})", "package", "local", False)
+    ]
+
+
+def test_user_plugin_refused_when_core_owns_tool(service, local_dir):
+    class _CoreTool(_PackageTool):
+        pass
+
+    _CoreTool.__module__ = "lightfall.plugins.agents.fake_core_tools"
+    ToolRegistry.get_instance().register(_CoreTool())
+    path = _local_file(local_dir, "my_tools", _tool_code("shared_tool"))
+    assert service.load_plugin_from_file(path, _skip_commit=True) is False
+    assert ClashLog.get_instance().all() == [
+        Clash("plugin", "my_tools (tool shared_tool)", "core", "local", False)
     ]
 
 

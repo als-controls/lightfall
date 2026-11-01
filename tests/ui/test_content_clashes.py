@@ -28,13 +28,16 @@ def window(qtbot):
     return w
 
 
-def make(window, dialogs, toasts, delay_ms=10):
-    return ClashNotifier(
+def make(window, dialogs, toasts, delay_ms=10, armed=True):
+    notifier = ClashNotifier(
         window,
         show_dialog=lambda title, text: dialogs.append((title, text)),
         toast=lambda title, text: toasts.append((title, text)),
         delay_ms=delay_ms,
     )
+    if armed:
+        notifier.arm()
+    return notifier
 
 
 def test_code_clashes_batch_into_one_dialog(qtbot, window):
@@ -111,3 +114,78 @@ def test_report_from_a_worker_thread_is_delivered(qtbot, window):
     t.start()
     t.join()
     qtbot.waitUntil(lambda: bool(dialogs), timeout=2000)
+
+
+def test_nothing_shown_until_armed(qtbot, window):
+    ClashLog.get_instance().report([PLAN, AGENT])  # found during startup
+    dialogs, toasts = [], []
+    notifier = make(window, dialogs, toasts, armed=False)
+    ClashLog.get_instance().report([PLUGIN])  # found in the post-login wave
+    qtbot.wait(100)
+    assert not dialogs and not toasts
+
+    notifier.arm()
+    qtbot.waitUntil(lambda: bool(dialogs and toasts), timeout=2000)
+    qtbot.wait(50)
+    assert len(dialogs) == 1 and len(toasts) == 1
+    assert "xafs_scan" in dialogs[0][1] and "tools" in dialogs[0][1]
+    assert "helper" in toasts[0][1]
+
+
+def test_arm_without_clashes_shows_nothing_and_is_idempotent(qtbot, window):
+    dialogs, toasts = [], []
+    notifier = make(window, dialogs, toasts, armed=False)
+    notifier.arm()
+    notifier.arm()
+    qtbot.wait(50)
+    assert not dialogs and not toasts
+    ClashLog.get_instance().report([PLAN])
+    qtbot.waitUntil(lambda: bool(dialogs), timeout=2000)
+    assert len(dialogs) == 1
+
+
+def test_default_toast_is_parented_to_the_window(qtbot, window, monkeypatch):
+    from lightfall.ui import toast as toast_mod
+
+    calls = []
+
+    class FakeManager:
+        def warning(self, title, text="", duration=None, parent=None):
+            calls.append(parent)
+
+    monkeypatch.setattr(
+        toast_mod.ToastManager, "get_instance", classmethod(lambda cls: FakeManager())
+    )
+    notifier = ClashNotifier(window, show_dialog=lambda t, x: None, delay_ms=10)
+    notifier.arm()
+    ClashLog.get_instance().report([AGENT])
+    qtbot.waitUntil(lambda: bool(calls), timeout=2000)
+    assert calls == [window]
+
+
+def test_dialog_ends_with_rename_hint(qtbot, window):
+    dialogs, toasts = [], []
+    make(window, dialogs, toasts)
+    ClashLog.get_instance().report([PLAN])
+    qtbot.waitUntil(lambda: bool(dialogs), timeout=2000)
+    assert dialogs[0][1].splitlines()[-1] == (
+        "Rename the item that was not loaded to use it."
+    )
+
+
+def test_code_source_labels():
+    from lightfall.content.clashes import code_source
+
+    class Core:
+        pass
+
+    Core.__module__ = "lightfall.plugins.agents.tools"
+
+    class Pkg:
+        pass
+
+    Pkg.__module__ = "lightfall_deck.tools"
+    assert code_source(Core) == "core"
+    assert code_source(Core()) == "core"
+    assert code_source(Pkg) == "package"
+    assert code_source(None) == "built-in"

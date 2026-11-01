@@ -14,6 +14,7 @@ from lightfall.content.clashes import Clash, ClashLog
 
 _CODE_TYPES = ("plan", "plugin")
 _MAX_LINES = 20
+_RENAME_HINT = "Rename the item that was not loaded to use it."
 
 
 def clash_line(clash: Clash) -> str:
@@ -34,7 +35,12 @@ def _message(clashes: list[Clash]) -> str:
 
 
 class ClashNotifier(QObject):
-    """Shows each clash in ClashLog once per process, batching bursts for ``delay_ms``."""
+    """Shows each clash in ClashLog once per process, batching bursts for ``delay_ms``.
+
+    Holds everything until :meth:`arm` is called, so clashes found at startup (while
+    the login dialog is up) and in the post-login plugin wave land in one dialog over
+    the shown main window.
+    """
 
     def __init__(
         self,
@@ -51,6 +57,7 @@ class ClashNotifier(QObject):
         self._shown: set[Clash] = set()
         self._code: list[Clash] = []
         self._shadow: list[Clash] = []
+        self._armed = False
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(delay_ms)
@@ -60,6 +67,17 @@ class ClashNotifier(QObject):
         log.added.connect(self._on_added, Qt.ConnectionType.QueuedConnection)
         self._on_added(log.all())  # clashes found before the window existed
 
+    def arm(self) -> None:
+        """Start showing clashes: everything held so far goes out as one batch."""
+        if self._armed:
+            return
+        self._armed = True
+        self._start_timer()
+
+    def _start_timer(self) -> None:
+        if self._armed and (self._code or self._shadow) and not self._timer.isActive():
+            self._timer.start()
+
     @Slot(list)
     def _on_added(self, clashes: list[Clash]) -> None:
         for clash in clashes:
@@ -67,22 +85,21 @@ class ClashNotifier(QObject):
                 continue
             self._shown.add(clash)
             (self._code if clash.type in _CODE_TYPES else self._shadow).append(clash)
-        if (self._code or self._shadow) and not self._timer.isActive():
-            self._timer.start()
+        self._start_timer()
 
     def _flush(self) -> None:
         code, self._code = self._code, []
         shadow, self._shadow = self._shadow, []
         if code:
-            self._show_dialog("Content not loaded", _message(code))
+            self._show_dialog("Content not loaded", _message(code) + "\n\n" + _RENAME_HINT)
         if shadow:
             self._toast("Content shadowed", _message(shadow))
 
     def _default_dialog(self, title: str, text: str) -> None:
         QMessageBox.warning(self._parent_widget, title, text)
 
-    @staticmethod
-    def _default_toast(title: str, text: str) -> None:
+    def _default_toast(self, title: str, text: str) -> None:
         from lightfall.ui.toast import ToastManager
 
-        ToastManager.get_instance().warning(title, text)
+        # Parent to the main window, never whatever window happens to be active.
+        ToastManager.get_instance().warning(title, text, parent=self._parent_widget)
