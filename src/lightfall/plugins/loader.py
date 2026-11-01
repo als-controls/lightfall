@@ -573,22 +573,27 @@ class PluginLoader(QObject):
 
                 if hasattr(plan_plugin, "get_plan_info"):
                     plan_info = plan_plugin.get_plan_info()
-                    try:
-                        plan_registry.register(
-                            plan_info.name,
-                            plan_info.func,
-                            plan_info.category,
-                        )
+                    clash = plan_registry.register_ranked(
+                        plan_info.name,
+                        plan_info.func,
+                        plan_info.category,
+                        source="package",
+                    )
+                    if clash is None:
                         logger.debug(
                             "Registered plan '{}' with PlanRegistry",
                             plan_info.name,
                         )
-                    except ValueError:
-                        # Already registered
+                    else:
+                        from lightfall.content.clashes import ClashLog
+
                         logger.warning(
-                            "Plan '{}' already in PlanRegistry",
+                            "Plan '{}' clashes: {} kept, {} not used",
                             plan_info.name,
+                            clash.winner,
+                            clash.loser,
                         )
+                        ClashLog.get_instance().report([clash])
             except ImportError:
                 logger.debug("PlanRegistry not available, skipping plan registration")
 

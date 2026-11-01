@@ -15,6 +15,9 @@ from typing import Any, ClassVar
 
 from loguru import logger
 
+from lightfall.content.clashes import Clash
+from lightfall.content.sources import specificity
+
 
 def name_to_display_name(name: str) -> str:
     """Convert a plan name to a human-readable display name.
@@ -106,6 +109,8 @@ class PlanInfo:
             If None, generated from name using name_to_display_name().
         icon: Icon specification as (color, letter) tuple.
             If None, uses category default from PLAN_CATEGORY_ICONS.
+        source: Where the plan came from ("core", "package", a scope
+            label such as "facility", or "local").
     """
 
     name: str
@@ -117,6 +122,7 @@ class PlanInfo:
     examples: list[str] = field(default_factory=list)
     display_name: str | None = None
     icon: tuple[str, str] | None = None
+    source: str = "core"
 
     def get_display_name(self) -> str:
         """Get the display name for UI.
@@ -444,6 +450,48 @@ class PlanRegistry:
         if name in self._plans:
             self.unregister(name)
         return self.register(name, func, category)
+
+    def register_ranked(
+        self,
+        name: str,
+        func: Callable[..., Generator[Any, Any, Any]],
+        category: str,
+        source: str,
+    ) -> Clash | None:
+        """Register a plan, resolving a same-name clash by source rank.
+
+        Core and package plans beat everything (first one wins between them);
+        among other sources the more specific one wins, an equal rank keeping
+        the existing plan. The loser is not registered (or is unregistered).
+
+        Args:
+            name: Plan name.
+            func: The plan generator function.
+            category: Plan category for grouping.
+            source: Source label of the incoming plan.
+
+        Returns:
+            None when there was no clash, otherwise the Clash for the caller
+            to report.
+        """
+        existing = self._plans.get(name)
+        if existing is None:
+            self.register(name, func, category).source = source
+            return None
+
+        def top(label: str) -> bool:
+            return label in ("core", "package")
+
+        if top(source) or top(existing.source):
+            incoming_wins = top(source) and not top(existing.source)
+        else:
+            incoming_wins = specificity(source) > specificity(existing.source)
+
+        if incoming_wins:
+            self.unregister(name)
+            self.register(name, func, category).source = source
+            return Clash("plan", name, source, existing.source, False)
+        return Clash("plan", name, existing.source, source, False)
 
     def get_plan(self, name: str) -> PlanInfo | None:
         """Get a plan by name.
