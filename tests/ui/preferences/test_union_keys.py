@@ -111,3 +111,36 @@ def test_local_scope_files_without_console_items(pm, tmp_path):
     assert pm.load_local_scopes(tmp_path) is True
     assert pm.get(KEY) == {"a": False, "b": False}
     assert pm.item_origins(KEY) == {"a": "beamline:7.0.1", "b": "beamline:7.0.1"}
+
+
+def test_console_empty_map_keeps_file_items(pm, tmp_path):
+    _files(tmp_path)
+    for console in ({}, {"z": None}):
+        pm.set_config_manager(FakeCM("beamline:7.0.1", **{KEY: console}))
+        assert pm.load_local_scopes(tmp_path) is True
+        assert pm.get(KEY) == {"a": False, "b": False}
+        assert pm.item_origins(KEY) == {"a": "beamline:7.0.1", "b": "beamline:7.0.1"}
+
+
+def test_console_only_union_key_is_local(pm, tmp_path):
+    (tmp_path / "facility.yaml").write_text("settings:\n  tiled_url: https://f\n", encoding="utf-8")
+    (tmp_path / "beamline-7.0.1.yaml").write_text("settings:\n  theme: dark\n", encoding="utf-8")
+    pm.set_config_manager(FakeCM("beamline:7.0.1", **{KEY: {"t": True}}))
+    assert pm.load_local_scopes(tmp_path) is True
+    backend = pm._local_scopes
+    assert not backend.owns(KEY)  # no scope file sets it
+    assert backend.get(KEY) == {"t": True}
+    assert backend.item_origins(KEY) == {"t": "local"}
+    assert pm.get(KEY) == {"t": True}
+    assert pm.item_origins(KEY) == {"t": "local"}
+
+
+def test_lock_suppresses_console_items(pm, tmp_path):
+    _files(tmp_path)
+    (tmp_path / "beamline-7.0.1.yaml").write_text(
+        "settings:\n  plugins.enabled:\n    a: false\nlocks:\n  plugins.enabled: site\n",
+        encoding="utf-8")
+    pm.set_config_manager(FakeCM("beamline:7.0.1", **{KEY: {"c": True}}))
+    assert pm.load_local_scopes(tmp_path) is True
+    assert pm.get(KEY) == {"a": False}
+    assert pm.item_origins(KEY) == {"a": "beamline:7.0.1"}

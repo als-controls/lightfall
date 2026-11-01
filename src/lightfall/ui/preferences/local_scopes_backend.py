@@ -15,13 +15,6 @@ from lightfall.scopes.store import MISSING, ScopedStore
 from lightfall.ui.preferences.backend import PreferenceBackend
 
 
-def _items(value: Any) -> dict[str, Any]:
-    """The console YAML's item map of an item-merged key (None entries remove nothing)."""
-    if isinstance(value, dict):
-        return {k: v for k, v in value.items() if v is not None}
-    return {}
-
-
 class LocalScopesBackend(PreferenceBackend):
     def __init__(self, local: Any, state: FetchedState,
                  registry: SpecRegistry | None = None) -> None:
@@ -53,13 +46,27 @@ class LocalScopesBackend(PreferenceBackend):
     def item_origins(self, key: str) -> dict[str, str]:
         """For an item-merged key: item id -> the scope it comes from (``"local"`` = this
         console's YAML, which overrides the files item by item)."""
-        res = self._store.resolve(key)
         if self._registry.get(key).policy != "union":
             return {}
+        res = self._store.resolve(key)
         origins = {name: str(scope) for name, scope in res.item_origins.items()}
-        if res.locked_at is None:
-            origins.update(dict.fromkeys(_items(self._local.get(key, None)), "local"))
+        origins.update(dict.fromkeys(self._console_items(key) or {}, "local"))
         return origins
+
+    def _console_items(self, key: str) -> dict[str, Any] | None:
+        """The console YAML items that apply to an item-merged key, or None when the
+        console holds no map for it or a file lock suppresses it. ``{}`` is a map: it
+        adds nothing but keeps the file items (never the scalar path). One helper for
+        ``get`` and ``item_origins`` so they cannot diverge.
+
+        In scope-file mode the console YAML is the only writable layer, so its items
+        override file items per item (as scalars do); in server mode the YAML is only
+        a fallback.
+        """
+        value = self._local.get(key, None)
+        if not isinstance(value, dict) or self._store.resolve(key).locked_at is not None:
+            return None
+        return {k: v for k, v in value.items() if v is not None}
 
     def keys(self) -> set[str]:
         return set(self._keys)
@@ -72,8 +79,8 @@ class LocalScopesBackend(PreferenceBackend):
         if res.locked_at is not None:
             return res.value
         if self._registry.get(key).policy == "union":
-            local = _items(self._local.get(key, None))
-            if local:
+            local = self._console_items(key)
+            if local is not None:
                 return {**(res.value if res.origin is not None else {}), **local}
         value = self._local.get(key, MISSING)
         if value is not MISSING and value is not None:  # remove() stores None
