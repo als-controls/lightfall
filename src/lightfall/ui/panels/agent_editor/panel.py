@@ -43,8 +43,16 @@ from lightfall.utils.logging import logger
 
 _ERROR_STYLE = "color: #dc2626;"
 _HINT_STYLE = "color: #6b7280; font-size: 11px;"
-_SCOPE_LABEL = {"core": "Shipped (core)", "beamline": "Beamline", "user": "User", "unknown": "Unknown"}
-_SCOPE_ORDER = ("user", "beamline", "core", "unknown")
+_SCOPE_LABEL = {
+    "core": "Shipped (core)",
+    "package": "Package",
+    "facility": "Facility",
+    "beamline": "Beamline",
+    "branch": "Branch",
+    "user": "User",
+    "unknown": "Unknown",
+}
+_SCOPE_ORDER = ("user", "branch", "beamline", "facility", "package", "core", "unknown")
 _MODEL_CHOICES = ("", "opus", "sonnet", "haiku")
 _EFFORT_CHOICES = ("", "low", "medium", "high")
 _ON_MESSAGE_CHOICES = ("queue", "auto")

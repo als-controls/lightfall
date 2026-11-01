@@ -486,22 +486,26 @@ def _setup_agent_specs() -> None:
     """Bootstrap the AgentSpecRegistry with the core and user agent-file scopes.
 
     Registers the built-in shipped agent definitions ("core" scope) and the
-    user's ``~/lightfall/agents`` directory ("user" scope), then starts
+    user's ``~/lightfall/agents`` directory ("user" scope) and the synced
+    facility/beamline/branch agents, then starts
     watching the user directory for live edits. Must run before any
     ``QtClaudeAgent`` (or ``MonitorAdvisor``) is constructed, since those
     consult the registry for their system prompts.
 
     Beamline packages contribute their own agent definitions via the public
     ``AgentSpecRegistry.get_instance().register_scope_dir("beamline", path)``
-    API, called from their own plugin init code (e.g. an ``EnginePlugin`` or
+    API (the "package" slot; "beamline" is kept as an alias), called from
+    their own plugin init code (e.g. an ``EnginePlugin`` or
     ``ToolPlugin`` subclass's ``setup()``). No loader-level hook is required.
     """
     from lightfall.agents import builtin_agents_dir, user_agents_dir
     from lightfall.agents.registry import AgentSpecRegistry
+    from lightfall.content.sources import default_synced_items
 
     reg = AgentSpecRegistry.get_instance()
     reg.register_scope_dir("core", builtin_agents_dir())
     reg.register_scope_dir("user", user_agents_dir())
+    reg.set_synced(default_synced_items("agent"))
     reg.watch_user_dir()
 
 

@@ -1,5 +1,6 @@
-"""AgentSpecRegistry — loads agent definition files from core/beamline/user
-scope directories with name shadowing (user > beamline > core).
+"""AgentSpecRegistry — loads agent definition files from core/package/user scope
+directories and from synced facility/beamline/branch items, with name shadowing
+(user > branch > beamline > facility > package > core).
 """
 
 from __future__ import annotations
@@ -10,12 +11,26 @@ from pathlib import Path
 from PySide6.QtCore import QFileSystemWatcher, QObject, Signal
 
 from lightfall.agents.spec import AgentSpec, AgentSpecError, parse_agent_file
+from lightfall.content.clashes import Clash, ClashLog
+from lightfall.content.sources import SourceItem
 from lightfall.utils.logging import logger
 
 DISABLED_AGENTS_PREF: str = "disabled_agents"
 FORCED_ENABLED_AGENTS_PREF: str = "forced_enabled_agents"
 
-_SCOPE_ORDER: tuple[str, ...] = ("core", "beamline", "user")
+_SCOPE_ORDER: tuple[str, ...] = ("core", "package", "facility", "beamline", "branch", "user")
+_DIR_SCOPES: tuple[str, ...] = ("core", "package", "user")
+_SYNCED_KINDS: tuple[str, ...] = ("facility", "beamline", "branch")
+
+
+def _kind(scope: str) -> str:
+    """The scope kind of a source label: ``"branch:7.0.1.1"`` -> ``"branch"``."""
+    return scope.partition(":")[0]
+
+
+def _label(scope: str) -> str:
+    """Source label used in clash reports (the user dir is ``~/lightfall``, i.e. "local")."""
+    return "local" if scope == "user" else scope
 
 
 def user_agents_dir() -> Path:
@@ -38,7 +53,8 @@ class AgentSpecRegistry(QObject):
 
     def __init__(self) -> None:
         super().__init__()
-        self._scope_dirs: dict[str, list[Path]] = {"core": [], "beamline": [], "user": []}
+        self._scope_dirs: dict[str, list[Path]] = {k: [] for k in _DIR_SCOPES}
+        self._synced: list[SourceItem] = []
         self._specs: dict[str, AgentSpec] = {}
         self._errors: list[tuple[Path, str]] = []
         self._watcher: QFileSystemWatcher | None = None
@@ -57,33 +73,59 @@ class AgentSpecRegistry(QObject):
             cls._instance = None
 
     def register_scope_dir(self, scope: str, path: Path) -> None:
+        if scope == "beamline":  # endstation packages still say "beamline"; it is the package slot
+            scope = "package"
         if scope not in self._scope_dirs:
-            raise ValueError(f"unknown scope '{scope}', must be one of {_SCOPE_ORDER}")
+            raise ValueError(f"unknown scope '{scope}', must be one of {_DIR_SCOPES}")
         self._scope_dirs[scope].append(path)
         self.reload()
+
+    def set_synced(self, items: list[SourceItem]) -> None:
+        """Replace every synced (facility/beamline/branch) agent file and reload."""
+        self._synced = list(items)
+        self.reload()
+
+    def _sources(self) -> list[tuple[str, Path]]:
+        """Every agent file as (scope, path), lowest precedence first."""
+        out: list[tuple[str, Path]] = []
+
+        def add_dirs(scope: str) -> None:
+            for directory in self._scope_dirs[scope]:
+                if directory.is_dir():
+                    out.extend((scope, p) for p in sorted(directory.glob("*.md")))
+
+        add_dirs("core")
+        add_dirs("package")
+        for kind in _SYNCED_KINDS:
+            out.extend((i.source, i.path) for i in self._synced if _kind(i.source) == kind)
+        add_dirs("user")
+        return out
 
     def reload(self) -> None:
         specs: dict[str, AgentSpec] = {}
         errors: list[tuple[Path, str]] = []
-        for scope in _SCOPE_ORDER:
-            for directory in self._scope_dirs[scope]:
-                if not directory.is_dir():
-                    continue
-                for file_path in sorted(directory.glob("*.md")):
-                    try:
-                        spec = parse_agent_file(file_path, scope)
-                    except AgentSpecError as e:
-                        errors.append((file_path, str(e)))
-                        logger.warning("agent spec rejected: {}: {}", file_path, e)
-                        continue
-                    if spec.name in specs:
-                        logger.debug(
-                            "agent '{}' from scope '{}' shadows previous definition from scope '{}'",
-                            spec.name, scope, specs[spec.name].scope,
-                        )
-                    specs[spec.name] = spec
+        defined: dict[str, list[str]] = {}
+        for scope, file_path in self._sources():
+            try:
+                spec = parse_agent_file(file_path, scope)
+            except AgentSpecError as e:
+                errors.append((file_path, str(e)))
+                logger.warning("agent spec rejected: {}: {}", file_path, e)
+                continue
+            if spec.name in specs:
+                logger.debug(
+                    "agent '{}' from scope '{}' shadows previous definition from scope '{}'",
+                    spec.name, scope, specs[spec.name].scope,
+                )
+            specs[spec.name] = spec
+            defined.setdefault(spec.name, []).append(scope)
         self._specs = specs
         self._errors = errors
+        ClashLog.get_instance().report(
+            Clash("agent", name, _label(scopes[-1]), _label(loser), False)
+            for name, scopes in defined.items()
+            for loser in scopes[:-1]
+        )
         self.changed.emit()
 
     def specs(self) -> list[AgentSpec]:
@@ -96,7 +138,8 @@ class AgentSpecRegistry(QObject):
         return list(self._errors)
 
     def all_scope_files(self) -> dict[str, list[tuple[str, Path]]]:
-        """Map spec name -> [(scope, path), ...] across every registered scope dir.
+        """Map spec name -> [(scope, path), ...] across every registered scope dir and synced item
+        (scope is the full source string, e.g. "branch:7.0.1.1").
 
         Includes files that failed to parse (their `parse_agent_file` errors
         are tolerated here and the file's stem is used as a name proxy), so
@@ -105,17 +148,12 @@ class AgentSpecRegistry(QObject):
         a scope to error rows.
         """
         by_name: dict[str, list[tuple[str, Path]]] = {}
-        for scope in _SCOPE_ORDER:
-            for directory in self._scope_dirs[scope]:
-                if not directory.is_dir():
-                    continue
-                for file_path in sorted(directory.glob("*.md")):
-                    try:
-                        spec = parse_agent_file(file_path, scope)
-                        name = spec.name
-                    except AgentSpecError:
-                        name = file_path.stem
-                    by_name.setdefault(name, []).append((scope, file_path))
+        for scope, file_path in self._sources():
+            try:
+                name = parse_agent_file(file_path, scope).name
+            except AgentSpecError:
+                name = file_path.stem
+            by_name.setdefault(name, []).append((scope, file_path))
         return by_name
 
     def _read_list_pref(self, key: str) -> list[str] | None:

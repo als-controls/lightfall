@@ -80,6 +80,46 @@ class TestAgentRows:
         assert "frontmatter" in error_rows[0].error
 
 
+class TestSyncedRows:
+    def test_synced_rows_are_grouped_by_kind_and_read_only(self, registry, tmp_path):
+        from lightfall.content.sources import SourceItem
+
+        _agent(tmp_path / "core", "observer")
+        fac = _agent(tmp_path / "fac", "lightfall", body="facility prompt")
+        br = _agent(tmp_path / "br", "extra")
+        registry.register_scope_dir("core", tmp_path / "core")
+        registry.set_synced([
+            SourceItem("agent", "lightfall", "beamline:7.0.1", fac),
+            SourceItem("agent", "extra", "branch:7.0.1.1", br),
+        ])
+
+        rows = {r.name: r for r in models.agent_rows(registry)}
+
+        assert rows["lightfall"].scope == "beamline"
+        assert rows["extra"].scope == "branch"
+        assert rows["lightfall"].editable is False
+        assert rows["extra"].editable is False
+
+    def test_synced_shadow_lists_shadowed_scopes_and_copy_to_mine_works(
+        self, registry, tmp_path, monkeypatch
+    ):
+        from lightfall.agents import registry as registry_mod
+        from lightfall.content.sources import SourceItem
+
+        monkeypatch.setattr(registry_mod, "user_agents_dir", lambda: tmp_path / "user")
+        (tmp_path / "user").mkdir()
+        _agent(tmp_path / "core", "lightfall")
+        br = _agent(tmp_path / "br", "lightfall", body="branch prompt")
+        registry.register_scope_dir("core", tmp_path / "core")
+        registry.set_synced([SourceItem("agent", "lightfall", "branch:7.0.1.1", br)])
+
+        row = {r.name: r for r in models.agent_rows(registry)}["lightfall"]
+        assert row.shadowed_scopes == ("core",)
+
+        dest = models.copy_to_user("lightfall", registry)
+        assert "branch prompt" in dest.read_text(encoding="utf-8")
+
+
 class TestSkillRows:
     def test_scope_attribution(self, tmp_path, monkeypatch):
         builtin, bl, user = tmp_path / "builtin", tmp_path / "bl", tmp_path / "user"

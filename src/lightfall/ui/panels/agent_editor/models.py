@@ -24,10 +24,19 @@ from lightfall.utils.logging import logger
 if TYPE_CHECKING:
     from lightfall.agents.registry import AgentSpecRegistry
 
-# Mirrors AgentSpecRegistry's precedence order (core < beamline < user); kept
-# local so this module never has to import registry.py (and its Qt deps) at
-# module load time.
-_SCOPE_ORDER: tuple[str, ...] = ("core", "beamline", "user")
+# Mirrors AgentSpecRegistry's precedence order; kept local so this module never
+# has to import registry.py (and its Qt deps) at module load time.
+_SCOPE_ORDER: tuple[str, ...] = ("core", "package", "facility", "beamline", "branch", "user")
+
+
+def scope_kind(scope: str) -> str:
+    """``"branch:7.0.1.1"`` -> ``"branch"``; plain scopes are returned unchanged."""
+    return scope.partition(":")[0]
+
+
+def _scope_rank(scope: str) -> int:
+    kind = scope_kind(scope)
+    return _SCOPE_ORDER.index(kind) if kind in _SCOPE_ORDER else len(_SCOPE_ORDER)
 
 
 class EditorError(ValueError):
@@ -73,14 +82,15 @@ def agent_rows(registry: AgentSpecRegistry) -> list[AgentRow]:
     for spec in sorted(registry.specs(), key=lambda s: s.name):
         entries = all_files.get(spec.name, [])
         shadowed = tuple(
-            scope
-            for scope in _SCOPE_ORDER
-            if scope != spec.scope and any(s == scope for s, _ in entries)
+            sorted(
+                {scope for scope, _ in entries if scope != spec.scope},
+                key=_scope_rank,
+            )
         )
         rows.append(
             AgentRow(
                 name=spec.name,
-                scope=spec.scope,
+                scope=scope_kind(spec.scope),
                 description=spec.description,
                 editable=spec.scope == "user",
                 shadowed_scopes=shadowed,
@@ -113,7 +123,7 @@ def _scope_for_error_path(
     for entries in all_files.values():
         for scope, entry_path in entries:
             if entry_path == path:
-                return scope
+                return scope_kind(scope)
     return "unknown"
 
 
