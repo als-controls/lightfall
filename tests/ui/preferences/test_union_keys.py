@@ -153,3 +153,14 @@ def test_lock_suppresses_console_items(pm, tmp_path):
     assert pm.load_local_scopes(tmp_path) is True
     assert pm.get(KEY) == {"a": False}
     assert pm.item_origins(KEY) == {"a": "beamline:7.0.1"}
+
+
+def test_none_item_drops_broader_items_like_the_resolver(make):
+    # Same semantics as scope_api.inherited_items: None removes what broader layers gave.
+    server = Server()
+    server.rows[("beamline:7.0.1", KEY)] = ({"a": False, "b": False, "c": False}, 1)
+    server.rows[("user:u1", KEY)] = ({"b": None}, 1)
+    backend, *_ = make(server=server, local=FakeLocal(**{KEY: {"a": None}}))
+    backend.activate()
+    assert backend.get(KEY) == {"c": False}
+    assert backend.item_origins(KEY) == {"c": "beamline:7.0.1"}

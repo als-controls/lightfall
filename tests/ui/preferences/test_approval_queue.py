@@ -366,3 +366,27 @@ def test_dialog_row_follows_queue_changes(qtbot, env, monkeypatch):  # noqa: F81
     assert r.waiting_note_shown()
     dialog.reject()
     prefs.awaiting_approval_changed.emit(tds.COUNT)  # disconnected on close: no error
+
+
+def test_unchanged_specs_do_not_resend_every_refresh(make):
+    backend, server, _, _ = make()
+    backend.set(KEY, "https://x", scope=BL)
+    server.specs = (APPROVED_SPEC,)  # declared, yet this scope keeps answering "pending"
+    backend.refresh()                # newly declared: one resend
+    assert len(_puts(server, "https://x")) == 2
+    backend.refresh()
+    backend.refresh()
+    assert len(_puts(server, "https://x")) == 2
+    assert backend.awaiting_approval(KEY, BL) == "https://x"
+
+
+def test_transient_resend_failure_is_retried_on_next_refresh(make):
+    backend, server, ipc, _ = make()
+    backend.set(KEY, "https://x", scope=BL)
+    server.fail_with = ScopesError("unreachable")
+    ipc.publish_key(KEY, "approved")
+    assert backend.awaiting_approval(KEY, BL) == "https://x"
+    server.fail_with = None
+    server.approve(KEY)
+    backend.refresh()
+    assert server.rows[(BL, KEY)] == ("https://x", 1)

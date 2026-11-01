@@ -337,7 +337,7 @@ def test_post_login_wave_rereads_enablement(pm):
     assert status["panel:a"] == PluginStatus.QUEUED_LOAD
     assert status["panel:b"] == PluginStatus.DISABLED
     assert status["panel:early"] == PluginStatus.QUEUED_LOAD  # preload: next start
-    assert [i.unique_id for i in loader._load_queue] == ["panel:early", "panel:a"]
+    assert [i.unique_id for i in loader._load_queue] == ["panel:a", "panel:early"]  # manifest order
 
 
 def test_builtin_auth_respects_enablement(pm):

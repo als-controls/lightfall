@@ -128,6 +128,11 @@ class ScopedBackend(PreferenceBackend):
         self._approvals = approvals if approvals is not None else ApprovalQueue(
             approval_queue_path(journal.path.parent, identity))
         self._resending: set[tuple[str, str]] = set()
+        # Keys the approved specs declared at the last fetch (None: no fetch yet) and
+        # keys whose resend failed transiently: queued writes go out again only for
+        # keys that are newly declared, announced approved, or being retried.
+        self._seen_declared: set[str] | None = None
+        self._retry_keys: set[str] = set()
         self._bind = bind
         self._identity = identity
         self._registry = registry or client_registry()
@@ -295,6 +300,8 @@ class ScopedBackend(PreferenceBackend):
         self._migrating = False
         self._written.clear()
         self._resending.clear()
+        self._seen_declared = None
+        self._retry_keys.clear()
         self._timer.stop()
         self._debounce.stop()
         self._refresh_again = False
@@ -354,7 +361,10 @@ class ScopedBackend(PreferenceBackend):
                 continue
             found = True
             for name, item in _as_union(value).items():
-                if item is not None:
+                if item is None:  # as the resolver: None drops what broader layers gave it
+                    merged.pop(name, None)
+                    origins.pop(name, None)
+                else:
                     merged[name], origins[name] = item, str(origin)
         return (merged if found else MISSING), origins
 
@@ -577,7 +587,8 @@ class ScopedBackend(PreferenceBackend):
                 return
             if resend:
                 if is_transient(exc):
-                    return  # stays queued; sent again on the next refresh
+                    self._retry_keys.add(key)  # stays queued; sent again on the next refresh
+                    return
                 if not self._queued_is(scope, key, value):
                     return  # superseded by a newer save: nothing of this one to report
                 self._dequeue(scope, key)
@@ -681,8 +692,14 @@ class ScopedBackend(PreferenceBackend):
             self._after_online(scope, state)
             self.online.emit()
         if not state.offline:
-            waiting = self._approvals.keys() & {str(spec.get("key")) for spec in state.chain.specs}
-            if waiting:  # approved while this console missed the event
+            declared = {str(spec.get("key")) for spec in state.chain.specs}
+            # Approved while this console missed the event: newly declared keys only, so a
+            # scope that keeps answering "pending" is not asked again every refresh.
+            fresh = declared if self._seen_declared is None else declared - self._seen_declared
+            self._seen_declared = declared
+            waiting = self._approvals.keys() & (fresh | self._retry_keys)
+            self._retry_keys.clear()
+            if waiting:
                 self._resend_queued(waiting)
         self._maybe_refresh_again()
 

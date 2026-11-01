@@ -310,27 +310,33 @@ def test_protected_item_inherits_always_on(qtbot):
 
 
 def test_filter_menu_has_no_clear(qtbot, menus):  # noqa: F811
-    from qtpy.QtCore import QPoint, QTimer
+    from qtpy.QtCore import QPoint
     from qtpy.QtGui import QContextMenuEvent
-    from qtpy.QtWidgets import QApplication, QMenu
+    from qtpy.QtWidgets import QApplication
 
     prefs = CatalogPrefs(inherited={USER: {}})
     form, _model, row = catalog_form(qtbot, prefs)
     form.show()
     line = row.editor.filter_edit
-    seen: list[list[str]] = []
-
-    def grab_and_close():
-        for menu in QApplication.topLevelWidgets():
-            if isinstance(menu, QMenu) and menu.isVisible():
-                seen.append([a.text() for a in menu.actions()])
-                menu.close()
-
-    QTimer.singleShot(0, grab_and_close)  # the line edit's own menu may run a local loop
+    # The line edit's own menu is built by createStandardContextMenu and shown with a
+    # non-blocking popup; the row would instead build one with its Clear action and run
+    # it through SettingRow._popup (the `menus` fixture records that). Nothing here waits.
+    own = line.createStandardContextMenu()
+    assert own.actions()
+    assert all("Clear (not set)" not in a.text() for a in own.actions())
+    own.deleteLater()
     pos = QPoint(2, 2)
     QApplication.sendEvent(line, QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, line.mapToGlobal(pos)))
-    qtbot.wait(20)
-    grab_and_close()
-    assert not menus  # the row's menu was not shown
-    assert seen, "the line edit's own menu should open"
-    assert all("Clear (not set)" not in texts for texts in seen)
+    assert not menus  # the event reached the line edit, not the row's Clear menu
+    from qtpy.QtWidgets import QMenu
+    for popup in QApplication.topLevelWidgets():  # tidy: close the line edit's own popup
+        if isinstance(popup, QMenu):
+            popup.close()
+
+
+def test_console_none_item_drops_file_items_everywhere(files_pm):
+    # A None item in the console YAML drops the file layers' item, in get, origins and
+    # inherited_items alike (the resolver's semantics).
+    files_pm._local.store_quiet(KEY, {"a": None, "c": True})
+    assert files_pm.get(KEY) == {"b": True, "c": True}
+    assert files_pm.item_origins(KEY) == {"b": "beamline:7.0.1", "c": "local"}

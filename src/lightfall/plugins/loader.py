@@ -209,6 +209,7 @@ class PluginLoader(QObject):
         waiting = [i for i in self._registry.get_all() if not i.preload and i.status in (
             PluginStatus.QUEUED_LOAD, PluginStatus.DISABLED)]
         disabled = disabled_plugin_ids(i.unique_id for i in waiting)
+        reenabled = False
         for info in waiting:
             if info.status == PluginStatus.QUEUED_LOAD and info.unique_id in disabled:
                 self._load_queue.remove(info)
@@ -217,7 +218,11 @@ class PluginLoader(QObject):
             elif info.status == PluginStatus.DISABLED and info.unique_id not in disabled:
                 self._load_queue.append(info)
                 info.status = PluginStatus.QUEUED_LOAD
+                reenabled = True
                 logger.info("Plugin '{}' is enabled, loading", info.unique_id)
+        if reenabled:  # back in manifest (registration) order, not at the end
+            order = {i.unique_id: n for n, i in enumerate(self._registry.get_all())}
+            self._load_queue = deque(sorted(self._load_queue, key=lambda i: order[i.unique_id]))
 
     def _process_manifest(self, manifest: PluginManifest) -> None:
         """Process a manifest and queue its plugins.

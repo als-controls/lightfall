@@ -50,7 +50,11 @@ class LocalScopesBackend(PreferenceBackend):
             return {}
         res = self._store.resolve(key)
         origins = {name: str(scope) for name, scope in res.item_origins.items()}
-        origins.update(dict.fromkeys(self._console_items(key) or {}, "local"))
+        for name, item in (self._console_items(key) or {}).items():
+            if item is None:
+                origins.pop(name, None)
+            else:
+                origins[name] = "local"
         return origins
 
     def _console_items(self, key: str) -> dict[str, Any] | None:
@@ -66,7 +70,7 @@ class LocalScopesBackend(PreferenceBackend):
         value = self._local.get(key, None)
         if not isinstance(value, dict) or self._store.resolve(key).locked_at is not None:
             return None
-        return {k: v for k, v in value.items() if v is not None}
+        return dict(value)  # None items drop what the file layers gave them, as the resolver does
 
     def keys(self) -> set[str]:
         return set(self._keys)
@@ -81,7 +85,8 @@ class LocalScopesBackend(PreferenceBackend):
         if self._registry.get(key).policy == "union":
             local = self._console_items(key)
             if local is not None:
-                return {**(res.value if res.origin is not None else {}), **local}
+                merged = {**(res.value if res.origin is not None else {}), **local}
+                return {k: v for k, v in merged.items() if v is not None}
         value = self._local.get(key, MISSING)
         if value is not MISSING and value is not None:  # remove() stores None
             return value

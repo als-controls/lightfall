@@ -25,7 +25,7 @@ import threading
 import weakref
 from typing import TYPE_CHECKING, Any
 
-from lightfall.scopes.enablement import item_enabled
+from lightfall.scopes import enablement
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -147,9 +147,10 @@ class ToolRegistry:
         """Plugins enabled by the resolved ``tools.enabled`` map, sorted by priority."""
         if self._migrate_legacy_pref_if_needed():
             _migrate_tools_quietly()  # the allow-list just became the two lists: move them on
+        overrides = enablement.enabled_overrides(TOOLS_KEY)  # resolved once for the whole list
         result = [
             p for p in self._plugins.values()
-            if item_enabled(TOOLS_KEY, p.name, p.enabled_by_default)
+            if overrides.get(p.name, p.enabled_by_default)
         ]
         result.sort(key=lambda p: p.priority)
         return result
