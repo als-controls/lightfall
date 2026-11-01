@@ -42,13 +42,14 @@ class CatalogItem:
     default_enabled: bool = True
     protected: bool = False  # can never be set Off (shown read-only, fixed On)
     columns: tuple[str, ...] = ()  # extra read-only text, one per Catalog column
+    default: Any = None  # Mapping only: the code default value, shown as "<value> (default)"; None = none
 
 
 @dataclass(frozen=True)
 class EditorSpec:
     """Which editor widget to build for a field, and its parameters."""
 
-    kind: str  # "toggle" | "choice" | "integer" | "number" | "text" | "url" | "secret" | "catalog"
+    kind: str  # "toggle" | "choice" | "integer" | "number" | "text" | "url" | "secret" | "catalog" | "mapping"
     options: Sequence[tuple[Any, str]] | Callable[[], Sequence[tuple[Any, str]]] = ()
     minimum: float | None = None
     maximum: float | None = None
@@ -56,7 +57,8 @@ class EditorSpec:
     schemes: tuple[str, ...] = ("http", "https")  # url only
     require_host: bool = True  # url only
     items: Callable[[], Sequence[CatalogItem]] | None = None  # catalog only
-    columns: tuple[str, ...] = ()  # catalog only: headers of the items' extra text columns
+    columns: tuple[str, ...] = ()  # catalog/mapping only: headers of the items' extra text columns
+    value: EditorSpec | None = None  # mapping only: the editor of each item's value
 
 
 def Toggle() -> EditorSpec:  # noqa: N802
@@ -90,6 +92,17 @@ def Secret() -> EditorSpec:  # noqa: N802
 def Catalog(items: Callable[[], Sequence[CatalogItem]], columns: Sequence[str] = ()) -> EditorSpec:  # noqa: N802
     """An item-merged ``{id: bool}`` setting, shown as a table of ``items()`` with extra ``columns``."""
     return EditorSpec("catalog", items=items, columns=tuple(columns))
+
+
+def Mapping(  # noqa: N802
+    items: Callable[[], Sequence[CatalogItem]], value: EditorSpec, columns: Sequence[str] = ()
+) -> EditorSpec:
+    """An item-merged ``{id: value}`` setting: a table of ``items()`` with a ``value`` editor per row.
+
+    The field's ``unit`` is shown after each value. Code defaults come from
+    ``CatalogItem.default``.
+    """
+    return EditorSpec("mapping", items=items, columns=tuple(columns), value=value)
 
 
 @dataclass(frozen=True)

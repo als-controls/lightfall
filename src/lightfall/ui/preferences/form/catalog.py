@@ -5,6 +5,8 @@ fits the shown rows so the page scrolls instead of the table). ``CatalogEditor``
 edits an item-merged ``{id: bool}`` key: one row per discovered item with a
 "Not set / On / Off" combo for the shown scope and a muted "Inherited" column
 saying what broader scopes or the code default give the item.
+``MappingEditor`` is the same table for ``{id: value}`` keys: its "Here" cell
+is a value editor built from the spec's ``value``.
 """
 
 from __future__ import annotations
@@ -30,14 +32,16 @@ from lightfall.ui.preferences.form.editors import (
     NO_CLEAR_MENU,
     ChoiceEditor,
     FieldEditor,
+    create_editor,
     muted_color,
 )
-from lightfall.ui.preferences.form.schema import CatalogItem, EditorSpec
+from lightfall.ui.preferences.form.schema import CatalogItem, EditorSpec, SettingField
 
 HERE_HEADER = "Here"
 INHERITED_HEADER = "Inherited"
 DEFAULT_ORIGIN = "default"
 PROTECTED_TEXT = "On (always)"
+VALUE_COLUMN_WIDTH = 150  # a mapping row with a text or number editor
 ON_OFF_OPTIONS: tuple[tuple[bool, str], ...] = ((True, "On"), (False, "Off"))
 
 
@@ -227,3 +231,116 @@ class CatalogEditor(TableEditor):
         for item in self._items:
             if not item.protected:
                 self._combos[item.id].set_read_only(read_only)
+
+
+class MappingEditor(TableEditor):
+    """Table of ``spec.items()``; each "Here" cell edits that item's own value.
+
+    ``value()`` is the scope's ``{id: value}`` (None when empty). Items without
+    a value are absent; ids the catalog does not list are kept as they are. A
+    row whose editor holds invalid input is left out of ``value()`` (never its
+    stale value) and makes ``is_valid()`` False.
+    """
+
+    def __init__(self, spec: EditorSpec, unit: str = "", parent: QWidget | None = None) -> None:
+        if spec.value is None:
+            raise ValueError("a mapping needs a value editor spec")
+        self._value_spec = spec.value
+        self._unit = unit
+        self._columns = tuple(spec.columns)
+        super().__init__(
+            ("Name", *self._columns, HERE_HEADER, INHERITED_HEADER), "Filter by name", len(self._columns), parent
+        )
+        self._items: list[CatalogItem] = list(spec.items() if spec.items is not None else ())
+        self._editors: dict[str, FieldEditor] = {}
+        self._stored: dict[str, Any] = {}
+        self._inherited: dict[str, tuple[Any, str]] = {}
+        self._loading = False
+        self._here_column = 1 + len(self._columns)
+        self._inherited_column = self._here_column + 1
+        self.table.setRowCount(len(self._items))
+        field = SettingField("", spec.value, unit=unit)
+        for row, item in enumerate(self._items):
+            self._text_cell(row, 0, item.label).setToolTip(f"{item.label} ({item.id})")
+            for offset in range(len(self._columns)):
+                text = item.columns[offset] if offset < len(item.columns) else ""
+                self._text_cell(row, 1 + offset, text)
+            editor = create_editor(spec.value, field)
+            editor.changed.connect(self._on_item_changed)
+            self.table.setCellWidget(row, self._here_column, editor)
+            self._editors[item.id] = editor
+        if spec.value.kind in ("integer", "number", "text"):
+            # A line edit would otherwise size its column to its (wide) hint.
+            self.table.horizontalHeader().setSectionResizeMode(self._here_column, QHeaderView.ResizeMode.Fixed)
+            self.table.setColumnWidth(self._here_column, VALUE_COLUMN_WIDTH)
+        self._show_inherited()
+        self._finish_rows()
+
+    def _row_filter_text(self, row: int) -> str:
+        item = self._items[row]
+        return f"{item.label}\n{item.id}"
+
+    def _on_item_changed(self) -> None:
+        if not self._loading:
+            self.changed.emit()
+
+    def _format(self, value: Any) -> str:
+        """A value as the user knows it: a choice by its label, a number with the unit."""
+        if value is None:
+            return "Not set"
+        spec = self._value_spec
+        if spec.kind == "toggle":
+            return on_off_text(value)
+        if spec.kind == "choice":
+            options = spec.options() if callable(spec.options) else spec.options
+            return next((label for val, label in options if val == value), str(value))
+        text = str(value)
+        return f"{text} {self._unit}" if self._unit else text
+
+    def _show_inherited(self) -> None:
+        for row, item in enumerate(self._items):
+            value, origin = self._inherited.get(item.id, (item.default, DEFAULT_ORIGIN))
+            self._text_cell(row, self._inherited_column, f"{self._format(value)} ({origin})", muted=True)
+
+    # Mapping API --------------------------------------------------------
+    def item_editor(self, item_id: str) -> FieldEditor:
+        """The "Here" value editor of ``item_id`` (tests and screenshots)."""
+        return self._editors[item_id]
+
+    def item_combo(self, item_id: str) -> QComboBox:
+        """The combo of a choice-valued row."""
+        return self._editors[item_id].findChild(QComboBox)
+
+    def set_inherited(self, inherited: dict[str, tuple[Any, str]]) -> None:
+        """Show what broader scopes give each item: id -> (value, origin label)."""
+        self._inherited = dict(inherited)
+        self._show_inherited()
+
+    # FieldEditor --------------------------------------------------------
+    def value(self) -> dict[str, Any] | None:
+        known = {item.id for item in self._items}
+        out = {k: v for k, v in self._stored.items() if k not in known}
+        for item in self._items:
+            editor = self._editors[item.id]
+            if not editor.is_valid():
+                continue
+            value = editor.value()
+            if value is not None:
+                out[item.id] = value
+        return out or None
+
+    def set_value(self, value: Any) -> None:
+        self._stored = dict(value) if isinstance(value, dict) else {}
+        self._loading = True
+        try:
+            for item in self._items:
+                self._editors[item.id].set_value(self._stored.get(item.id))
+        finally:
+            self._loading = False
+
+    def is_valid(self) -> bool:
+        return all(editor.is_valid() for editor in self._editors.values())
+
+    def set_read_only(self, read_only: bool) -> None:
+        for editor in self._editors.values():
+            editor.set_read_only(read_only)

@@ -528,6 +528,10 @@ def create_editor(spec: EditorSpec, field: SettingField, parent: QWidget | None 
         from lightfall.ui.preferences.form.catalog import CatalogEditor
 
         editor = CatalogEditor(spec)
+    elif spec.kind == "mapping":
+        from lightfall.ui.preferences.form.catalog import MappingEditor
+
+        editor = MappingEditor(spec, field.unit)
     else:
         raise ValueError(f"unknown editor kind: {spec.kind!r}")
     if parent is not None:
