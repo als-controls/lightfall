@@ -24,7 +24,7 @@ class ActionItem(QWidget):
     on a ``QThreadFuture`` with the values from ``snapshot()`` (taken on the
     GUI thread). The returned text, or the exception's text in the error
     colour, then replaces the status. A result arriving after the widget is
-    gone is dropped.
+    gone is dropped. ``start()`` does the same as a click.
     """
 
     def __init__(self, action: Action, snapshot: Callable[[], FormValues], parent: QWidget | None = None) -> None:
@@ -34,10 +34,11 @@ class ActionItem(QWidget):
         self._enabled_by_predicate = True
         self._state = "idle"  # idle | working | done | failed
         self.future: QThreadFuture | None = None
+        self.shown_run_started = False  # run_on_show: started for this build of the section
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 4, 0, 4)
         self.button = QPushButton(action.label, self)
-        self.button.clicked.connect(self._start)
+        self.button.clicked.connect(self.start)
         layout.addWidget(self.button)
         self.status = QLabel(self)
         self.status.setWordWrap(True)
@@ -48,6 +49,10 @@ class ActionItem(QWidget):
         """Apply ``enabled_when``; a running action stays disabled until it finishes."""
         self._enabled_by_predicate = enabled
         self.button.setEnabled(enabled and self._state != "working")
+
+    @property
+    def is_running(self) -> bool:
+        return self._state == "working"
 
     def _color_for_state(self, widget: QWidget) -> QColor | None:
         if self._state == "working":
@@ -62,7 +67,8 @@ class ActionItem(QWidget):
         self._status_color.refresh()
         self.button.setEnabled(self._enabled_by_predicate and state != "working")
 
-    def _start(self) -> None:
+    def start(self) -> None:
+        """Run the action now, unless a run is already in flight."""
         if self._state == "working":
             return
         values = self._snapshot()
@@ -97,12 +103,18 @@ class InfoItem(QLabel):
         super().__init__(parent)
         self.info = info
         self._section = section
+        self._predicate_visible = True
         self.setWordWrap(True)
         RoleColor(self, TEXT_ROLES, muted_color)
         if info.field:  # about one field: line up with the row labels, spaced like a row
             # QLabel margin/indent, not contentsMargins: style-sheet polish resets the latter.
             self.setMargin(ROW_MARGIN_V + TEXT_INSET)
             self.setIndent(LABEL_INDENT - ROW_MARGIN_V - TEXT_INSET)
+
+    def set_predicate_visible(self, visible: bool) -> None:
+        """Apply ``visible_when``; a visible line still hides while its text is empty."""
+        self._predicate_visible = visible
+        self.setVisible(visible and bool(self.text()))
 
     def update_text(self, values: FormValues) -> None:
         if not callable(self.info.text):
@@ -118,4 +130,4 @@ class InfoItem(QLabel):
 
     def _show(self, text: str) -> None:
         self.setText(text)
-        self.setVisible(bool(text))
+        self.setVisible(self._predicate_visible and bool(text))

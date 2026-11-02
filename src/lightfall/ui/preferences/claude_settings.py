@@ -1,35 +1,38 @@
-"""Claude Assistant settings plugin for NCS.
+"""Settings -> Assistant: the ClaudeSettingsPlugin form page and ClaudeSettingsProvider.
 
-This module contains the ClaudeSettingsPlugin that allows users to
-configure the Claude AI assistant integration.
+ClaudeSettingsProvider reads the assistant preferences (with their defaults) for
+the rest of the app; ClaudeSettingsPlugin is the scope-aware Preferences page.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
+import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import shiboken6
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QDialog,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QSpinBox,
-    QVBoxLayout,
-    QWidget,
-)
+from lightfall_settings import SettingSpec
 
 from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.form.schema import (
+    Action,
+    Choice,
+    Custom,
+    FormValues,
+    Info,
+    Integer,
+    Secret,
+    Section,
+    SettingField,
+    Text,
+    Toggle,
+    Url,
+)
 from lightfall.ui.preferences.manager import PreferencesManager
-from lightfall.ui.theme import scaled_pt
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -257,13 +260,14 @@ class ClaudeSettingsProvider:
     def get_agy_project() -> str:
         """GCP project agy bills Gemini Enterprise usage to."""
         prefs = PreferencesManager.get_instance()
-        return prefs.get("agy_gcp_project", "lbl-gemini-enterprise-access")
+        default = "lbl-gemini-enterprise-access"
+        return prefs.get("agy_gcp_project", default) or default
 
     @staticmethod
     def get_agy_location() -> str:
         """GCP location for agy."""
         prefs = PreferencesManager.get_instance()
-        return prefs.get("agy_gcp_location", "global")
+        return prefs.get("agy_gcp_location", "global") or "global"
 
     @staticmethod
     def get_agy_model() -> str:
@@ -423,49 +427,249 @@ class ClaudeSettingsProvider:
         return prefs.get("claude_disable_betas", False)
 
 
-class ClaudeSettingsPlugin(SettingsPlugin):
-    """Settings plugin for the assistant (Claude Code or Gemini/agy).
+# --- Settings -> Assistant (scope-aware form) -----------------------------------
 
-    Allows users to configure:
-    - API endpoint (Anthropic, LBNL cborg, or custom)
-    - API key for authentication (or use OAuth via `claude login`)
-    - Model selection
-    - Max conversation turns
-    - Permission mode for tool execution
-    - Test connection functionality
+_SITE_SCOPES = frozenset({"facility", "beamline", "branch", "user"})
+_USER_SCOPES = frozenset({"user"})
+
+# Bounds of the agy sign-in poll (worker thread): check every 5 s for up to 5 min.
+AGY_SIGN_IN_TIMEOUT_S = 300.0
+AGY_SIGN_IN_POLL_S = 5.0
+
+_CLAUDE_NOT_FOUND = "Claude CLI not found. Install with: npm i -g @anthropic-ai/claude-code"
+_AGY_NOT_FOUND = "agy (Antigravity CLI) not found — install it or set its path"
+_ENV_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+
+
+def _redact(text: str, secret: str | None) -> str:
+    return text.replace(secret, "***") if secret else text
+
+
+def test_connection(base_url: str, api_key: str | None, model: str) -> str:
+    """Send a one-token request to ``base_url``'s messages endpoint; return the status text.
+
+    Blocking (up to 10 s): call it off the GUI thread. The API key never appears
+    in the returned text or in a log line.
     """
+    if not api_key:
+        return "No API key configured"
+    import httpx
 
-    def __init__(self) -> None:
-        """Initialize the Claude settings plugin."""
-        from lightfall.ui.preferences.agent_backend_section import AgentBackendSection
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    data = {"model": model, "max_tokens": 1, "messages": [{"role": "user", "content": "Hi"}]}
+    client_kwargs: dict = {"timeout": 10.0}
+    try:
+        from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
 
-        self._backend = AgentBackendSection()
-        self._backend.on_kind_changed = self._apply_backend_visibility
-        self._api_group: QGroupBox | None = None
-        self._model_layout: QFormLayout | None = None
-        self._widget: QWidget | None = None
-        # API Configuration
-        self._endpoint_combo: QComboBox | None = None
-        self._custom_url_edit: QLineEdit | None = None
-        self._api_key_edit: QLineEdit | None = None
-        self._auth_status_label: QLabel | None = None
-        self._oauth_status_label: QLabel | None = None
-        self._oauth_login_button: QPushButton | None = None
-        self._disable_betas_checkbox: QCheckBox | None = None
-        self._test_button: QPushButton | None = None
-        self._status_label: QLabel | None = None
-        # Model Configuration
-        self._model_combo: QComboBox | None = None
-        # Background /v1/models fetch for the combo: result applies only if
-        # its generation is current (see _fetch_models).
-        self._models_future = None
-        self._models_fetch_url: str | None = None
-        self._models_generation = 0
-        self._effort_combo: QComboBox | None = None
-        self._max_turns_spin: QSpinBox | None = None
-        # Behavior Configuration
-        self._permission_combo: QComboBox | None = None
-        self._auto_restore_checkbox: QCheckBox | None = None
+        proxy_url = ProxySettingsProvider.should_use_proxy_for_url(base_url)
+        if proxy_url:
+            client_kwargs["proxy"] = proxy_url
+    except Exception:  # noqa: BLE001 - proxy is best-effort
+        pass
+    try:
+        with httpx.Client(**client_kwargs) as client:
+            response = client.post(f"{base_url}/v1/messages", json=data, headers=headers)
+    except httpx.TimeoutException:
+        return "Connection timeout"
+    except httpx.ConnectError:
+        return "Could not connect to server"
+    except Exception as exc:  # noqa: BLE001 - shown to the user
+        text = _redact(str(exc), api_key)
+        logger.error("Test connection error: {}", text)
+        return f"Error: {text}"
+    if response.status_code == 200:
+        return "Connected!"
+    if response.status_code == 401:
+        return "Invalid API key"
+    if response.status_code == 403:
+        return "Access denied"
+    return f"Error: HTTP {response.status_code}"
+
+
+test_connection.__test__ = False  # not a pytest test, despite the name
+
+
+def _is_agy(values: FormValues) -> bool:
+    return values.effective("agent_backend", "claude-code") == "agy"
+
+
+def _is_claude(values: FormValues) -> bool:
+    return not _is_agy(values)
+
+
+def _is_custom_endpoint(values: FormValues) -> bool:
+    return values.effective("claude_endpoint", "anthropic") == "custom"
+
+
+def _agy_path(values: FormValues) -> str | None:
+    return (values.effective("agy_path", "") or "").strip() or None
+
+
+def _effective_api_key(values: FormValues) -> str | None:
+    key = (values.effective("claude_api_key", "") or "").strip()
+    if key:
+        return key
+    return os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
+
+
+def _effective_base_url(values: FormValues) -> str:
+    endpoint = values.effective("claude_endpoint", "anthropic")
+    if endpoint in ("anthropic", "cborg"):
+        return API_ENDPOINTS[endpoint][1]
+    if endpoint == "custom":
+        url = (values.effective("claude_custom_url", "") or "").strip()
+        if url:
+            return url.rstrip("/")
+    return API_ENDPOINTS["anthropic"][1]
+
+
+def _check_status(values: FormValues) -> str:
+    """Auth status of the chosen backend (worker thread; agy's check can take 30 s).
+
+    Served from the backend's 60 s auth cache (``refresh=False``): the action
+    API cannot tell a click from a run_on_show / refresh_on run, and the
+    automatic runs must not re-run agy every time the page opens. Sign-in
+    polls with ``refresh=True``, which refreshes that cache.
+    """
+    from lightfall.agents.backends import info
+
+    kind = values.effective("agent_backend", "claude-code")
+    try:
+        status = info.backend_info(kind, agy_path=_agy_path(values)).auth_status(refresh=False)
+    except Exception as exc:  # noqa: BLE001 - shown as the action's error
+        raise RuntimeError(f"Couldn't check: {exc}") from exc
+    return ("✓ " if status.ok else "") + status.detail
+
+
+def _oauth_text(values: FormValues) -> str:
+    _ok, message = check_oauth_status()
+    return f"OAuth: {message}"
+
+
+def _auth_source_text(values: FormValues) -> str:
+    """Which credential the assistant would use (never the credential itself)."""
+    if (values.effective("claude_api_key", "") or "").strip():
+        return "Using API key from settings"
+    for name in _ENV_KEYS:
+        if os.getenv(name):
+            return f"Using env var {name}"
+    authenticated, _ = check_oauth_status()
+    if authenticated:
+        return "Using OAuth (no API key needed)"
+    return "No authentication configured"
+
+
+def _claude_login(values: FormValues) -> str:
+    """Start ``claude login`` (it opens the browser); worker thread."""
+    try:
+        if sys.platform == "win32":
+            subprocess.Popen(["claude", "login"], shell=True)
+        else:
+            subprocess.Popen(["claude", "login"])
+    except FileNotFoundError:
+        return _CLAUDE_NOT_FOUND
+    except Exception as exc:  # noqa: BLE001 - shown as the action's error
+        logger.error("OAuth login error: {}", exc)
+        raise RuntimeError(f"Error: {exc}") from exc
+    return "Browser opened — complete login there"
+
+
+def _test_connection_action(values: FormValues) -> str:
+    model = values.effective("claude_model", "") or "claude-sonnet"
+    return test_connection(_effective_base_url(values), _effective_api_key(values), model)
+
+
+def _wait(seconds: float) -> bool:
+    """Sleep ``seconds`` in short steps; False if the worker thread was asked to stop."""
+    from qtpy.QtCore import QThread
+
+    end = time.monotonic() + max(0.0, seconds)
+    while True:
+        thread = QThread.currentThread()
+        if thread is not None and thread.isInterruptionRequested():
+            return False
+        left = end - time.monotonic()
+        if left <= 0:
+            return True
+        time.sleep(min(0.1, left))
+
+
+def _agy_sign_in(values: FormValues) -> str:
+    """Open agy's Google sign-in in a console, then poll until signed in (worker thread).
+
+    Polls every ``AGY_SIGN_IN_POLL_S`` for up to ``AGY_SIGN_IN_TIMEOUT_S``; never touches widgets.
+    """
+    from lightfall.agents.backends import info as backend_info_mod
+
+    info = backend_info_mod.backend_info("agy", agy_path=_agy_path(values))
+    argv = info.sign_in_argv()
+    if argv is None:
+        return _AGY_NOT_FOUND
+    kwargs: dict = {"env": {**os.environ, **info.sign_in_env()}}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+    try:
+        subprocess.Popen(argv, **kwargs)
+    except Exception as exc:  # noqa: BLE001 - shown as the action's error
+        raise RuntimeError(f"Couldn't start agy: {exc}") from exc
+    deadline = time.monotonic() + AGY_SIGN_IN_TIMEOUT_S
+    while _wait(min(AGY_SIGN_IN_POLL_S, max(0.0, deadline - time.monotonic()))):
+        status = info.auth_status(refresh=True)
+        if status.ok:
+            return "✓ " + status.detail
+        if time.monotonic() >= deadline:
+            break
+    return "Not signed in — try again"
+
+
+def _claude_model_editor(field: SettingField):
+    # assistant_editors imports this module: import it when the editor is built.
+    from lightfall.ui.preferences.assistant_editors import claude_model_editor
+
+    return claude_model_editor(field)
+
+
+def _agy_model_editor(field: SettingField):
+    from lightfall.ui.preferences.assistant_editors import agy_model_editor
+
+    return agy_model_editor(field)
+
+
+_PERMISSION_DESCRIPTION = (
+    "How the assistant handles tool execution. "
+    "default asks for confirmation before actions. "
+    "acceptEdits auto-accepts file edits. "
+    "bypassPermissions asks for no confirmations (use for automation)."
+)
+
+_SPECS: tuple[tuple[str, type, frozenset[str], str], ...] = (
+    ("agent_backend", str, _SITE_SCOPES, "Assistant backend"),
+    ("claude_endpoint", str, _SITE_SCOPES, "API endpoint"),
+    ("claude_custom_url", str, _SITE_SCOPES, "Custom URL"),
+    ("claude_disable_betas", bool, _SITE_SCOPES, "Disable beta features"),
+    ("agy_gcp_project", str, _SITE_SCOPES, "GCP project"),
+    ("agy_gcp_location", str, _SITE_SCOPES, "GCP location"),
+    ("claude_model", str, _USER_SCOPES, "Claude model"),
+    ("claude_effort", str, _USER_SCOPES, "Effort"),
+    ("claude_max_turns", int, _USER_SCOPES, "Max turns"),
+    ("claude_permission_mode", str, _USER_SCOPES, "Permission mode"),
+    ("claude_auto_restore", bool, _USER_SCOPES, "Restore last session on launch"),
+    ("agy_model", str, _USER_SCOPES, "agy model"),
+    ("agy_effort", str, _USER_SCOPES, "agy effort"),
+)
+
+
+class ClaudeSettingsPlugin(SettingsPlugin):
+    """Settings -> Assistant: backend, Claude endpoint and sign-in, Gemini (agy), model, behavior.
+
+    A form page: the site keys (backend, endpoint, agy project) may be set from the
+    facility down to the user, the personal ones (model, effort, limits, behavior)
+    per user only, and the API key and agy path at This console only.
+    """
 
     @property
     def name(self) -> str:
@@ -492,606 +696,91 @@ class ClaudeSettingsPlugin(SettingsPlugin):
         """Return sort order (lower = higher in list)."""
         return 60
 
-    def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        """Create the settings widget.
-
-        Args:
-            parent: Parent widget (the dialog).
-
-        Returns:
-            A QWidget containing the Claude settings controls.
-        """
-        widget = QWidget(parent)
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        layout.addWidget(self._backend.create_backend_group())
-
-        # API Configuration group (Claude only)
-        api_group = self._create_api_group()
-        api_group.setObjectName("assistantClaudeApiGroup")
-        self._api_group = api_group
-        layout.addWidget(api_group)
-
-        layout.addWidget(self._backend.create_gemini_group())
-
-        # Model Configuration group
-        model_group = self._create_model_group()
-        layout.addWidget(model_group)
-
-        # Behavior Configuration group
-        behavior_group = self._create_behavior_group()
-        layout.addWidget(behavior_group)
-
-        layout.addStretch()
-
-        self._widget = widget
-        # No SettingsPlugin teardown hook exists, and MainWindow keeps the
-        # finished dialog (and so this page) alive: stop sign-in polling when
-        # the dialog closes (accept or reject both emit finished).
-        if isinstance(parent, QDialog):
-            parent.finished.connect(lambda _result: self._backend.stop())
-        self._update_custom_url_state()
-        self._update_betas_recommendation()
-        self._update_oauth_status()
-        self._update_auth_status()
-        return widget
-
-    def _create_api_group(self) -> QGroupBox:
-        """Create the API Configuration group box.
-
-        Returns:
-            The configured QGroupBox.
-        """
-        group = QGroupBox("API Configuration")
-        layout = QFormLayout(group)
-
-        # API Endpoint selector
-        self._endpoint_combo = QComboBox()
-        for key, (label, _) in API_ENDPOINTS.items():
-            self._endpoint_combo.addItem(label, key)
-        self._endpoint_combo.currentIndexChanged.connect(self._on_endpoint_changed)
-        layout.addRow("API Endpoint:", self._endpoint_combo)
-
-        # Custom URL field
-        self._custom_url_edit = QLineEdit()
-        self._custom_url_edit.setPlaceholderText("https://your-api-server.com")
-        layout.addRow("Custom URL:", self._custom_url_edit)
-
-        # Disable betas checkbox (for proxy compatibility)
-        self._disable_betas_checkbox = QCheckBox("Disable beta features (for proxy compatibility)")
-        self._disable_betas_checkbox.setToolTip(
-            "Disable beta headers that may not be supported by proxy servers.\n"
-            "Enable this if you see errors about unsupported beta headers."
-        )
-        layout.addRow("", self._disable_betas_checkbox)
-
-        # Authentication section header
-        auth_header = QLabel("<b>Authentication</b>")
-        layout.addRow(auth_header)
-
-        # OAuth status section
-        oauth_layout = QHBoxLayout()
-        self._oauth_status_label = QLabel()
-        oauth_layout.addWidget(self._oauth_status_label)
-
-        self._oauth_login_button = QPushButton("Login with Browser")
-        self._oauth_login_button.setToolTip("Run 'claude login' to authenticate with your Claude subscription")
-        self._oauth_login_button.clicked.connect(self._on_oauth_login)
-        oauth_layout.addWidget(self._oauth_login_button)
-        oauth_layout.addStretch()
-
-        layout.addRow("OAuth Status:", oauth_layout)
-
-        # API Key field (alternative to OAuth)
-        self._api_key_edit = QLineEdit()
-        self._api_key_edit.setPlaceholderText("sk-ant-... (optional if using OAuth)")
-        self._api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self._api_key_edit.textChanged.connect(self._update_auth_status)
-        layout.addRow("API Key:", self._api_key_edit)
-
-        # Authentication status label
-        self._auth_status_label = QLabel()
-        self._auth_status_label.setStyleSheet("font-style: italic;")
-        layout.addRow("", self._auth_status_label)
-
-        # Test connection button and status
-        test_layout = QHBoxLayout()
-        self._test_button = QPushButton("Test Connection")
-        self._test_button.clicked.connect(self._on_test_connection)
-        test_layout.addWidget(self._test_button)
-
-        self._status_label = QLabel()
-        test_layout.addWidget(self._status_label)
-        test_layout.addStretch()
-
-        layout.addRow(test_layout)
-
-        return group
-
-    def _create_model_group(self) -> QGroupBox:
-        """Create the Model Configuration group box.
-
-        Returns:
-            The configured QGroupBox.
-        """
-        group = QGroupBox("Model and Limits")
-        layout = QFormLayout(group)
-        self._model_layout = layout
-
-        # Model selector (editable combo for custom models)
-        self._model_combo = QComboBox()
-        self._model_combo.setEditable(True)
-        for model in MODEL_OPTIONS:
-            self._model_combo.addItem(model)
-        layout.addRow("Claude model:", self._model_combo)
-
-        # Reasoning effort selector
-        self._effort_combo = QComboBox()
-        for level in EFFORT_OPTIONS:
-            self._effort_combo.addItem(level or "default (high)", level)
-        self._effort_combo.setToolTip(
-            "Reasoning effort. xhigh/max are Opus-only and fall back to high "
-            "on other models. Changing this restarts the conversation."
-        )
-        layout.addRow("Effort:", self._effort_combo)
-
-        # Max turns spinner
-        self._max_turns_spin = QSpinBox()
-        self._max_turns_spin.setRange(1, 10000)
-        self._max_turns_spin.setValue(20)
-        self._max_turns_spin.setToolTip(
-            "Maximum number of conversation turns before stopping"
-        )
-        layout.addRow("Max Turns:", self._max_turns_spin)
-
-        return group
-
-    def _apply_backend_visibility(self, kind: str) -> None:
-        """Show only the selected backend's controls (hidden, not disabled)."""
-        is_claude = kind != "agy"
-        if self._api_group is not None:
-            self._api_group.setVisible(is_claude)
-        if self._model_layout is not None and self._model_combo is not None:
-            self._model_layout.setRowVisible(self._model_combo, is_claude)
-
-    def _create_behavior_group(self) -> QGroupBox:
-        """Create the Behavior Configuration group box.
-
-        Returns:
-            The configured QGroupBox.
-        """
-        group = QGroupBox("Behavior Configuration")
-        layout = QFormLayout(group)
-
-        # Permission mode selector
-        self._permission_combo = QComboBox()
-        for key, description in PERMISSION_MODES.items():
-            self._permission_combo.addItem(f"{key} - {description}", key)
-        layout.addRow("Permission Mode:", self._permission_combo)
-
-        # Description
-        desc = QLabel(
-            "Permission mode controls how the assistant handles tool execution:\n"
-            "- default: Asks for confirmation before actions\n"
-            "- acceptEdits: Auto-accepts file edits\n"
-            "- bypassPermissions: No confirmations (use for automation)"
-        )
-        desc.setWordWrap(True)
-        desc.setStyleSheet("color: gray;")
-        layout.addRow(desc)
-
-        # Proxy compatibility warning
-        proxy_note = QLabel(
-            "<b>Note:</b> Some proxy servers (LBNL cborg, custom) may not support all "
-            "Claude Code CLI features. If you see errors about unsupported beta headers, "
-            "try using the direct Anthropic API endpoint instead."
-        )
-        proxy_note.setWordWrap(True)
-        proxy_note.setStyleSheet(f"color: #666; font-size: {scaled_pt(9)}pt;")
-        layout.addRow(proxy_note)
-
-        # Auto-restore last session on launch
-        self._auto_restore_checkbox = QCheckBox("Restore last session on launch")
-        self._auto_restore_checkbox.setToolTip(
-            "Resume the most recent conversation when the panel opens."
-        )
-        layout.addRow("", self._auto_restore_checkbox)
-
-        return group
-
-    def _on_endpoint_changed(self, index: int) -> None:
-        """Handle endpoint selection change."""
-        self._update_custom_url_state()
-        self._update_betas_recommendation()
-
-    def _update_custom_url_state(self) -> None:
-        """Update custom URL field enabled state based on endpoint selection."""
-        if self._endpoint_combo and self._custom_url_edit:
-            endpoint_key = self._endpoint_combo.currentData()
-            is_custom = endpoint_key == "custom"
-            self._custom_url_edit.setEnabled(is_custom)
-            if not is_custom:
-                self._custom_url_edit.clear()
-
-    def _update_betas_recommendation(self) -> None:
-        """Update betas checkbox recommendation based on endpoint."""
-        if not self._endpoint_combo or not self._disable_betas_checkbox:
-            return
-
-        endpoint_key = self._endpoint_combo.currentData()
-        is_proxy = endpoint_key != "anthropic"
-
-        if is_proxy:
-            self._disable_betas_checkbox.setToolTip(
-                "RECOMMENDED for proxy endpoints.\n"
-                "Disable beta headers that may not be supported by proxy servers.\n"
-                "Enable this if you see errors about unsupported beta headers."
-            )
-        else:
-            self._disable_betas_checkbox.setToolTip(
-                "Disable beta features. Usually not needed for direct Anthropic API."
-            )
-
-    def _on_oauth_login(self) -> None:
-        """Handle OAuth login button click."""
-        import subprocess
-        import sys
-
-        if self._oauth_status_label:
-            self._oauth_status_label.setText("Opening browser...")
-            self._oauth_status_label.setStyleSheet("color: gray; font-style: italic;")
-
-        from PySide6.QtCore import QCoreApplication
-        QCoreApplication.processEvents()
-
-        try:
-            # Run claude login
-            if sys.platform == "win32":
-                subprocess.Popen(["claude", "login"], shell=True)
-            else:
-                subprocess.Popen(["claude", "login"])
-
-            if self._oauth_status_label:
-                self._oauth_status_label.setText("Browser opened - complete login there")
-                self._oauth_status_label.setStyleSheet("color: #0066cc; font-style: italic;")
-        except FileNotFoundError:
-            if self._oauth_status_label:
-                self._oauth_status_label.setText("Claude CLI not found. Install with: npm i -g @anthropic-ai/claude-code")
-                self._oauth_status_label.setStyleSheet("color: red; font-style: italic;")
-        except Exception as e:
-            logger.error("OAuth login error: {}", e)
-            if self._oauth_status_label:
-                self._oauth_status_label.setText(f"Error: {e}")
-                self._oauth_status_label.setStyleSheet("color: red; font-style: italic;")
-
-    def _update_oauth_status(self) -> None:
-        """Update the OAuth status display."""
-        if not self._oauth_status_label:
-            return
-
-        authenticated, message = check_oauth_status()
-        if authenticated:
-            self._oauth_status_label.setText(message)
-            self._oauth_status_label.setStyleSheet("color: green; font-style: italic;")
-        else:
-            self._oauth_status_label.setText(message)
-            self._oauth_status_label.setStyleSheet("color: gray; font-style: italic;")
-
-    def _update_auth_status(self) -> None:
-        """Update the authentication status label."""
-        if not self._auth_status_label or not self._api_key_edit:
-            return
-
-        key_text = self._api_key_edit.text().strip()
-        if key_text:
-            self._auth_status_label.setText("Using API key from settings")
-            self._auth_status_label.setStyleSheet("color: green; font-style: italic;")
-        else:
-            # Check for environment variables
-            env_key = os.getenv("ANTHROPIC_API_KEY")
-            env_token = os.getenv("ANTHROPIC_AUTH_TOKEN")
-            if env_key:
-                self._auth_status_label.setText("Using env var ANTHROPIC_API_KEY")
-                self._auth_status_label.setStyleSheet("color: green; font-style: italic;")
-            elif env_token:
-                self._auth_status_label.setText("Using env var ANTHROPIC_AUTH_TOKEN")
-                self._auth_status_label.setStyleSheet("color: green; font-style: italic;")
-            else:
-                # Check OAuth
-                authenticated, _ = check_oauth_status()
-                if authenticated:
-                    self._auth_status_label.setText("Using OAuth (no API key needed)")
-                    self._auth_status_label.setStyleSheet("color: green; font-style: italic;")
-                else:
-                    self._auth_status_label.setText("No authentication configured")
-                    self._auth_status_label.setStyleSheet("color: orange; font-style: italic;")
-
-    def _on_test_connection(self) -> None:
-        """Handle test connection button click."""
-        if not self._status_label:
-            return
-
-        # Get current settings from UI
-        api_key = self._get_effective_api_key()
-        base_url = self._get_effective_base_url()
-
-        if not api_key:
-            self._status_label.setText("No API key configured")
-            self._status_label.setStyleSheet("color: orange;")
-            return
-
-        self._status_label.setText("Testing...")
-        self._status_label.setStyleSheet("color: gray;")
-
-        # Force UI update
-        from PySide6.QtCore import QCoreApplication
-
-        QCoreApplication.processEvents()
-
-        try:
-            import httpx
-
-            # Make a minimal API request to test the connection
-            headers = {
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            }
-
-            # Use the messages endpoint with a minimal request
-            url = f"{base_url}/v1/messages"
-            model = self._model_combo.currentText() if self._model_combo else "claude-sonnet"
-            data = {
-                "model": model,
-                "max_tokens": 1,
-                "messages": [{"role": "user", "content": "Hi"}],
-            }
-
-            # Use proxy settings if configured
-            client_kwargs: dict = {"timeout": 10.0}
-            try:
-                from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
-                proxy_url = ProxySettingsProvider.should_use_proxy_for_url(base_url)
-                if proxy_url:
-                    client_kwargs["proxy"] = proxy_url
-            except Exception:
-                pass
-
-            with httpx.Client(**client_kwargs) as client:
-                response = client.post(url, json=data, headers=headers)
-
-                if response.status_code == 200:
-                    self._status_label.setText("Connected!")
-                    self._status_label.setStyleSheet("color: green;")
-                elif response.status_code == 401:
-                    self._status_label.setText("Invalid API key")
-                    self._status_label.setStyleSheet("color: red;")
-                elif response.status_code == 403:
-                    self._status_label.setText("Access denied")
-                    self._status_label.setStyleSheet("color: red;")
-                else:
-                    self._status_label.setText(f"Error: HTTP {response.status_code}")
-                    self._status_label.setStyleSheet("color: red;")
-
-        except httpx.TimeoutException:
-            self._status_label.setText("Connection timeout")
-            self._status_label.setStyleSheet("color: red;")
-        except httpx.ConnectError:
-            self._status_label.setText("Could not connect to server")
-            self._status_label.setStyleSheet("color: red;")
-        except Exception as e:
-            self._status_label.setText(f"Error: {e}")
-            self._status_label.setStyleSheet("color: red;")
-            logger.error("Test connection error: {}", e)
-
-    def _get_effective_api_key(self) -> str | None:
-        """Get the effective API key from UI or environment.
-
-        Returns:
-            The API key or None.
-        """
-        if self._api_key_edit:
-            key = self._api_key_edit.text().strip()
-            if key:
-                return key
-        return os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
-
-    def _get_effective_base_url(self) -> str:
-        """Get the effective base URL from UI.
-
-        Returns:
-            The base URL string.
-        """
-        if self._endpoint_combo:
-            endpoint_key = self._endpoint_combo.currentData()
-            if endpoint_key == "anthropic":
-                return "https://api.anthropic.com"
-            elif endpoint_key == "cborg":
-                return "https://api.cborg.lbl.gov"
-            elif endpoint_key == "custom" and self._custom_url_edit:
-                url = self._custom_url_edit.text().strip()
-                if url:
-                    return url.rstrip("/")
-        return "https://api.anthropic.com"
-
-    def load_settings(self) -> None:
-        """Load current settings into the widget.
-
-        Populates the controls with current values from PreferencesManager.
-        """
-        prefs = PreferencesManager.get_instance()
-
-        # Load endpoint selection
-        if self._endpoint_combo:
-            endpoint = prefs.get("claude_endpoint", "anthropic")
-            index = self._endpoint_combo.findData(endpoint)
-            if index >= 0:
-                self._endpoint_combo.setCurrentIndex(index)
-
-        # Load custom URL
-        if self._custom_url_edit:
-            self._custom_url_edit.setText(prefs.get("claude_custom_url", ""))
-
-        # Load disable betas setting
-        if self._disable_betas_checkbox:
-            self._disable_betas_checkbox.setChecked(prefs.get("claude_disable_betas", False))
-
-        # Load API key
-        if self._api_key_edit:
-            self._api_key_edit.setText(prefs.get("claude_api_key", ""))
-
-        # Load model: the cached (or preset) list now, the endpoint's list
-        # when the background fetch lands.
-        if self._model_combo:
-            base_url = self._get_effective_base_url()
-            self._fill_model_combo(cached_model_ids(base_url), prefs.get("claude_model", ""))
-            self._fetch_models(base_url)
-
-        # Load effort
-        if getattr(self, "_effort_combo", None):
-            effort = prefs.get("claude_effort", "")
-            idx = self._effort_combo.findData(effort)
-            self._effort_combo.setCurrentIndex(idx if idx >= 0 else 0)
-
-        # Load max turns
-        if self._max_turns_spin:
-            self._max_turns_spin.setValue(prefs.get("claude_max_turns", 20))
-
-        # Load permission mode
-        if self._permission_combo:
-            mode = prefs.get("claude_permission_mode", "default")
-            index = self._permission_combo.findData(mode)
-            if index >= 0:
-                self._permission_combo.setCurrentIndex(index)
-
-        if getattr(self, "_auto_restore_checkbox", None):
-            self._auto_restore_checkbox.setChecked(
-                bool(prefs.get("claude_auto_restore", False))
-            )
-
-        # Update status labels
-        if self._status_label:
-            self._status_label.setText("")
-
-        self._update_custom_url_state()
-        self._update_betas_recommendation()
-        self._update_oauth_status()
-        self._update_auth_status()
-        self._backend.load()
-
-    def _fill_model_combo(self, discovered: list[str] | None, current: str) -> None:
-        combo = self._model_combo
-        combo.blockSignals(True)
-        combo.clear()
-        combo.addItem("")  # Default (no forced model)
-        for m in (discovered if discovered else [x for x in MODEL_OPTIONS if x]):
-            combo.addItem(m)
-        combo.blockSignals(False)
-        index = combo.findText(current)
-        if index >= 0:
-            combo.setCurrentIndex(index)
-        else:
-            combo.setEditText(current)
-
-    def _fetch_models(self, base_url: str) -> None:
-        """Fetch ``base_url``'s model list off the GUI thread (no-op if cached).
-
-        A fetch already running for the same URL is left to finish rather than
-        stacked; one for another URL is superseded (its result is dropped).
-        """
-        from lightfall.utils.threads import QThreadFuture
-
-        if cached_model_ids(base_url) is not None:
-            self._models_generation += 1  # drop any in-flight result: the cache is current
-            return
-        running = self._models_future
-        if (running is not None and running.isRunning()
-                and self._models_fetch_url == base_url):
-            return
-        self._models_generation += 1
-        gen = self._models_generation
-        api_key = self._get_effective_api_key()
-        self._models_fetch_url = base_url
-        self._models_future = QThreadFuture(
-            lambda: get_cached_models(base_url, api_key),
-            callback_slot=lambda ids, g=gen: self._on_models_fetched(ids, g),
-            except_slot=lambda exc: logger.debug("Model list fetch failed: {}", exc),
-            name="assistant-claude-models", log_exceptions=False,
-        )
-        self._models_future.start()
-
-    def _on_models_fetched(self, ids: list[str] | None, generation: int) -> None:
-        combo = self._model_combo
-        if (generation != self._models_generation or not ids
-                or combo is None or not shiboken6.isValid(combo)):
-            return
-        self._fill_model_combo(ids, combo.currentText())
-
-    def save_settings(self) -> None:
-        """Save widget values to persistent storage.
-
-        Writes the current control values to PreferencesManager.
-        """
-        prefs = PreferencesManager.get_instance()
-
-        # Save endpoint
-        if self._endpoint_combo:
-            endpoint = self._endpoint_combo.currentData()
-            prefs.set("claude_endpoint", endpoint)
-
-        # Save custom URL
-        if self._custom_url_edit:
-            prefs.set("claude_custom_url", self._custom_url_edit.text().strip())
-
-        # Save disable betas setting
-        if self._disable_betas_checkbox:
-            prefs.set("claude_disable_betas", self._disable_betas_checkbox.isChecked())
-
-        # Save API key
-        if self._api_key_edit:
-            prefs.set("claude_api_key", self._api_key_edit.text().strip())
-
-        # Save model
-        if self._model_combo:
-            prefs.set("claude_model", self._model_combo.currentText())
-
-        # Save effort
-        if getattr(self, "_effort_combo", None):
-            prefs.set("claude_effort", self._effort_combo.currentData())
-
-        # Save max turns
-        if self._max_turns_spin:
-            prefs.set("claude_max_turns", self._max_turns_spin.value())
-
-        # Save permission mode
-        if self._permission_combo:
-            mode = self._permission_combo.currentData()
-            prefs.set("claude_permission_mode", mode)
-
-        if getattr(self, "_auto_restore_checkbox", None):
-            prefs.set("claude_auto_restore", self._auto_restore_checkbox.isChecked())
-
-        self._backend.save()
-
-        logger.info("Assistant settings saved")
-
-    def validate(self) -> list[str]:
-        """Validate current widget values.
-
-        Returns:
-            List of error messages, or empty list if valid.
-        """
-        errors = []
-
-        # Check custom URL if custom endpoint is selected
-        if self._endpoint_combo and self._custom_url_edit:
-            endpoint_key = self._endpoint_combo.currentData()
-            if endpoint_key == "custom":
-                url = self._custom_url_edit.text().strip()
-                if not url:
-                    errors.append("Custom URL is required when using custom endpoint")
-                elif not url.startswith(("http://", "https://")):
-                    errors.append("Custom URL must start with http:// or https://")
-
-        return errors
+    def specs(self) -> Sequence[SettingSpec]:
+        # claude_api_key (secret) and agy_path (LOCAL_ONLY_KEYS) are console-only: no spec.
+        return [SettingSpec(key=key, type=tp, scopes=scopes, label=label) for key, tp, scopes, label in _SPECS]
+
+    def sections(self) -> Sequence[Section]:
+        from lightfall.ui.preferences.agent_backend_section import BACKEND_KINDS
+
+        return [
+            Section("Backend", [
+                SettingField("agent_backend", Choice(list(BACKEND_KINDS)), label="Assistant backend"),
+                Action("Check status", run=_check_status, run_on_show=True, refresh_on=("agent_backend",)),
+            ]),
+            Section("Claude endpoint", [
+                SettingField(
+                    "claude_endpoint", Choice([(k, label) for k, (label, _url) in API_ENDPOINTS.items()]),
+                    label="API endpoint", visible_when=_is_claude,
+                ),
+                SettingField(
+                    "claude_custom_url", Url(blank_is_unset=True), label="Custom URL", placeholder="https://your-api-server.com",
+                    visible_when=_is_claude, enabled_when=_is_custom_endpoint,
+                ),
+                SettingField(
+                    "claude_disable_betas", Toggle(), label="Disable beta features",
+                    description="For proxy servers that reject beta headers "
+                                "(recommended for cborg and custom endpoints).",
+                    visible_when=_is_claude,
+                ),
+            ]),
+            Section("Claude sign-in", [
+                Info(_oauth_text, visible_when=_is_claude),
+                Action("Log in with browser", run=_claude_login, visible_when=_is_claude),
+                SettingField(
+                    "claude_api_key", Secret(), label="API key",
+                    placeholder="sk-ant-... (optional if using OAuth)", visible_when=_is_claude,
+                ),
+                Info(_auth_source_text, visible_when=_is_claude),
+                Action("Test connection", run=_test_connection_action, visible_when=_is_claude),
+            ]),
+            Section("Gemini (agy)", [
+                SettingField(
+                    "agy_path", Text(blank_is_unset=True), label="agy executable",
+                    placeholder="auto (PATH or %LOCALAPPDATA%\\agy\\bin)", visible_when=_is_agy,
+                ),
+                SettingField(
+                    "agy_gcp_project", Text(blank_is_unset=True), label="GCP project",
+                    placeholder="lbl-gemini-enterprise-access", visible_when=_is_agy,
+                ),
+                SettingField(
+                    "agy_gcp_location", Text(blank_is_unset=True), label="GCP location", placeholder="global", visible_when=_is_agy,
+                ),
+                SettingField(
+                    "agy_model", Custom(_agy_model_editor), label="Model", companions=("agy_effort",),
+                    visible_when=_is_agy,
+                ),
+                Action("Sign in…", run=_agy_sign_in, visible_when=_is_agy),
+            ]),
+            Section("Model and limits", [
+                SettingField(
+                    "claude_model", Custom(_claude_model_editor), label="Claude model", visible_when=_is_claude,
+                ),
+                SettingField(
+                    "claude_effort", Choice([(lv, lv) for lv in EFFORT_OPTIONS if lv]), label="Effort",
+                    description="Reasoning effort. xhigh and max are Opus-only and fall back to high "
+                                "on other models. Changing it restarts the conversation.",
+                    visible_when=_is_claude,
+                ),
+                SettingField(
+                    "claude_max_turns", Integer(1, 10000), label="Max turns", placeholder="20",
+                    description="Maximum number of conversation turns before stopping.",
+                ),
+            ]),
+            Section("Behavior", [
+                SettingField(
+                    "claude_permission_mode",
+                    Choice([(k, f"{k} - {d}") for k, d in PERMISSION_MODES.items()]),
+                    label="Permission mode", description=_PERMISSION_DESCRIPTION,
+                ),
+                SettingField(
+                    "claude_auto_restore", Toggle(), label="Restore last session on launch",
+                    description="Resume the most recent conversation when the panel opens.",
+                ),
+            ]),
+        ]
+
+    def validate_values(self, values: FormValues) -> list[str]:
+        if _is_custom_endpoint(values) and not (values.effective("claude_custom_url", "") or "").strip():
+            return ["Custom URL is required when using custom endpoint"]
+        return []

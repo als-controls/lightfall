@@ -62,6 +62,8 @@ class EditorSpec:
     step: float | None = None
     schemes: tuple[str, ...] = ("http", "https")  # url only
     require_host: bool = True  # url only
+    # text/url only: a blank (whitespace-only) entry means Not set (None) instead of the value "".
+    blank_is_unset: bool = False
     items: Callable[[], Sequence[CatalogItem]] | None = None  # catalog only
     columns: tuple[str, ...] = ()  # catalog/mapping only: headers of the items' extra text columns
     value: EditorSpec | None = None  # mapping only: the editor of each item's value
@@ -84,12 +86,14 @@ def Number(minimum: float | None = None, maximum: float | None = None, step: flo
     return EditorSpec("number", minimum=minimum, maximum=maximum, step=step)
 
 
-def Text() -> EditorSpec:  # noqa: N802
-    return EditorSpec("text")
+def Text(blank_is_unset: bool = False) -> EditorSpec:  # noqa: N802
+    return EditorSpec("text", blank_is_unset=blank_is_unset)
 
 
-def Url(schemes: tuple[str, ...] = ("http", "https"), require_host: bool = True) -> EditorSpec:  # noqa: N802
-    return EditorSpec("url", schemes=tuple(schemes), require_host=require_host)
+def Url(  # noqa: N802
+    schemes: tuple[str, ...] = ("http", "https"), require_host: bool = True, blank_is_unset: bool = False
+) -> EditorSpec:
+    return EditorSpec("url", schemes=tuple(schemes), require_host=require_host, blank_is_unset=blank_is_unset)
 
 
 def Secret() -> EditorSpec:  # noqa: N802
@@ -146,12 +150,20 @@ class Action:
     click: ``get``/``effective`` of any other key raise KeyError. ``scopes`` are scope kinds ("user", "local", "beamline", ...);
     None shows the action at every scope. Actions write nothing, so
     read-only scopes never disable them.
+
+    ``run_on_show`` starts the action once each time its section is built for
+    a scope, or, if it is hidden or disabled then, when an edit first makes it
+    visible and enabled. After an edit to a key in ``refresh_on`` such an
+    action runs again if it is visible, enabled and not already running.
     """
 
     label: str
     run: Callable[[FormValues], str]
     enabled_when: Predicate | None = None
     scopes: frozenset[str] | None = None
+    visible_when: Predicate | None = None
+    run_on_show: bool = False
+    refresh_on: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -159,12 +171,14 @@ class Info:
     """A muted status line; a callable is re-evaluated after every edit (GUI thread).
 
     ``field`` names the setting the line describes; the line then lines up
-    with the field labels instead of the section edge.
+    with the field labels instead of the section edge. ``visible_when`` false
+    hides the line (and its text is not evaluated).
     """
 
     text: Callable[[FormValues], str] | str
     scopes: frozenset[str] | None = None
     field: str | None = None
+    visible_when: Predicate | None = None
 
 
 @dataclass(frozen=True)

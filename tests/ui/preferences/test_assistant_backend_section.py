@@ -129,32 +129,6 @@ def _signed_out_infos():
     return agy, {"agy": agy, "claude-code": _Info("claude-code", AuthStatus(True, "k"))}
 
 
-def test_dialog_finish_stops_sign_in_polling(qtbot, prefs):
-    from PySide6.QtWidgets import QDialog
-
-    prefs.values["agent_backend"] = "agy"
-    agy, infos = _signed_out_infos()
-    plugin = cs.ClaudeSettingsPlugin()
-    plugin._backend = AgentBackendSection(info_factory=lambda kind, agy_path=None: infos[kind],
-                                          spawn=lambda *a, **k: None, poll_interval_ms=30,
-                                          poll_timeout_s=30)
-    plugin._backend.on_kind_changed = plugin._apply_backend_visibility
-    dialog = QDialog()
-    qtbot.addWidget(dialog)
-    w = plugin.create_widget(dialog)
-    plugin.load_settings()
-    qtbot.waitUntil(lambda: "Not signed in" in _status(w), timeout=3000)
-    w.findChild(QPushButton, "agySignIn").click()
-    assert plugin._backend._poll_timer.isActive()
-    qtbot.waitUntil(lambda: len(agy.refreshes) >= 2, timeout=3000)  # polling runs
-    dialog.done(0)  # Preferences closed; the (hidden) page itself stays alive
-    assert not plugin._backend._poll_timer.isActive()
-    qtbot.wait(100)  # let any in-flight check land
-    n = len(agy.refreshes)
-    qtbot.wait(200)
-    assert len(agy.refreshes) == n
-
-
 def test_new_page_stops_previous_poll(qtbot, prefs):
     prefs.values["agent_backend"] = "agy"
     _agy, infos = _signed_out_infos()
@@ -212,21 +186,6 @@ def test_sign_in_without_agy_shows_message(qtbot, prefs):
     sec.load()
     host.findChild(QPushButton, "agySignIn").click()
     assert "not found" in _status(host)
-
-
-def test_plugin_page_title_and_hides_claude_groups_on_agy(qtbot, prefs, monkeypatch):
-    from lightfall.ui.preferences import agent_backend_section as abs_mod
-
-    prefs.values["agent_backend"] = "agy"
-    monkeypatch.setattr(abs_mod, "backend_info",  # never run the real agy here
-                        lambda kind=None, agy_path=None: _Info(kind, AuthStatus(False, "x")))
-    plugin = cs.ClaudeSettingsPlugin()
-    assert plugin.display_name == "Assistant"
-    w = plugin.create_widget()
-    qtbot.addWidget(w)
-    plugin.load_settings()
-    api = w.findChild(QWidget, "assistantClaudeApiGroup")
-    assert api.isHidden()
 
 
 def test_slow_check_is_not_superseded_by_polling(qtbot, prefs):
@@ -450,19 +409,3 @@ def test_model_id_maps_labels_and_keeps_custom_text(qtbot, prefs):
     assert sec._model_id() == "gemini-9-experimental"
     model.setCurrentIndex(0)
     assert sec._model_id() == ""  # Default (agy)
-
-
-def test_claude_model_row_hidden_on_agy(qtbot, prefs, monkeypatch):
-    from lightfall.ui.preferences import agent_backend_section as abs_mod
-
-    prefs.values["agent_backend"] = "agy"
-    monkeypatch.setattr(abs_mod, "backend_info",
-                        lambda kind=None, agy_path=None: _Info(kind, AuthStatus(False, "x")))
-    plugin = cs.ClaudeSettingsPlugin()
-    w = plugin.create_widget()
-    qtbot.addWidget(w)
-    plugin.load_settings()
-    assert not plugin._model_layout.isRowVisible(plugin._model_combo)
-    combo = w.findChild(QComboBox, "assistantBackend")
-    combo.setCurrentIndex(combo.findData("claude-code"))
-    assert plugin._model_layout.isRowVisible(plugin._model_combo)
