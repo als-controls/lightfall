@@ -42,6 +42,7 @@ class ContentHistoryDialog(LFDialog):
         self._run: Runner = run or thread_runner
         self._can_write = actions._role_at_least(roles.get(row.source), actions.PUBLISH_ROLE)
         self._records: list[dict[str, Any]] = []
+        self._notice = ""  # message to keep showing when the next reload lands
         self._alive = True
         self._busy = False
 
@@ -132,13 +133,16 @@ class ContentHistoryDialog(LFDialog):
 
     def _on_loaded(self, records: list[dict[str, Any]]) -> None:
         if self._alive:
-            self._show_error("")
+            self._busy = False  # after a 412 the dialog stayed busy until this reload
+            self._show_error(self._notice)  # kept across a reload after a 412
+            self._notice = ""
             self._fill(records)
 
     def _on_failed(self, exc: Exception) -> None:
         if not self._alive:
             return
-        self._busy = False
+        reloading = isinstance(exc, ScopesError) and exc.status == 412
+        self._busy = reloading  # stays busy until the reload lands (_on_loaded) or fails
         if isinstance(exc, ScopesError) and exc.status == 404:
             # Opened from your own copy for a scope where it was never published.
             text = f"{self._row.name} isn't published at {describe_source(self._row.source)}."
@@ -146,33 +150,54 @@ class ContentHistoryDialog(LFDialog):
             text = error_text(exc, self._row.source)
         self._show_error(text)
         self._refresh()
+        self._notice = ""
+        if reloading:
+            # Someone changed it after we read the history: show what is current now,
+            # so the next Restore/Retract expects that revision.
+            self._notice = text
+            self._reload()
 
     def _confirm(self, title: str, text: str) -> bool:
         answer = QMessageBox.question(self, title, text)
         return answer == QMessageBox.StandardButton.Yes
+
+    def _shown_current(self) -> int | str:
+        """The revision this dialog shows as current, ``"none"`` when it's retracted.
+
+        Sent as the expected revision, so the server refuses (412) if someone changed
+        the item after the history was read.
+        """
+        return next((int(r["revision"]) for r in self._records if r.get("current")), "none")
 
     def _on_restore(self) -> None:
         sel = self._selected()
         if sel is None or sel.get("current"):
             return
         rev, row = int(sel["revision"]), self._row
+        expected = self._shown_current()
         label = describe_source(row.source)
         if not self._confirm("Restore revision",
                              f"Make revision {rev} of {row.name} current at {label}?"):
             return
-        self._start(lambda: actions.restore(self._client, row.source, row.type, row.name, rev),
+        self._start(lambda: actions.restore(self._client, row.source, row.type, row.name, rev,
+                                            expected_revision=expected),
                     "Restored", f"Restored {row.name} at {label} to revision {rev}")
 
     def _on_retract(self) -> None:
         row = self._row
+        expected = self._shown_current()
+        if expected == "none":
+            return  # nothing current to retract (the button is disabled then)
         label = describe_source(row.source)
         if not self._confirm("Retract", retract_question(row.type, row.name, row.source)):
             return
-        self._start(lambda: actions.retract(self._client, row.source, row.type, row.name),
+        self._start(lambda: actions.retract(self._client, row.source, row.type, row.name,
+                                            expected_revision=expected),
                     "Retracted", f"Retracted {row.name} at {label}")
 
     def _start(self, work, done_title: str, done_text: str) -> None:
         self._busy = True
+        self._notice = ""
         self._show_error("")
         self._refresh()
 

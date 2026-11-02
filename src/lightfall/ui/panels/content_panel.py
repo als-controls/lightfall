@@ -1,7 +1,10 @@
 """Shared content panel: every plan, plugin, agent and skill with where it comes from.
 
-Actions on the selected row: Publish (mine), History (synced, or mine: pick a shared
-scope of the chain), Retract (synced), Copy to mine, Open folder. Network work goes through the dialogs or the injected ``run``; the lists
+Actions on the selected row: Publish (mine), History (synced, retracted, or mine: pick a
+shared scope of the chain), Retract (synced), Copy to mine, Open folder. "Show retracted"
+adds the items retracted at one shared scope of the chain (fetched with the injected
+client on ``run``), so one nobody has locally can still be restored from its History.
+Network work goes through the dialogs or the injected ``run``; the lists
 come from ``actions.content_rows()``, which only reads registries and small index files.
 Every collaborator (rows, scope state, client, runner, refresh signals) can be injected
 so tests never reach the network or the real registries.
@@ -16,6 +19,7 @@ from PySide6.QtCore import QObject, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QInputDialog,
@@ -89,6 +93,8 @@ class ContentPanel(BasePanel):
         self._client_factory = client_factory or _default_client
         self._run: Runner = run or thread_runner
         self._all: list[ContentRow] = []
+        self._retracted: list[ContentRow] = []  # "Show retracted" rows of the picked scope
+        self._retracted_gen = 0  # answers to older fetches are dropped
         self._shown: list[ContentRow] = []
         self._dialogs: list[Any] = []
         super().__init__(parent)
@@ -112,6 +118,15 @@ class ContentPanel(BasePanel):
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._fill)
         bar.addWidget(self.search, 1)
+        self.retracted_check = QCheckBox("Show retracted")
+        self.retracted_check.setToolTip("Also list the items retracted at a shared scope")
+        self.retracted_check.toggled.connect(self._on_retracted_toggled)
+        bar.addWidget(self.retracted_check)
+        self.retracted_scope = QComboBox()
+        self.retracted_scope.setToolTip("Scope whose retracted items are listed")
+        self.retracted_scope.setVisible(False)
+        self.retracted_scope.currentIndexChanged.connect(self._on_retracted_scope)
+        bar.addWidget(self.retracted_scope)
         self._layout.addLayout(bar)
 
         self.table = QTableWidget(0, len(_COLUMNS))
@@ -123,6 +138,10 @@ class ContentPanel(BasePanel):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.itemSelectionChanged.connect(self._update_buttons)
         self._layout.addWidget(self.table, 1)
+        self.retracted_note = QLabel()
+        self.retracted_note.setWordWrap(True)
+        self.retracted_note.setVisible(False)
+        self._layout.addWidget(self.retracted_note)
 
         buttons = QHBoxLayout()
         self.publish_btn = self._button("Publish…", self._on_publish, buttons)
@@ -151,17 +170,105 @@ class ContentPanel(BasePanel):
         except Exception as e:  # a failing loader must not break the panel
             logger.warning("Could not list shared content: {}", e)
             self._all = []
+        self._sync_retracted_scopes()
         self._fill()
+        if self.retracted_check.isChecked():
+            self._load_retracted()
 
     def _on_changed(self, *_: Any) -> None:
         self.refresh()
+
+    # ------------------------------------------------------------------ retracted
+
+    def _sync_retracted_scopes(self) -> None:
+        """Offer the chain's shared scopes in the picker, keeping the current choice."""
+        chain, _, _ = self._scope_state()
+        scopes = self._shared_scopes(chain)
+        combo = self.retracted_scope
+        if scopes != [combo.itemData(i) for i in range(combo.count())]:
+            keep = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            for s in scopes:
+                combo.addItem(describe_source(s), s)
+            combo.setCurrentIndex(scopes.index(keep) if keep in scopes else 0)
+            combo.blockSignals(False)
+        self.retracted_check.setEnabled(bool(scopes))
+        if not scopes and self.retracted_check.isChecked():
+            self.retracted_check.setChecked(False)  # scoped settings went off
+
+    def _on_retracted_toggled(self, on: bool) -> None:
+        self.retracted_scope.setVisible(on)
+        if on:
+            self._load_retracted()
+            return
+        self._retracted_gen += 1  # an answer still on its way is dropped
+        self._retracted = []
+        self._set_retracted_note("")
+        self._fill()
+
+    def _on_retracted_scope(self, *_: Any) -> None:
+        if self.retracted_check.isChecked():
+            self._load_retracted()
+
+    def _set_retracted_note(self, text: str) -> None:
+        self.retracted_note.setText(text)
+        self.retracted_note.setVisible(bool(text))
+
+    def _load_retracted(self) -> None:
+        """Fetch the picked scope's retracted items on the worker, then show them."""
+        scope = self.retracted_scope.currentData()
+        self._retracted_gen += 1
+        gen = self._retracted_gen
+        if any(r.source != scope for r in self._retracted):
+            self._retracted = []  # another scope's rows: don't show them meanwhile
+            self._fill()
+        if scope is None:
+            self._set_retracted_note("")
+            return
+        label = describe_source(scope)
+        client = self._client_factory()
+        if not self._retracted:
+            self._set_retracted_note(f"Looking for items retracted at {label}…")
+
+        def work() -> list[ContentRow] | None:
+            return actions.retracted_rows(client, scope)
+
+        # The panel may be closed (deleted), or another fetch started, by then.
+        def current() -> bool:
+            return (isValid(self) and isValid(self.table) and isValid(self.retracted_note)
+                    and gen == self._retracted_gen)
+
+        def ok(rows: list[ContentRow] | None) -> None:
+            if not current():
+                return
+            if rows is None:
+                self._retracted = []
+                self._set_retracted_note("This server doesn't list retracted items.")
+            else:
+                self._retracted = list(rows)
+                self._set_retracted_note("" if rows else f"Nothing is retracted at {label}.")
+            self._fill()
+
+        def err(exc: Exception) -> None:
+            text = error_text(exc, scope)
+            if not current():
+                logger.debug("Listing retracted items at {} failed: {}", scope, text)
+                return
+            self._retracted = []
+            self._set_retracted_note(f"Could not list retracted items: {text}")
+            self._fill()
+
+        self._run(work, ok, err)
+
+    # ------------------------------------------------------------------ table
 
     def _fill(self, *_: Any) -> None:
         selected = self._selected_key()
         type_ = self.type_filter.currentData()
         needle = self.search.text().strip().lower()
         self._shown = [
-            r for r in self._all
+            r for r in self._all + self._retracted
             if (type_ is None or r.type == type_)
             and (not needle or needle in r.name.lower()
                  or needle in describe_source(r.source).lower())
@@ -175,6 +282,8 @@ class ContentPanel(BasePanel):
                 note = f"Replaces {note}"
             if r.error:
                 note = f"Error: {r.error}" + (f" ({note})" if note else "")
+            if r.retracted:
+                note = "Retracted"
             cells = (r.type, r.name, describe_source(r.source),
                      "" if r.revision is None else str(r.revision), note)
             for c, text in enumerate(cells):
@@ -184,15 +293,15 @@ class ContentPanel(BasePanel):
                 self.table.setItem(i, c, item)
         if selected is not None:
             for i, r in enumerate(self._shown):
-                if (r.type, r.name, r.source) == selected:
+                if (r.type, r.name, r.source, r.retracted) == selected:
                     self.table.selectRow(i)
                     break
         self.table.blockSignals(False)
         self._update_buttons()
 
-    def _selected_key(self) -> tuple[str, str, str] | None:
+    def _selected_key(self) -> tuple[str, str, str, bool] | None:
         row = self._selected()
-        return (row.type, row.name, row.source) if row else None
+        return (row.type, row.name, row.source, row.retracted) if row else None
 
     def _selected(self) -> ContentRow | None:
         model = self.table.selectionModel()
@@ -230,12 +339,17 @@ class ContentPanel(BasePanel):
         self.history_btn.setEnabled(can_history)
         self.history_btn.setToolTip(
             "Scoped settings are off" if is_local and not can_history else "")
-        can_retract = synced and actions._role_at_least(roles.get(row.source),
-                                                         actions.PUBLISH_ROLE)
+        retracted = row is not None and row.retracted
+        can_retract = synced and not retracted and actions._role_at_least(
+            roles.get(row.source), actions.PUBLISH_ROLE)
         self.retract_btn.setEnabled(can_retract)
-        self.retract_btn.setToolTip(
-            "" if can_retract or not synced
-            else f"You are not a maintainer of {describe_source(row.source)}")
+        if retracted:
+            retract_tip = "Already retracted; restore it from History"
+        elif can_retract or not synced:
+            retract_tip = ""
+        else:
+            retract_tip = f"You are not a maintainer of {describe_source(row.source)}"
+        self.retract_btn.setToolTip(retract_tip)
 
         has_file = row is not None and row.path is not None and row.path.exists()
         copyable = has_file and (synced or (row.source in ("core", "package")

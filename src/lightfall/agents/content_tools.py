@@ -4,7 +4,9 @@ Every session gets the always-on ``content`` server (``create_content_tools_serv
 Listing and history are read-only. Publish, retract and restore always ask the user
 first in the chat, offering only Allow and Deny (no "always allow"). Anything but Allow
 sends nothing. Each write carries ``X-Lightfall-Agent: 1``, and a publish manifest says
-``agent: true``.
+``agent: true``. Retract and restore re-read the history after Allow and also send the
+revision named in the question as the expected revision, so the server refuses (412) if
+it changed in between.
 
 Handlers run on the agent worker's asyncio loop: bundling, git and HTTP go to a thread
 (``asyncio.to_thread``), and registry reads hop to the Qt thread. No widgets are touched.
@@ -309,7 +311,9 @@ def _make_tools(
         if moved:
             return mcp_error(moved)
         try:
-            await asyncio.to_thread(actions.retract, client, scope, type_, name, agent=True)
+            # The server refuses (412) too if it moved after the re-check.
+            await asyncio.to_thread(actions.retract, client, scope, type_, name, agent=True,
+                                    expected_revision=current)
         except Exception as exc:  # noqa: BLE001
             return mcp_error(f"Not retracted: {_write_error(exc, scope)}")
         return mcp_result(f"Retracted {type_} '{name}' from {label} (was revision {current}).")
@@ -360,7 +364,8 @@ def _make_tools(
             return mcp_error(moved)
         try:
             await asyncio.to_thread(actions.restore, client, scope, type_, name, target,
-                                    agent=True)
+                                    agent=True,
+                                    expected_revision="none" if current is None else current)
         except Exception as exc:  # noqa: BLE001
             return mcp_error(f"Not restored: {_write_error(exc, scope)}")
         return mcp_result(f"Restored {type_} '{name}' at {label} to revision {target}.")

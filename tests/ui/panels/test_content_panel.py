@@ -302,6 +302,126 @@ def test_retract_wording(panel, monkeypatch):
                      "Everyone there stops receiving it; history keeps it."]
 
 
+class RetractedClient(FakeClient):
+    """Branch 7.0.1.1 has plan 'xafs' retracted (last revision 4); nobody has it locally."""
+
+    def __init__(self, *, retracted=True, old_server=False):
+        super().__init__()
+        self.listed = []
+        self.retracted = retracted
+        self.old_server = old_server
+
+    def retracted_content(self, scope):
+        from lightfall.scopes.client import ContentItem
+
+        self.listed.append(scope)
+        if self.old_server:
+            return None
+        if scope != BRANCH or not self.retracted:
+            return []
+        return [ContentItem("plan", "xafs", 4, "ab" * 32, 10)]
+
+    def content_history(self, scope, type_, name):
+        return [{"revision": 4, "current": not self.retracted},
+                {"revision": 3, "current": False}]
+
+    def restore_content(self, scope, type_, name, revision, *, agent=False,
+                        expected_revision=None):
+        self.calls.append(("restore", scope, type_, name, revision, expected_revision))
+        self.retracted = False
+        return {"revision": revision}
+
+
+def test_retracted_view_lists_and_restores(qtbot, tmp_path, monkeypatch):
+    import lightfall.ui.dialogs.content_history_dialog as hist
+
+    monkeypatch.setattr(hist, "toast_success", lambda *a: None)
+    monkeypatch.setattr(mod.actions, "refresh_sync", lambda: None)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    client = RetractedClient()
+    holder = {"rows": make_rows(tmp_path)}
+    src = Source()
+    p = ContentPanel(rows=lambda: list(holder["rows"]),
+                     scope_state=lambda: (("facility", "beamline:7.0.1", BRANCH, "user:u1"),
+                                          {BRANCH: "maintainer"}, ContentPolicy()),
+                     local_items=lambda: [], client_factory=lambda: client, run=sync_run,
+                     refresh_signals=[src.synced])
+    qtbot.addWidget(p)
+    assert p.table.rowCount() == 4 and client.listed == []  # off: nothing fetched
+    assert p.retracted_scope.isHidden()
+
+    p.retracted_check.setChecked(True)
+    assert not p.retracted_scope.isHidden()
+    # The shared scopes of the chain, most specific first.
+    assert [p.retracted_scope.itemText(i) for i in range(p.retracted_scope.count())] == \
+        ["Branch 7.0.1.1", "Beamline 7.0.1", "Facility"]
+    assert client.listed == [BRANCH]
+    assert p.table.rowCount() == 5
+    cells = {p.table.item(r, 1).text(): [p.table.item(r, c).text() for c in range(5)]
+             for r in range(p.table.rowCount())}
+    assert cells["xafs"] == ["plan", "xafs", "Branch 7.0.1.1", "4", "Retracted"]
+
+    select(p, "xafs")
+    assert p.history_btn.isEnabled()
+    assert not p.retract_btn.isEnabled() and not p.copy_btn.isEnabled()
+    p.history_btn.click()
+    dlg = p._dialogs[-1]
+    assert isinstance(dlg, mod.ContentHistoryDialog)
+    assert not dlg._retract_btn.isEnabled()  # nothing current
+    dlg._table.selectRow(0)
+    assert dlg._restore_btn.isEnabled()  # maintainer+
+    dlg._restore_btn.click()
+    assert client.calls == [("restore", BRANCH, "plan", "xafs", 4, "none")]
+    dlg.done(0)  # closing the dialog refreshes the panel: no longer retracted
+    assert "xafs" not in [p.table.item(r, 1).text() for r in range(p.table.rowCount())]
+
+    # The next sync brings it back as a synced row.
+    holder["rows"] = holder["rows"] + [ContentRow("plan", "xafs", BRANCH, 4, None, (), None)]
+    src.synced.emit(None)
+    cells = {p.table.item(r, 1).text(): [p.table.item(r, c).text() for c in range(5)]
+             for r in range(p.table.rowCount())}
+    assert cells["xafs"] == ["plan", "xafs", "Branch 7.0.1.1", "4", ""]
+
+    # Another scope: fetched for that scope.
+    p.retracted_scope.setCurrentIndex(1)
+    assert client.listed[-1] == "beamline:7.0.1"
+
+    # Off again: the retracted rows go.
+    client.retracted = True
+    p.retracted_scope.setCurrentIndex(0)
+    assert p.table.rowCount() == 6
+    p.retracted_check.setChecked(False)
+    assert p.table.rowCount() == 5 and p.retracted_scope.isHidden()
+
+
+def test_retracted_view_on_an_old_server_says_so(qtbot, tmp_path):
+    client = RetractedClient(old_server=True)
+    p = ContentPanel(rows=lambda: make_rows(tmp_path),
+                     scope_state=lambda: (("facility", BRANCH), {}, ContentPolicy()),
+                     local_items=lambda: [], client_factory=lambda: client, run=sync_run,
+                     refresh_signals=[])
+    qtbot.addWidget(p)
+    p.retracted_check.setChecked(True)
+    assert p.table.rowCount() == 4
+    assert p.retracted_note.text() == "This server doesn't list retracted items."
+    assert not p.retracted_note.isHidden()
+
+
+def test_retracted_result_after_the_panel_closed(qtbot, tmp_path):
+    import shiboken6
+
+    pending = []
+    p = ContentPanel(rows=lambda: make_rows(tmp_path),
+                     scope_state=lambda: (("facility", BRANCH), {}, ContentPolicy()),
+                     local_items=lambda: [], client_factory=RetractedClient,
+                     run=lambda fn, ok, err: pending.append((fn, ok, err)), refresh_signals=[])
+    p.retracted_check.setChecked(True)
+    shiboken6.delete(p)
+    fn, ok, err = pending.pop()
+    ok(fn())  # must not touch the deleted table
+    err(RuntimeError("boom"))
+
+
 def test_retract_result_after_the_panel_closed(qtbot, tmp_path, monkeypatch):
     import shiboken6
 
