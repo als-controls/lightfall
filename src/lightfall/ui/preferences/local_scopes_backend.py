@@ -20,7 +20,8 @@ class LocalScopesBackend(PreferenceBackend):
                  registry: SpecRegistry | None = None) -> None:
         super().__init__()
         self._local = local
-        self._store = ScopedStore(registry or client_registry(), state)
+        self._registry = registry or client_registry()
+        self._store = ScopedStore(self._registry, state)
         self._keys = frozenset(k for k in self._store.keys() if not is_local_only(k))
 
     @property
@@ -42,6 +43,35 @@ class LocalScopesBackend(PreferenceBackend):
             return MISSING if value is None else value
         return self._store.scope_value(scope, key)
 
+    def item_origins(self, key: str) -> dict[str, str]:
+        """For an item-merged key: item id -> the scope it comes from (``"local"`` = this
+        console's YAML, which overrides the files item by item)."""
+        if self._registry.get(key).policy != "union":
+            return {}
+        res = self._store.resolve(key)
+        origins = {name: str(scope) for name, scope in res.item_origins.items()}
+        for name, item in (self._console_items(key) or {}).items():
+            if item is None:
+                origins.pop(name, None)
+            else:
+                origins[name] = "local"
+        return origins
+
+    def _console_items(self, key: str) -> dict[str, Any] | None:
+        """The console YAML items that apply to an item-merged key, or None when the
+        console holds no map for it or a file lock suppresses it. ``{}`` is a map: it
+        adds nothing but keeps the file items (never the scalar path). One helper for
+        ``get`` and ``item_origins`` so they cannot diverge.
+
+        In scope-file mode the console YAML is the only writable layer, so its items
+        override file items per item (as scalars do); in server mode the YAML is only
+        a fallback.
+        """
+        value = self._local.get(key, None)
+        if not isinstance(value, dict) or self._store.resolve(key).locked_at is not None:
+            return None
+        return dict(value)  # None items drop what the file layers gave them, as the resolver does
+
     def keys(self) -> set[str]:
         return set(self._keys)
 
@@ -52,6 +82,11 @@ class LocalScopesBackend(PreferenceBackend):
         res = self._store.resolve(key)
         if res.locked_at is not None:
             return res.value
+        if self._registry.get(key).policy == "union":
+            local = self._console_items(key)
+            if local is not None:
+                merged = {**(res.value if res.origin is not None else {}), **local}
+                return {k: v for k, v in merged.items() if v is not None}
         value = self._local.get(key, MISSING)
         if value is not MISSING and value is not None:  # remove() stores None
             return value

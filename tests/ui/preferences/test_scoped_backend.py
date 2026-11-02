@@ -223,7 +223,7 @@ def test_deactivate_emits_yaml_values_for_scope_only_keys(make):
     assert changes == [("tiled_url", "https://yaml")]
 
 
-def test_write_at_beamline_scope_sends_proposal_and_notifies_pending(make):
+def test_write_at_beamline_scope_sends_proposal_and_queues_it(make):
     class Pending(Server):
         def put_setting(self, scope, key, value, *, version=None, proposed_spec=None):
             self.calls.append(("put", scope, key, value, proposed_spec))
@@ -234,7 +234,7 @@ def test_write_at_beamline_scope_sends_proposal_and_notifies_pending(make):
     backend.activate()
     backend.set("tiled_url", "https://x", scope="beamline:7.0.1")
     assert server.calls[-1][4]["key"] == "tiled_url"
-    assert "awaiting approval" in notes[-1][1]
+    assert notes[-1][1] == "Saved once a facility admin approves tiled_url"
 
 
 def test_remove_user_value_falls_back_to_the_console_value(make):

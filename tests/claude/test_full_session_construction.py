@@ -28,8 +28,8 @@ def loaded_builtins(monkeypatch):
 
 def test_construct_agent_with_all_builtins_enabled(loaded_builtins, qtbot, monkeypatch):
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._read_list_pref",
-        lambda self, key: None,  # no overrides — falls through to enabled_by_default
+        "lightfall.scopes.enablement.enabled_overrides",
+        lambda key: {},  # no overrides — falls through to enabled_by_default
     )
     monkeypatch.setattr(
         "lightfall.ui.panels.claude.tool_registry.ToolRegistry._migrate_legacy_pref_if_needed",

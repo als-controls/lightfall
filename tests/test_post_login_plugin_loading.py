@@ -302,3 +302,23 @@ def test_restore_window_geometry_noop_without_saved(qapp, monkeypatch):
 
     assert window._restore_window_geometry() is False
     assert restored == []
+
+
+def test_scopes_activate_before_the_post_login_wave(qapp, qtbot, session_manager, monkeypatch):
+    """The wave reads plugins.enabled: the main window must resolve the user's scopes
+    (from last session's cache) before main's wave slot runs on the same signal."""
+    from lightfall.main import _arm_post_login_plugin_load
+    from lightfall.ui import LFMainWindow
+
+    order: list[str] = []
+    monkeypatch.setattr(LFMainWindow, "_update_scoped_preferences",
+                        lambda self, user: order.append(f"scopes:{user.username}"))
+    monkeypatch.setattr(LFMainWindow, "_force_window_to_front", lambda self: None)
+    window = LFMainWindow()  # connects to the session signals first, as in main()
+    qtbot.addWidget(window)
+    loader = _fake_loader()
+    loader.start_loading.side_effect = lambda: order.append("wave")
+    _arm_post_login_plugin_load(loader, session_manager)
+
+    session_manager.attach_session(Session(user=User(username="op")))
+    assert order[:2] == ["scopes:op", "wave"]

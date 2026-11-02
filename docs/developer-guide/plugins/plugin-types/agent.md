@@ -64,7 +64,7 @@ Tools are created with the `claude_agent_sdk.tool` decorator, which takes a `nam
 ## Lifecycle: how a session is assembled
 
 1. **Registration.** `PluginLoader` instantiates each manifest entry with `type_name="agent"` and registers the instance with `AgentRegistry` (`lightfall.ui.panels.claude.agent_registry`).
-2. **Enablement.** `AgentRegistry.enabled_plugins()` applies the user's toggles from the *Claude Tools* settings page, returning plugins sorted by `priority`. Semantics are opt-out: a plugin is enabled when its name is not in the `disabled_tool_plugins` preference and either `enabled_by_default` is true or its name is in `forced_enabled_tool_plugins` — so newly installed plugins take their declared default.
+2. **Enablement.** `AgentRegistry.enabled_plugins()` applies the toggles from the *Claude Tools* settings page, returning plugins sorted by `priority`. The toggles live in the scoped, item-merged `tools.enabled` preference: a map of plugin name to on/off that merges item by item across the facility, beamline, branch, this-console and user layers. A plugin listed in the resolved map takes that value; a plugin not listed takes its declared `enabled_by_default`, so newly installed plugins need no entry.
 3. **Session assembly.** At agent construction time (`QtClaudeAgent.__init__`, implemented in `lightfall.claude._session_assembly`):
    - A fresh temporary SDK plugin directory is created with a minimal `plugin.json`.
    - For each enabled plugin with a non-empty prompt, `materialize_skill()` writes `skills/<name>/SKILL.md` (frontmatter `name` + `description`, then the prompt body) and copies `get_references_dir()` to `skills/<name>/references/` if provided. References are not injected into the prompt — the SDK's Skill tool loads them on demand when the skill is invoked.
@@ -481,15 +481,21 @@ bypass either gate.
 
 ### Per-feed preferences
 
-Three preference keys (`lightfall.ui.preferences.monitor_settings`), one dict entry per
-feed name, control what advisor batching sees *before* the forwarding gate above ever
+Three scoped, item-merged settings (`lightfall.monitor.registry`; edited on the Monitor
+settings page at user, branch, beamline or facility scope, merged item by item), one entry
+per feed name, control what advisor batching sees *before* the forwarding gate above ever
 runs:
 
-| Pref key | Shape | Purpose |
-|----------|-------|---------|
-| `disabled_monitor_feeds` | `list[str]` | Feed names excluded from monitoring entirely |
-| `monitor_feed_intervals` | `dict[str, int]` | Per-feed polling interval override (seconds) |
-| `monitor_feed_advisor_severity` | `dict[str, str]` | Per-feed floor (`info`/`warn`/`critical`); an observation below its feed's floor never enters `_advisor_batch`, so it can't even contribute to a summary. Feeds absent from the dict default to `"info"` (nothing filtered). |
+| Setting | Shape | Purpose |
+|---------|-------|---------|
+| `monitor_feeds.enabled` | `dict[str, bool]` | `False` excludes a feed from monitoring entirely; absent feeds run |
+| `monitor_feeds.interval` | `dict[str, int]` | Per-feed polling interval override (whole seconds above 0) |
+| `monitor_feeds.severity` | `dict[str, str]` | Per-feed floor (`info`/`warn`/`critical`); an observation below its feed's floor never enters `_advisor_batch`, so it can't even contribute to a summary. Feeds absent from the map default to `"info"` (nothing filtered). |
+
+`monitors.enabled` (`dict[str, bool]`) switches whole monitor plugins on or off; a plugin it
+does not mention uses its `enabled_by_default`. The older keys (`disabled_monitor_feeds`,
+`monitor_feed_intervals`, `monitor_feed_advisor_severity` and the two monitor-plugin lists)
+are migrated into these once and no longer read.
 
 These feed-level floors and the `observer` spec's `forward_min_severity` floor are two
 independent gates in series: a feed can contribute low-severity noise to the advisor's

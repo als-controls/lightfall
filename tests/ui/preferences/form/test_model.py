@@ -181,3 +181,30 @@ def test_frozen_values_keep_the_dirty_state_of_the_snapshot():
 
     with pytest.raises(KeyError):
         frozen.is_dirty("other")
+
+
+def test_model_dict_edit_copies():
+    m, _ = make({(U, "k"): {"a": True}})
+    value = {"a": False}
+    m.edit(U, "k", value)
+    value["a"] = True  # the caller mutating its dict later must not change the edit
+    assert m.pending(U, "k") == {"a": False}
+    assert m.pending(U, "k") is not value
+    assert m.ops(allow) == [WriteOp(U, "k", {"a": False})]
+
+
+def test_model_dict_equal_is_clean():
+    m, _ = make({(U, "k"): {"a": True, "b": False}})
+    m.edit(U, "k", {"b": False, "a": True})
+    assert not m.is_dirty(U, "k")
+    assert m.ops(allow) == []
+
+
+def test_model_dict_item_type_matters():
+    m, _ = make({(U, "k"): {"a": True}})
+    m.edit(U, "k", {"a": 1})  # True == 1, but they are different values
+    assert m.is_dirty(U, "k")
+    m.edit(U, "k", {"a": True, "b": False})
+    assert m.is_dirty(U, "k")
+    m.edit(U, "k", {})
+    assert m.is_dirty(U, "k")  # an empty dict is a value, not "not set"

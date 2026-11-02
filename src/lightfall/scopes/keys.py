@@ -169,9 +169,12 @@ def _reset_client_registry() -> None:
 
 # Keys with a writable console layer: the console's own YAML sits between branch and user
 # scope (settings-layering design, Part 2). Everything else uses the YAML only as the
-# fallback below every scope.
+# fallback below every scope. plugins.enabled / tools.enabled / monitors.enabled and the
+# monitor_feeds maps: a console can switch plugins, assistant tools, monitors and feeds on or
+# off (and set feed intervals and advisor severities) for everyone who uses it, item by item.
 LOCAL_LAYER_KEYS: frozenset[str] = frozenset({
-    "device_backends", "device_backends_exclusive_restore",
+    "device_backends", "device_backends_exclusive_restore", "plugins.enabled", "tools.enabled",
+    "monitors.enabled", "monitor_feeds.enabled", "monitor_feeds.interval", "monitor_feeds.severity",
 })
 
 
@@ -189,7 +192,7 @@ def beamline_capable(spec: SettingSpec) -> bool:
 
 # Preference groups stored nested in YAML but addressed as dotted keys
 # ("visualization.colormap" lives at preferences.visualization.colormap).
-_DOTTED_GROUPS = frozenset({"visualization", "ui"})
+_DOTTED_GROUPS = frozenset({"visualization", "ui", "plugins", "tools", "monitors", "monitor_feeds"})
 
 
 def flatten_preferences(prefs: Mapping[str, Any]) -> dict[str, Any]:

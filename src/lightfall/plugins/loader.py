@@ -19,6 +19,7 @@ from loguru import logger
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
 
+from lightfall.plugins.enablement import disabled_plugin_ids
 from lightfall.plugins.errors import (
     PluginInitError,
     PluginLoadError,
@@ -198,22 +199,30 @@ class PluginLoader(QObject):
         """
         self._process_manifest(manifest)
 
-    def _get_disabled_plugin_ids(self) -> set[str]:
-        """Get the set of disabled plugin IDs from preferences.
+    def _apply_enablement(self) -> None:
+        """Re-read ``plugins.enabled`` for plugins the post-login wave would load.
 
-        Returns:
-            Set of unique_id strings for disabled plugins.
+        Manifests are processed before login, when only this console's settings are
+        known; by the wave, server scopes may have resolved. Preload plugins are already
+        loaded, so a change for them applies at the next start.
         """
-        try:
-            from lightfall.ui.preferences.manager import PreferencesManager
-
-            prefs = PreferencesManager.get_instance()
-            disabled_list = prefs.get("disabled_plugins", [])
-            if isinstance(disabled_list, list):
-                return set(disabled_list)
-        except Exception as e:
-            logger.debug("Could not load disabled plugins preference: {}", e)
-        return set()
+        waiting = [i for i in self._registry.get_all() if not i.preload and i.status in (
+            PluginStatus.QUEUED_LOAD, PluginStatus.DISABLED)]
+        disabled = disabled_plugin_ids(i.unique_id for i in waiting)
+        reenabled = False
+        for info in waiting:
+            if info.status == PluginStatus.QUEUED_LOAD and info.unique_id in disabled:
+                self._load_queue.remove(info)
+                info.status = PluginStatus.DISABLED
+                logger.info("Plugin '{}' is disabled, not loading", info.unique_id)
+            elif info.status == PluginStatus.DISABLED and info.unique_id not in disabled:
+                self._load_queue.append(info)
+                info.status = PluginStatus.QUEUED_LOAD
+                reenabled = True
+                logger.info("Plugin '{}' is enabled, loading", info.unique_id)
+        if reenabled:  # back in manifest (registration) order, not at the end
+            order = {i.unique_id: n for n, i in enumerate(self._registry.get_all())}
+            self._load_queue = deque(sorted(self._load_queue, key=lambda i: order[i.unique_id]))
 
     def _process_manifest(self, manifest: PluginManifest) -> None:
         """Process a manifest and queue its plugins.
@@ -221,7 +230,7 @@ class PluginLoader(QObject):
         Args:
             manifest: The manifest to process.
         """
-        disabled_ids = self._get_disabled_plugin_ids()
+        disabled_ids = disabled_plugin_ids(entry.unique_id for entry in manifest.plugins)
 
         for entry in manifest.plugins:
             # Check if this type is known
@@ -245,11 +254,7 @@ class PluginLoader(QObject):
 
             # Try to register (checks for duplicates)
             if self._registry.register(plugin_info):
-                # Check if this plugin is disabled (but never disable settings:plugins)
-                if (
-                    plugin_info.unique_id in disabled_ids
-                    and plugin_info.unique_id != "settings:plugins"
-                ):
+                if plugin_info.unique_id in disabled_ids:  # plugins.enabled
                     plugin_info.status = PluginStatus.DISABLED
                     logger.info(
                         "Plugin '{}' is disabled, not loading",
@@ -352,6 +357,7 @@ class PluginLoader(QObject):
             logger.warning("Plugin loading already in progress")
             return
 
+        self._apply_enablement()
         if not self._load_queue:
             logger.info("No plugins to load")
             self.loading_complete.emit(0, 0)

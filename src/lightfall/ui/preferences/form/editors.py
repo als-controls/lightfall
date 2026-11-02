@@ -26,6 +26,8 @@ from qtpy.QtWidgets import (
 from lightfall.ui.preferences.form.schema import EditorSpec, SettingField
 
 NOT_SET = "Not set"
+#: Dynamic property on an editor's line edit: the row leaves its menu alone (no "Clear (not set)").
+NO_CLEAR_MENU = "lf_no_clear_menu"
 
 # A yes/no field is a combo: "Not set" (added by ChoiceEditor), then these.
 TOGGLE_OPTIONS: tuple[tuple[bool, str], ...] = ((False, "Off"), (True, "On"))
@@ -156,6 +158,8 @@ class FieldEditor(QWidget):
     changed = Signal()
     #: True for free-text editors, which widen to fill the row's editor column.
     fills_row = False
+    #: True for table editors, which sit below the label and span the whole row.
+    full_width = False
 
     def value(self) -> Any:
         raise NotImplementedError
@@ -192,15 +196,34 @@ class ChoiceEditor(FieldEditor):
         options = spec.options() if callable(spec.options) else spec.options
         self._values: list[Any] = [None]
         self._loading = False
+        self._muting = False
         self._combo.addItem(NOT_SET)
         for val, label in options:
             self._values.append(val)
             self._combo.addItem(label)
         self._mute_not_set()
         self._combo.currentIndexChanged.connect(self._on_index)
+        # The app stylesheet styles QComboBox; its (re)polish rewrites the combo's own
+        # palette (the per-role resolve mask lets the muted Disabled Text leak into the
+        # Active group), so the palette is re-applied whenever the combo's changes.
+        self._combo.installEventFilter(self)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if obj is self._combo and event.type() == QEvent.Type.PaletteChange and not self._muting:
+            self._mute_not_set()
+        return super().eventFilter(obj, event)
 
     def _mute_not_set(self) -> None:
         """Mute the "Not set" list entry, the closed combo while it shows it, and disabled text."""
+        if self._muting:
+            return
+        self._muting = True
+        try:
+            self._apply_mute()
+        finally:
+            self._muting = False
+
+    def _apply_mute(self) -> None:
         muted = muted_color(self._combo)
         normal = _theme_color("text") or QApplication.palette().color(QPalette.ColorRole.Text)
         self._combo.setItemData(0, muted, Qt.ItemDataRole.ForegroundRole)
@@ -500,6 +523,15 @@ def create_editor(spec: EditorSpec, field: SettingField, parent: QWidget | None 
         editor = UrlEditor(spec, field.placeholder)
     elif spec.kind == "secret":
         editor = SecretEditor(field.placeholder)
+    elif spec.kind == "catalog":
+        # Imported here: the catalog module builds on this one.
+        from lightfall.ui.preferences.form.catalog import CatalogEditor
+
+        editor = CatalogEditor(spec)
+    elif spec.kind == "mapping":
+        from lightfall.ui.preferences.form.catalog import MappingEditor
+
+        editor = MappingEditor(spec, field.unit)
     else:
         raise ValueError(f"unknown editor kind: {spec.kind!r}")
     if parent is not None:

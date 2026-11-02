@@ -19,23 +19,18 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from lightfall.monitor.buffer import RollingBuffer
 from lightfall.monitor.models import ExperimentContext, Observation
 from lightfall.monitor.rate_limiter import RateLimiter
-from lightfall.monitor.registry import MonitorRegistry
+from lightfall.monitor.registry import MonitorRegistry, disabled_feed_names, feed_interval_overrides
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture, invoke_in_main_thread
 
 
 def _read_feed_config_prefs() -> tuple[set[str], dict[str, float]]:
-    """Module-level seam for reading per-feed scheduler overrides from prefs.
+    """Module-level seam for reading per-feed scheduler overrides from the scoped
+    ``monitor_feeds.enabled`` / ``monitor_feeds.interval`` maps.
     Kept separate from MonitorScheduler._feed_config so tests can monkeypatch
     either this function (to exercise the exception-tolerant fallback) or the
     instance method directly (to inject arbitrary configs)."""
-    from lightfall.ui.preferences.manager import PreferencesManager
-
-    prefs = PreferencesManager.get_instance()
-    disabled = set(prefs.get("disabled_monitor_feeds", []) or [])
-    intervals_raw = prefs.get("monitor_feed_intervals", {}) or {}
-    intervals = {str(k): float(v) for k, v in dict(intervals_raw).items()}
-    return disabled, intervals
+    return disabled_feed_names(), feed_interval_overrides()
 
 
 class MonitorScheduler(QObject):

@@ -14,6 +14,10 @@ from loguru import logger
 
 from lightfall.auth.providers.base import AuthProvider
 from lightfall.plugins.auth_provider_plugin import AuthProviderPlugin
+from lightfall.plugins.enablement import (  # noqa: F401 - re-exported
+    DEFAULT_DISABLED_PLUGIN_IDS,
+    disabled_plugin_ids,
+)
 
 
 def _session_duration() -> timedelta:
@@ -140,70 +144,14 @@ class PamAuthPlugin(AuthProviderPlugin):
         return PamAuthProvider(pam_config)
 
 
-# Plugins that ship disabled by default. Each is seeded into the disabled_plugins
-# preference once (see seed_default_disabled_plugins); after that the user's
-# explicit Plugins-settings choices are authoritative.
-DEFAULT_DISABLED_PLUGIN_IDS = (
-    "auth_provider:local",
-    "statusbar:memory_status",  # developer memory indicator
-)
-# The ids already seeded (a list). Older installs stored True, which meant only
-# the original default, auth_provider:local.
-_DEFAULTS_SEEDED_PREF = "default_disabled_plugins_seeded"
-_LEGACY_SEEDED_IDS = ("auth_provider:local",)
-
-
 def _disabled_plugin_ids() -> set[str]:
-    """Read the user's disabled-plugins preference (unique_id strings).
+    """The built-in auth providers switched off by ``plugins.enabled`` (unique ids).
 
-    Mirrors PluginLoader._get_disabled_plugin_ids so built-in auth providers
-    honor the same Plugins-settings toggles as manifest-loaded providers.
-    Returns an empty set if preferences aren't available (e.g. early startup
-    or tests).
+    Uses the same rule as the plugin loader (``lightfall.plugins.enablement``), so the
+    built-in providers honor the same settings as manifest-loaded ones; ``local`` ships
+    disabled. Never raises: without preferences the code defaults apply.
     """
-    try:
-        from lightfall.ui.preferences.manager import PreferencesManager
-
-        disabled = PreferencesManager.get_instance().get("disabled_plugins", [])
-        if isinstance(disabled, list):
-            return set(disabled)
-    except Exception as e:
-        logger.debug("Could not load disabled plugins preference: {}", e)
-    return set()
-
-
-def seed_default_disabled_plugins() -> None:
-    """Turn off plugins that ship disabled by default, each exactly once.
-
-    Adds each DEFAULT_DISABLED_PLUGIN_IDS entry not seeded before to the
-    ``disabled_plugins`` preference, and records it in a marker pref. A default
-    added in a later release is therefore seeded on existing installs too.
-    Afterward the user is free to re-enable it in the Plugins settings page and
-    the choice sticks — we never re-disable. Safe to call before preferences are
-    usable (no-op).
-    """
-    try:
-        from lightfall.ui.preferences.manager import PreferencesManager
-
-        prefs = PreferencesManager.get_instance()
-    except Exception as e:
-        logger.debug("Cannot seed default-disabled plugins: {}", e)
-        return
-    marker = prefs.get(_DEFAULTS_SEEDED_PREF, [])
-    if marker is True:
-        seeded = set(_LEGACY_SEEDED_IDS)
-    elif isinstance(marker, list):
-        seeded = {str(x) for x in marker}
-    else:
-        seeded = set()
-    new = [pid for pid in DEFAULT_DISABLED_PLUGIN_IDS if pid not in seeded]
-    if not new:
-        return
-    disabled = set(prefs.get("disabled_plugins", []) or [])
-    disabled.update(new)
-    prefs.set("disabled_plugins", sorted(disabled))
-    prefs.set(_DEFAULTS_SEEDED_PREF, sorted(seeded | set(new)))
-    logger.info("Seeded default-disabled plugins: {}", new)
+    return disabled_plugin_ids(f"auth_provider:{name}" for name in ("keycloak", "local", "pam"))
 
 
 def register_builtin_auth_plugins(
@@ -211,9 +159,8 @@ def register_builtin_auth_plugins(
 ) -> None:
     """Register the built-in auth provider plugins into the registry.
 
-    Honors the user's ``disabled_plugins`` preference so providers turned off
-    in the Plugins settings page (including ``local``, which ships disabled by
-    default) aren't offered at login.
+    Honors ``plugins.enabled`` so providers switched off (including ``local``,
+    which ships disabled unless a scope turns it on) aren't offered at login.
     """
     disabled = _disabled_plugin_ids()
     candidates = [KeycloakAuthPlugin(), LocalAuthPlugin()]

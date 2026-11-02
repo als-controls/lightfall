@@ -8,6 +8,7 @@ from qtpy.QtCore import Signal
 from qtpy.QtWidgets import QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from lightfall.scopes.keys import client_registry
+from lightfall.scopes.store import MISSING
 from lightfall.ui.preferences.form.editors import create_editor
 from lightfall.ui.preferences.form.items import ActionItem, InfoItem
 from lightfall.ui.preferences.form.model import FormModel
@@ -46,7 +47,8 @@ class SettingsForm(QWidget):
     """Renders a form page's ``sections()`` for the scope chosen in the dialog.
 
     ``prefs`` is duck-typed: only ``allowed_at``, ``writable_at``, ``lock_at``
-    and ``scope_choices`` are used (``needs_approval`` too when present). Values come from and go to ``model``.
+    and ``scope_choices`` are used (``needs_approval``, ``awaiting_approval`` and,
+    for catalog fields, ``inherited_items`` too when present). Values come from and go to ``model``.
     """
 
     edited = Signal()
@@ -144,6 +146,7 @@ class SettingsForm(QWidget):
             if not self._model.is_dirty(scope, key):
                 row.editor.set_value(self._model.pending(scope, key))
                 row.set_invalid(False)
+            self._show_inherited(key, row.editor, scope)
             self._refresh_markers(key)
         self._apply_predicates()
 
@@ -206,6 +209,7 @@ class SettingsForm(QWidget):
             parent=parent,
         )
         editor.set_value(self._model.pending(scope, field.key))
+        self._show_inherited(field.key, editor, scope)
         reason = self._read_only_reason(field.key, scope, scope_reason)
         # The header already states the scope's reason; repeat only the lock glyph.
         row.set_read_only(reason, inline=reason != scope_reason)
@@ -218,6 +222,14 @@ class SettingsForm(QWidget):
         self._rows[key] = row
         self._refresh_markers(key)
         return row
+
+    def _show_inherited(self, key: str, editor: Any, scope: str) -> None:
+        """Give an item-merged editor what broader scopes set (the one exception to "own layer only")."""
+        set_inherited = getattr(editor, "set_inherited", None)
+        if set_inherited is None:
+            return
+        inherited_items = getattr(self._prefs, "inherited_items", None)
+        set_inherited(inherited_items(key, scope) if inherited_items else {})
 
     def _place_approval_notes(self) -> None:
         """Note approval on the rows that need it, or nowhere when every editable row does."""
@@ -277,6 +289,8 @@ class SettingsForm(QWidget):
             dirty=self._model.is_dirty(scope, key),
             conflict=self._model.conflict(scope, key),
         )
+        awaiting = getattr(self._prefs, "awaiting_approval", None)
+        row.set_awaiting_approval(bool(awaiting) and awaiting(key, scope) is not MISSING)
 
     def _apply_predicates(self) -> None:
         """Re-evaluate visible_when / enabled_when against the pending values."""

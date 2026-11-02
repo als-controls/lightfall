@@ -1,5 +1,7 @@
 """One settings row: label and description on the left, editor on the right.
 
+A full-width editor (a table) goes below the label column and spans the row.
+
 Markers (accent bar when set at the scope, dirty dot, lock and reason,
 restart tag, conflict note) are painted from the widget palette so they
 follow the theme. The row has no buttons of its own: right-clicking it
@@ -22,6 +24,7 @@ from qtpy.QtWidgets import (
 )
 
 from lightfall.ui.preferences.form.editors import (
+    NO_CLEAR_MENU,
     TEXT_ROLES,
     FieldEditor,
     RoleColor,
@@ -46,6 +49,7 @@ LABEL_INDENT = ACCENT_WIDTH + ROW_SPACING + TEXT_INSET
 
 CONFLICT_TEXT = "Changed elsewhere since you opened this"
 APPROVAL_TEXT = "Saving here asks a facility admin to approve this setting"
+WAITING_TEXT = "Waiting for a facility admin; saves automatically once approved"
 RESTART_TEXT = "restart"
 CLEAR_TEXT = "Clear (not set)"
 LOCK_GLYPH = "\U0001f512"
@@ -125,6 +129,7 @@ class SettingRow(QWidget):
         self._invalid = False
         self._is_set = False
         self._needs_approval = False
+        self._awaiting = False
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, ROW_MARGIN_V, 0, ROW_MARGIN_V)
@@ -175,6 +180,12 @@ class SettingRow(QWidget):
         self._approval.hide()
         left.addWidget(self._approval)
 
+        self._waiting = QLabel(WAITING_TEXT, self)
+        self._waiting.setWordWrap(True)
+        set_muted(self._waiting)
+        self._waiting.hide()
+        left.addWidget(self._waiting)
+
         self._conflict = QLabel(CONFLICT_TEXT, self)
         self._conflict.setWordWrap(True)
         RoleColor(self._conflict, TEXT_ROLES, error_color)
@@ -189,30 +200,40 @@ class SettingRow(QWidget):
         left_box.setLayout(left)
         left_box.setMinimumWidth(LABEL_COLUMN_MIN)
         left_box.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        outer.addWidget(left_box, LABEL_STRETCH)
 
-        editor_box = QWidget(self)
-        editor_box.setMinimumWidth(EDITOR_COLUMN_MIN)
-        editor_box.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        editor_line = QHBoxLayout(editor_box)
-        editor_line.setContentsMargins(0, 0, 0, 0)
-        editor.setParent(editor_box)
-        editor.setMinimumWidth(EDITOR_COLUMN_MIN)
-        if editor.fills_row:
-            editor_line.addWidget(editor)
+        if editor.full_width:
+            column = QVBoxLayout()
+            column.setSpacing(TEXT_SPACING)
+            column.addWidget(left_box)
+            editor.setParent(self)
+            column.addWidget(editor)
+            outer.addLayout(column, 1)
         else:
-            editor_line.addWidget(editor, 0, Qt.AlignmentFlag.AlignLeft)
-            editor_line.addStretch(1)
-        outer.addWidget(editor_box, EDITOR_STRETCH, Qt.AlignmentFlag.AlignTop)
+            outer.addWidget(left_box, LABEL_STRETCH)
+            editor_box = QWidget(self)
+            editor_box.setMinimumWidth(EDITOR_COLUMN_MIN)
+            editor_box.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            editor_line = QHBoxLayout(editor_box)
+            editor_line.setContentsMargins(0, 0, 0, 0)
+            editor.setParent(editor_box)
+            editor.setMinimumWidth(EDITOR_COLUMN_MIN)
+            if editor.fills_row:
+                editor_line.addWidget(editor)
+            else:
+                editor_line.addWidget(editor, 0, Qt.AlignmentFlag.AlignLeft)
+                editor_line.addStretch(1)
+            outer.addWidget(editor_box, EDITOR_STRETCH, Qt.AlignmentFlag.AlignTop)
 
         self.clear_action = QAction(CLEAR_TEXT, self)
         self.clear_action.setToolTip("Remove this setting at the selected scope")
         self.clear_action.triggered.connect(self.clear_requested)
         # Combos swallow context-menu events and line edits have their own
         # menu, so both are filtered: combos show the row menu, line edits
-        # get Clear added to their standard one.
+        # get Clear added to their standard one (except line edits that opt
+        # out, like a table's filter box, which is not the setting's value).
         for child in (*editor.findChildren(QComboBox), *editor.findChildren(QLineEdit)):
-            child.installEventFilter(self)
+            if not child.property(NO_CLEAR_MENU):
+                child.installEventFilter(self)
 
     # Right-click offers "Clear (not set)".
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
@@ -278,8 +299,15 @@ class SettingRow(QWidget):
         self._needs_approval = needs
         self._show_approval()
 
+    def set_awaiting_approval(self, awaiting: bool) -> None:
+        """Show the muted "waiting for a facility admin" note: a save here is queued
+        until its key is approved (it replaces the "asks a facility admin" note)."""
+        self._awaiting = awaiting
+        self._show_approval()
+
     def _show_approval(self) -> None:
-        self._approval.setVisible(self._needs_approval and not self._read_only)
+        self._waiting.setVisible(self._awaiting and not self._read_only)
+        self._approval.setVisible(self._needs_approval and not self._awaiting and not self._read_only)
 
     def set_invalid(self, invalid: bool) -> None:
         self._invalid = invalid
@@ -305,6 +333,9 @@ class SettingRow(QWidget):
 
     def approval_note_shown(self) -> bool:
         return not self._approval.isHidden()
+
+    def waiting_note_shown(self) -> bool:
+        return not self._waiting.isHidden()
 
     def reason_text(self) -> str:
         return self._reason.text() if self._read_only else ""

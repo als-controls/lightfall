@@ -70,22 +70,20 @@ GLOBAL_ONLY_PREFS = {
     "claude_auto_restore",
     "claude_last_session_id",
     "agy_last_session_id",
-    # Plugin settings
-    "disabled_plugins",
+    # Plugin settings (item-merged enablement maps)
+    "plugins.enabled",
     # Tool/skill settings (ToolPlugin overrides)
-    "disabled_tool_plugins",
-    "forced_enabled_tool_plugins",
+    "tools.enabled",
     # Agent definitions (agents-as-data)
     "disabled_agents",
     "forced_enabled_agents",
     # Monitor settings (MonitorPlugin overrides + advisor + tick)
     "monitor_advisor_enabled",
     "monitor_tick_interval",
-    "disabled_monitor_plugins",
-    "forced_enabled_monitor_plugins",
-    "disabled_monitor_feeds",
-    "monitor_feed_intervals",
-    "monitor_feed_advisor_severity",
+    "monitors.enabled",
+    "monitor_feeds.enabled",
+    "monitor_feeds.interval",
+    "monitor_feeds.severity",
     # External tools settings (for code navigation)
     "code_editor",  # "vscode" or "pycharm"
     "suppress_pycharm_warning",  # bool - permanently dismiss PyCharm protocol warning
@@ -225,6 +223,8 @@ class PreferencesManager(QObject):
     """
 
     scopes_changed = Signal(object)  # ScopeInfo
+    awaiting_approval_changed = Signal(str)  # key whose writes awaiting approval changed
+    scopes_online = Signal()  # server scopes fetched online (user scope included)
 
     _instance: PreferencesManager | None = None
     _lock = threading.RLock()
@@ -496,6 +496,14 @@ class PreferencesManager(QObject):
 
         return scope_api.needs_approval(self, key, scope)
 
+    def awaiting_approval(self, key: str, scope: str) -> Any:
+        """The write of `key` at `scope` queued until a facility admin approves the key
+        (None = a queued remove), or MISSING when nothing waits."""
+        from lightfall.scopes.store import MISSING
+
+        scoped = self._active_scoped()
+        return scoped.awaiting_approval(key, scope) if scoped is not None else MISSING
+
     def lock_at(self, key: str, scope: str) -> Any:
         from lightfall.ui.preferences import scope_api
 
@@ -511,8 +519,21 @@ class PreferencesManager(QObject):
         scoped = self._active_scoped()
         if scoped is not None:
             return scoped.item_origins(key)
+        if self._local_scopes is not None and self._local_scopes.owns(key):
+            return self._local_scopes.item_origins(key)
         value = self.get(key, None)
         return dict.fromkeys(value, "local") if isinstance(value, dict) else {}
+
+    def resolved_items(self, key: str) -> dict[str, Any]:
+        """An item-merged key's merged map as ``get`` returns it ({} when nothing is set)."""
+        value = self.get(key, None)
+        return dict(value) if isinstance(value, dict) else {}
+
+    def inherited_items(self, key: str, scope: str) -> dict[str, tuple[Any, str]]:
+        """For an item-merged key: item id -> (value, origin label) from the layers broader than `scope`."""
+        from lightfall.ui.preferences import scope_api
+
+        return scope_api.inherited_items(self, key, scope)
 
     def layer_value(self, key: str, scope: str) -> Any:
         """The value stored at one layer, or None.
@@ -560,6 +581,8 @@ class PreferencesManager(QObject):
                                           user_preferences=self._user_preferences)
         backend.changed.connect(self._on_backend_changed)
         backend.chain_changed.connect(self._on_scoped_chain)
+        backend.awaiting_changed.connect(self.awaiting_approval_changed)
+        backend.online.connect(self.scopes_online)
         backend.set_fallback(self._pre_scope_get)
         self._scoped = backend
         backend.activate()
@@ -577,6 +600,8 @@ class PreferencesManager(QObject):
         # The manager reports the net change itself: one emission per key that moved.
         backend.changed.disconnect(self._on_backend_changed)
         backend.chain_changed.disconnect(self._on_scoped_chain)
+        backend.awaiting_changed.disconnect(self.awaiting_approval_changed)
+        backend.online.disconnect(self.scopes_online)
         self._scoped = None
         backend.deactivate()
         backend.deleteLater()

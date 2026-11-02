@@ -82,3 +82,24 @@ def fetch_state(client: ScopesClient, cache: SnapshotCache, bind: str,
     return FetchedState(chain=info, snapshots=snapshots, offline=offline,
                         cached_at=min(cached_times) if cached_times else None,
                         failed=frozenset(failed))
+
+
+def cached_state(cache: SnapshotCache, bind: str, identity: str | None) -> FetchedState | None:
+    """Last session's chain and snapshots from the disk cache, as an offline fetch would
+    return them, or None when nothing is cached. Reads files only (no network)."""
+    if identity is None:
+        return None
+    cached = cache.load_chain(bind, identity)
+    if cached is None:
+        return None
+    info, chain_cached_at = cached
+    times = [chain_cached_at]
+    snapshots: dict[str, Snapshot] = {}
+    for scope in info.chain:
+        snap = cache.load_snapshot(scope)
+        if snap is None:
+            snapshots[scope] = Snapshot.empty(scope)
+        else:
+            snapshots[scope] = snap[0]
+            times.append(snap[1])
+    return FetchedState(chain=info, snapshots=snapshots, offline=True, cached_at=min(times))

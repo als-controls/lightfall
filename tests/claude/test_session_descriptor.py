@@ -133,7 +133,7 @@ def test_agent_assembly_survives_a_backend_lookup_failure(qtbot, monkeypatch):
     from lightfall.ui.panels.claude.tool_registry import ToolRegistry
 
     monkeypatch.setattr("lightfall.claude.agent.ClaudeSDKClient", MagicMock())
-    monkeypatch.setattr(ToolRegistry, "_read_list_pref", lambda self, key: None)
+    monkeypatch.setattr("lightfall.scopes.enablement.enabled_overrides", lambda key: {})
     monkeypatch.setattr(ToolRegistry, "_migrate_legacy_pref_if_needed", lambda self: None)
     ToolRegistry.reset_instance()
 

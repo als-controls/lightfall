@@ -32,8 +32,8 @@ def mock_sdk(monkeypatch):
     monkeypatch.setattr("lightfall.claude.agent.ClaudeSDKClient", MagicMock())
     # No registered agents -> keep per-plugin assembly trivial.
     monkeypatch.setattr(
-        "lightfall.ui.panels.claude.tool_registry.ToolRegistry._read_list_pref",
-        lambda self, key: None,
+        "lightfall.scopes.enablement.enabled_overrides",
+        lambda key: {},
     )
     monkeypatch.setattr(
         "lightfall.ui.panels.claude.tool_registry.ToolRegistry._migrate_legacy_pref_if_needed",

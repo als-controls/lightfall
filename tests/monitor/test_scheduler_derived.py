@@ -70,7 +70,6 @@ class _Svc:
 def _registry():
     MonitorRegistry.reset_instance()
     reg = MonitorRegistry.get_instance()
-    reg._read_list_pref = lambda key: []
     yield reg
     MonitorRegistry.reset_instance()
 

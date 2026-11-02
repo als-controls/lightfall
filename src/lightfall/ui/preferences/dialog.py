@@ -141,6 +141,9 @@ class PreferencesDialog(QDialog):
         scopes_changed = getattr(self._prefs, "scopes_changed", None)
         if scopes_changed is not None:
             scopes_changed.connect(self._on_scopes_changed)
+        awaiting_changed = getattr(self._prefs, "awaiting_approval_changed", None)
+        if awaiting_changed is not None:
+            awaiting_changed.connect(self._on_awaiting_changed)
 
         # Navigate to initial page if specified
         if initial_page:
@@ -298,6 +301,12 @@ class PreferencesDialog(QDialog):
             if unsubscribe is not None:
                 unsubscribe(key, slot)
         self._subscriptions.clear()
+
+    def _on_awaiting_changed(self, key: str) -> None:
+        """A save waiting for key approval was queued, sent or dropped: update its row."""
+        name = self._key_owner.get(key)
+        if name is not None:
+            self._form_pages[name].form.refresh_from_store()
 
     def _on_scopes_changed(self, _info: Any = None) -> None:
         choices = self._prefs.scope_choices()
@@ -621,6 +630,12 @@ class PreferencesDialog(QDialog):
         if scopes_changed is not None:
             try:
                 scopes_changed.disconnect(self._on_scopes_changed)
+            except (RuntimeError, TypeError):
+                pass
+        awaiting_changed = getattr(self._prefs, "awaiting_approval_changed", None)
+        if awaiting_changed is not None:
+            try:
+                awaiting_changed.disconnect(self._on_awaiting_changed)
             except (RuntimeError, TypeError):
                 pass
         super().done(result)
