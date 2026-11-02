@@ -60,6 +60,9 @@ def on_off_text(value: Any) -> str:
     return str(value)
 
 
+_REFIT_EVENTS = (QEvent.Type.PaletteChange, QEvent.Type.FontChange, QEvent.Type.StyleChange)
+
+
 class TableEditor(FieldEditor):
     """Base for full-width editors: filter line edit above a QTableWidget.
 
@@ -108,6 +111,7 @@ class TableEditor(FieldEditor):
         self._stretch_column = stretch_column
         self._pinned: dict[int, int | str] = {}
         self.table.viewport().installEventFilter(self)
+        self.table.installEventFilter(self)  # its own font / style / palette changes (a stylesheet sets them)
         layout.addWidget(self.table)
         self._muted_cells: list[QTableWidgetItem] = []
 
@@ -179,8 +183,11 @@ class TableEditor(FieldEditor):
                 self.table.setColumnWidth(column, width)
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
-        if event.type() == QEvent.Type.Resize and obj is self.table.viewport():
+        kind = event.type()
+        if kind == QEvent.Type.Resize and obj is self.table.viewport():
             self._layout_columns()
+        elif obj is self.table and kind in _REFIT_EVENTS and hasattr(self, "_muted_cells"):
+            self._restyle(kind)
         return super().eventFilter(obj, event)
 
     def _finish_rows(self) -> None:
@@ -207,11 +214,17 @@ class TableEditor(FieldEditor):
 
     # Theme --------------------------------------------------------------
     def changeEvent(self, event: QEvent) -> None:  # noqa: N802
-        if event.type() == QEvent.Type.PaletteChange and hasattr(self, "_muted_cells"):
+        if event.type() in _REFIT_EVENTS and hasattr(self, "_muted_cells"):  # not yet while __init__ runs
+            self._restyle(event.type())
+        super().changeEvent(event)
+
+    def _restyle(self, kind: QEvent.Type) -> None:
+        """Recolour the muted cells (palette) and re-fit rows and columns (font, style, palette)."""
+        if kind == QEvent.Type.PaletteChange:
             brush = QBrush(muted_color(self.table))
             for cell in self._muted_cells:
                 cell.setForeground(brush)
-        super().changeEvent(event)
+        self._finish_rows()
 
 
 class CatalogEditor(TableEditor):

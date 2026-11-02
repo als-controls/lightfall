@@ -166,7 +166,7 @@ class SettingsForm(QWidget):
     def _add_item(self, block: _SectionBlock, item: object, scope: str, read_only_reason: str) -> None:
         layout = block.box.layout()
         if isinstance(item, SettingField):
-            row = self._build_row(item, scope, read_only_reason, block.box)
+            row = self._build_row(item, scope, read_only_reason, block.box, block.box.title())
             layout.addWidget(row)
             block.rows.append(row)
             return
@@ -201,7 +201,9 @@ class SettingsForm(QWidget):
             layout.addWidget(desc)
         return box
 
-    def _build_row(self, field: SettingField, scope: str, scope_reason: str, parent: QWidget) -> SettingRow:
+    def _build_row(
+        self, field: SettingField, scope: str, scope_reason: str, parent: QWidget, section_title: str = ""
+    ) -> SettingRow:
         spec = client_registry().get(field.key)
         editor = create_editor(field.editor, field)
         row = SettingRow(
@@ -211,6 +213,7 @@ class SettingsForm(QWidget):
             editor,
             restart_required=field.restart_required or spec.restart_required,
             parent=parent,
+            section_title=section_title,
         )
         self._fields[field.key] = field
         editor.set_value(self._model.pending(scope, field.key))

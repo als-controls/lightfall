@@ -121,6 +121,7 @@ class SettingRow(QWidget):
         editor: FieldEditor,
         restart_required: bool = False,
         parent: QWidget | None = None,
+        section_title: str = "",
     ) -> None:
         super().__init__(parent)
         self.key = key
@@ -145,6 +146,10 @@ class SettingRow(QWidget):
         self._label = QLabel(label, self)
         self._label.setWordWrap(True)  # a long label wraps rather than push the editor column
         title.addWidget(self._label)
+        # A full-width editor under a section titled the same as its label would
+        # say it twice: keep the label (key lookups) but do not show it.
+        if editor.full_width and label.strip().casefold() == section_title.strip().casefold() != "":
+            self._label.hide()
         self._dot = _DirtyDot(self)
         self._dot.hide()
         title.addWidget(self._dot)
