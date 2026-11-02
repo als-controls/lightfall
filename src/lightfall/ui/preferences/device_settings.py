@@ -1,110 +1,77 @@
-"""Device backend settings plugin for NCS.
+"""Settings -> Devices: connection settings, the CA tunnel and device backend rows, per scope.
 
-Holds a list of backend rows. Each row is a backend type (mock, BCS,
-happi, CSM, or a plugin-contributed type) with its own name and
-configuration, and several rows may share a type.
+A form page (see ``SettingsPlugin.sections``). The connection scalars may be set at
+beamline, branch, this console or user scope; the CA tunnel keys are console-only. The
+backend rows are the item-merged key ``device_backends``: each scope edits its own rows
+and overrides of the rows broader scopes give it (``DeviceRowsEditor``), plus the
+exclusive restore list at the same scope.
+
+Saving applies the resolved rows to the running catalog, except while a plan runs or when
+the rows switch the session mode (entering or leaving an exclusive backend), which takes a
+restart.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QCheckBox,
-    QComboBox,
-    QDoubleSpinBox,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QMenu,
-    QMessageBox,
-    QPushButton,
-    QStackedWidget,
-    QTableWidget,
-    QTableWidgetItem,
-    QToolButton,
-    QVBoxLayout,
-    QWidget,
-)
+from lightfall_settings import SettingSpec
+from PySide6.QtWidgets import QMessageBox
 
-from lightfall.devices.backend_types.base import BackendEditor
 from lightfall.devices.backend_types.registry import BackendTypeRegistry
 from lightfall.devices.backend_types.rows import (
     DEVICE_BACKENDS_KEY,
     EXCLUSIVE_RESTORE_KEY,
-    BackendRow,
-    layer_rows_value,
+    build_context,
     load_rows,
-    migrate_legacy,
-    restore_ids_from_value,
-    restore_value,
-    unique_name,
+    rows_from_value,
 )
 from lightfall.devices.backend_types.session import (
     crosses_mode_boundary,
     current_session_mode,
     exclusive_row,
-    is_exclusive,
 )
 from lightfall.plugins.settings_plugin import SettingsPlugin
-from lightfall.ui.preferences.device_rows import _device_backend_plugin_names
+from lightfall.ui.preferences.device_rows import device_rows_editor
+from lightfall.ui.preferences.form.schema import (
+    Choice,
+    Custom,
+    Number,
+    Section,
+    SettingField,
+    Text,
+    Toggle,
+)
 from lightfall.ui.preferences.manager import PreferencesManager
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QIcon
 
-_COL_ENABLED, _COL_NAME, _COL_TYPE, _COL_FROM, _COL_SUMMARY = range(5)
+    from lightfall.ui.preferences.form.schema import FormValues
+
+_SCOPES = frozenset({"beamline", "branch", "user"})
+_ROW_KEYS = (DEVICE_BACKENDS_KEY, EXCLUSIVE_RESTORE_KEY)
+
+INSTANTIATE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("background", "Background (recommended)"),
+    ("none", "On demand (manual)"),
+    ("blocking", "Blocking (legacy)"),
+)
+BACKENDS_DESCRIPTION = (
+    "Backend changes apply when you save. Edited backends reconnect their devices; "
+    "connection settings apply to backends built after that."
+)
+PLAN_RUNNING_TEXT = (
+    "A plan is running, so the backend changes were saved but not applied. "
+    "Save again once it finishes (or restart)."
+)
 
 
 class DeviceSettingsPlugin(SettingsPlugin):
-    """Settings plugin for device backend configuration.
-
-    The page lists backend rows in a table; selecting a row shows that
-    type's settings form below it. Devices from all enabled rows are
-    merged into a single catalog.
-
-    Saving applies backend rows to the running catalog: removed or changed
-    rows drop their backend, new or changed rows build one. The connection
-    settings apply to backends built from then on.
-
-    Rows come from several layers (beamline, branch, this console, the user;
-    settings-layering design). The table shows where each row comes from, and
-    "Save to" picks the layer that edits are written to: rows added or edited
-    here go there, rows owned by another layer can be switched off but not removed.
-    """
-
-    def __init__(self) -> None:
-        self._widget: QWidget | None = None
-
-        # Connection settings
-        self._connection_timeout_spin: QDoubleSpinBox | None = None
-        self._connect_on_startup: QCheckBox | None = None
-        self._instantiate_mode: QComboBox | None = None
-
-        # CA Tunnel
-        self._ca_tunnel_enabled: QCheckBox | None = None
-        self._exclusive_hint: QLabel | None = None
-        # Rows an exclusive row switched off, switched back on when it goes off.
-        self._restore_ids: list[str] = []
-        self._ca_tunnel_gateway: QLineEdit | None = None
-
-        # Backend rows
-        self._rows: list[BackendRow] = []
-        self._loaded: list[BackendRow] = []  # as resolved when the page was loaded
-        self._origins: dict[str, str] = {}  # row id -> layer it comes from
-        self._target_combo: QComboBox | None = None
-        self._editors: dict[str, QWidget] = {}  # row id -> editor (or placeholder)
-        self._table: QTableWidget | None = None
-        self._stack: QStackedWidget | None = None
-        self._name_edit: QLineEdit | None = None
-        self._detail_group: QGroupBox | None = None
+    """Settings plugin for device connection settings and backend rows."""
 
     @property
     def name(self) -> str:
@@ -126,614 +93,82 @@ class DeviceSettingsPlugin(SettingsPlugin):
     def priority(self) -> int:
         return 20
 
-    def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        # The registry reuses this plugin across Preferences dialogs; editors
-        # from a previous dialog were destroyed with its widget tree, so start
-        # a fresh map for the new stack built below.
-        self._editors = {}
-        widget = QWidget(parent)
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(20)
+    def specs(self) -> Sequence[SettingSpec]:
+        # The device_backends* keys are declared by lightfall-settings.
+        return [
+            SettingSpec(key="device_instantiate_mode", type=str, scopes=_SCOPES,
+                        label="Device instantiation"),
+            SettingSpec(key="device_connection_timeout", type=float, scopes=_SCOPES,
+                        label="Connection timeout"),
+            SettingSpec(key="device_connect_on_startup", type=bool, scopes=_SCOPES,
+                        label="Connect devices on startup"),
+        ]
 
-        # Prevent checkbox indicator clipping on Windows dark themes
-        widget.setStyleSheet("""
-            QGroupBox {
-                margin-top: 7px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                top: 2px;
-                left: 8px;
-            }
-            QGroupBox::indicator {
-                subcontrol-origin: margin;
-                top: 2px;
-            }
-        """)
+    def sections(self) -> Sequence[Section]:
+        return [
+            Section(
+                "Connection",
+                [
+                    SettingField(
+                        "device_instantiate_mode", Choice(INSTANTIATE_OPTIONS),
+                        label="Device instantiation",
+                        description="Background connects devices in worker threads (fastest startup); "
+                                    "on demand connects a device when it is selected; blocking connects "
+                                    "all devices at startup (can be slow).",
+                    ),
+                    SettingField(
+                        "device_connection_timeout", Number(0.5, 120, 0.5),
+                        label="Connection timeout", unit="s", placeholder="5",
+                        description="How long to wait for a device to connect before marking it failed. "
+                                    "Increase it for slow devices or network latency.",
+                    ),
+                    SettingField(
+                        "device_connect_on_startup", Toggle(),
+                        label="Connect devices on startup",
+                        description="On: devices start connecting when Lightfall starts. "
+                                    "Off: they connect when you select them.",
+                    ),
+                ],
+            ),
+            Section(
+                "Remote access (CA tunnel)",
+                [
+                    SettingField(
+                        "ca_tunnel_enabled", Toggle(), label="Enable CA tunnel",
+                        restart_required=True,
+                        description="Bridges local Channel Access to a remote CA Gateway over an SSH "
+                                    "tunnel (e.g. ssh -L 5099:localhost:5099 user@host).",
+                    ),
+                    SettingField(
+                        "ca_tunnel_gateway", Text(), label="Gateway address",
+                        placeholder="localhost:5099", restart_required=True,
+                        enabled_when=lambda v: v.effective("ca_tunnel_enabled") is True,
+                        description="The CA Gateway as host:port; match your SSH tunnel's local port.",
+                    ),
+                ],
+            ),
+            Section(
+                "Backends",
+                [
+                    SettingField(
+                        DEVICE_BACKENDS_KEY, Custom(device_rows_editor), label="Backends",
+                        companions=(EXCLUSIVE_RESTORE_KEY,),
+                    ),
+                ],
+                description=BACKENDS_DESCRIPTION,
+            ),
+        ]
 
-        # Restart notice
-        notice = QLabel(
-            "<i>Backend changes apply when you save. Edited backends reconnect their "
-            "devices; connection settings apply to backends built after that.</i>"
-        )
-        notice.setWordWrap(True)
-        layout.addWidget(notice)
-
-        # Connection settings (global)
-        layout.addWidget(self._create_connection_group())
-
-        # Backend rows and the selected row's settings
-        layout.addWidget(self._create_backends_group())
-        layout.addWidget(self._create_detail_group())
-
-        layout.addStretch()
-        self._widget = widget
-        return widget
-
-    # ── Connection Settings ─────────────────────────────────────────
-
-    def _create_connection_group(self) -> QGroupBox:
-        group = QGroupBox("Connection Settings")
-        form = QFormLayout(group)
-        form.setContentsMargins(12, 20, 12, 12)
-
-        # Instantiation mode
-        self._instantiate_mode = QComboBox()
-        self._instantiate_mode.addItem("Background (recommended)", "background")
-        self._instantiate_mode.addItem("On demand (manual)", "none")
-        self._instantiate_mode.addItem("Blocking (legacy)", "blocking")
-        self._instantiate_mode.setToolTip(
-            "Background: Devices connect in background threads (fastest startup)\n"
-            "On demand: Only connect when a device is selected\n"
-            "Blocking: Connect all devices synchronously on startup (can be slow)"
-        )
-        form.addRow("Device instantiation:", self._instantiate_mode)
-
-        # Connection timeout
-        timeout_layout = QHBoxLayout()
-        self._connection_timeout_spin = QDoubleSpinBox()
-        self._connection_timeout_spin.setRange(0.5, 120.0)
-        self._connection_timeout_spin.setValue(5.0)
-        self._connection_timeout_spin.setSuffix(" seconds")
-        self._connection_timeout_spin.setSingleStep(0.5)
-        self._connection_timeout_spin.setDecimals(1)
-        self._connection_timeout_spin.setToolTip(
-            "How long to wait for a device to connect before marking it as failed.\n"
-            "Increase this if you have slow devices or network latency."
-        )
-        timeout_layout.addWidget(self._connection_timeout_spin)
-        timeout_layout.addStretch()
-        form.addRow("Connection timeout:", timeout_layout)
-
-        # Connect on startup
-        self._connect_on_startup = QCheckBox("Connect devices on startup")
-        self._connect_on_startup.setToolTip(
-            "If checked, devices will start connecting when the application starts.\n"
-            "If unchecked, devices only connect when you select them."
-        )
-        form.addRow(self._connect_on_startup)
-
-        desc = QLabel(
-            "Controls how device connections are handled. Background mode connects "
-            "devices in separate threads so the UI stays responsive."
-        )
-        desc.setWordWrap(True)
-        desc.setStyleSheet("color: gray;")
-        form.addRow(desc)
-
-        # CA Tunnel (remote access)
-        tunnel_label = QLabel("<b>Remote Access (CA Tunnel)</b>")
-        form.addRow(tunnel_label)
-
-        self._ca_tunnel_enabled = QCheckBox("Enable CA tunnel for remote access")
-        self._ca_tunnel_enabled.setToolTip(
-            "Bridges local UDP CA traffic to a remote CA Gateway via TCP.\n"
-            "Requires an SSH tunnel forwarding the gateway port, and a\n"
-            "CA Gateway running on the remote host.\n\n"
-            "SSH example: ssh -L 5099:localhost:5099 user@host"
-        )
-        self._ca_tunnel_enabled.toggled.connect(self._on_tunnel_toggled)
-        form.addRow(self._ca_tunnel_enabled)
-
-        self._ca_tunnel_gateway = QLineEdit()
-        self._ca_tunnel_gateway.setPlaceholderText("localhost:5099")
-        self._ca_tunnel_gateway.setToolTip(
-            "Address of the CA Gateway as host:port.\n"
-            "This should match your SSH tunnel's local forwarded port."
-        )
-        self._ca_tunnel_gateway.setEnabled(False)
-        form.addRow("Gateway address:", self._ca_tunnel_gateway)
-
-        tunnel_desc = QLabel(
-            "For remote development: forwards EPICS Channel Access through "
-            "an SSH tunnel to a CA Gateway on the beamline network. "
-            "Requires restart."
-        )
-        tunnel_desc.setWordWrap(True)
-        tunnel_desc.setStyleSheet("color: gray;")
-        form.addRow(tunnel_desc)
-
-        return group
-
-    def _on_tunnel_toggled(self, checked: bool) -> None:
-        """Enable/disable the gateway address field."""
-        if self._ca_tunnel_gateway:
-            self._ca_tunnel_gateway.setEnabled(checked)
-
-    # ── Backends table ──────────────────────────────────────────────
-
-    def _create_backends_group(self) -> QGroupBox:
-        group = QGroupBox("Backends")
-        box = QVBoxLayout(group)
-        box.setContentsMargins(12, 20, 12, 12)
-
-        target_row = QHBoxLayout()
-        target_row.addWidget(QLabel("Save to:"))
-        self._target_combo = QComboBox()
-        self._target_combo.setToolTip(
-            "Where added or edited rows are saved. Rows from other places stay "
-            "as they are; switching one off here overrides it for this layer only."
-        )
-        self._target_combo.currentIndexChanged.connect(lambda _i: self._refresh_table())
-        target_row.addWidget(self._target_combo)
-        target_row.addStretch()
-        box.addLayout(target_row)
-
-        table = QTableWidget(0, 5)
-        table.setHorizontalHeaderLabels(["", "Name", "Type", "From", "Details"])
-        table.verticalHeader().setVisible(False)
-        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(_COL_ENABLED, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(_COL_NAME, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(_COL_TYPE, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(_COL_FROM, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(_COL_SUMMARY, QHeaderView.ResizeMode.Stretch)
-        table.itemSelectionChanged.connect(self._on_selection_changed)
-        table.itemChanged.connect(self._on_item_changed)
-        self._table = table
-        box.addWidget(table)
-        self._exclusive_hint = QLabel()
-        self._exclusive_hint.setWordWrap(True)
-        self._exclusive_hint.setStyleSheet("color: gray;")
-        self._exclusive_hint.hide()
-        box.addWidget(self._exclusive_hint)
-
-        buttons = QHBoxLayout()
-        add = QToolButton()
-        add.setText("Add")
-        add.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        menu = QMenu(add)
-        for backend_type in BackendTypeRegistry.get_instance().all():
-            action = menu.addAction(backend_type.display_name)
-            action.triggered.connect(lambda _=False, t=backend_type.type_id: self._add_row(t))
-        add.setMenu(menu)
-        duplicate = QPushButton("Duplicate")
-        duplicate.clicked.connect(self._duplicate_selected)
-        remove = QPushButton("Remove")
-        remove.clicked.connect(self._remove_selected)
-        buttons.addWidget(add)
-        buttons.addWidget(duplicate)
-        buttons.addWidget(remove)
-        buttons.addStretch()
-        box.addLayout(buttons)
-        return group
-
-    def _create_detail_group(self) -> QGroupBox:
-        group = QGroupBox("Backend settings")
-        box = QVBoxLayout(group)
-        box.setContentsMargins(12, 20, 12, 12)
-        form = QFormLayout()
-        self._name_edit = QLineEdit()
-        self._name_edit.textChanged.connect(self._on_name_edited)
-        form.addRow("Name:", self._name_edit)
-        box.addLayout(form)
-        self._stack = QStackedWidget()
-        box.addWidget(self._stack)
-        self._detail_group = group
-        group.setEnabled(False)
-        return group
-
-    # ── Row helpers ─────────────────────────────────────────────────
-
-    def _selected_index(self) -> int:
-        if self._table is None:
-            return -1
-        rows = self._table.selectionModel().selectedRows()
-        return rows[0].row() if rows else -1
-
-    def _select(self, index: int) -> None:
-        if self._table is not None and 0 <= index < len(self._rows):
-            self._table.selectRow(index)
-
-    def _type_label(self, row: BackendRow) -> str:
-        backend_type = BackendTypeRegistry.get_instance().get(row.type)
-        return backend_type.display_name if backend_type else f"(unavailable: {row.type})"
-
-    def _summary(self, row: BackendRow) -> str:
-        backend_type = BackendTypeRegistry.get_instance().get(row.type)
-        return backend_type.summary(row.config) if backend_type else ""
-
-    def _refresh_table(self) -> None:
-        if self._table is None:
-            return
-        selected = self._selected_index()
-        exclusive = exclusive_row(self._rows, BackendTypeRegistry.get_instance())
-        self._table.blockSignals(True)
-        self._table.setRowCount(len(self._rows))
-        for index, row in enumerate(self._rows):
-            enabled = QTableWidgetItem()
-            if exclusive is None or row is exclusive:
-                enabled.setFlags(
-                    Qt.ItemFlag.ItemIsUserCheckable
-                    | Qt.ItemFlag.ItemIsEnabled
-                    | Qt.ItemFlag.ItemIsSelectable
-                )
-            else:
-                # While an exclusive row is on, nothing else can be.
-                enabled.setFlags(Qt.ItemFlag.ItemIsSelectable)
-            enabled.setCheckState(Qt.CheckState.Checked if row.enabled else Qt.CheckState.Unchecked)
-            self._table.setItem(index, _COL_ENABLED, enabled)
-            self._table.setItem(index, _COL_NAME, QTableWidgetItem(row.name))
-            self._table.setItem(index, _COL_TYPE, QTableWidgetItem(self._type_label(row)))
-            self._table.setItem(index, _COL_FROM, QTableWidgetItem(self._origin_label(row)))
-            self._table.setItem(index, _COL_SUMMARY, QTableWidgetItem(self._summary(row)))
-        self._table.blockSignals(False)
-        if 0 <= selected < len(self._rows):
-            self._table.selectRow(selected)
-        self._update_exclusive_hint(exclusive)
-
-    def _target(self) -> str:
-        combo = self._target_combo
-        data = combo.currentData() if combo is not None else None
-        return data if isinstance(data, str) else "local"
-
-    def _origin_label(self, row: BackendRow) -> str:
-        origin = self._origins.get(row.id)
-        if origin is None:
-            return f"new ({layer_label(self._target())})"
-        return layer_label(origin)
-
-    def _update_exclusive_hint(self, exclusive: BackendRow | None) -> None:
-        if self._exclusive_hint is None:
-            return
-        if exclusive is None:
-            self._exclusive_hint.hide()
-            return
-        backend_type = BackendTypeRegistry.get_instance().get(exclusive.type)
-        label = backend_type.session_label(exclusive.config) if backend_type else exclusive.name
-        text = f"Other device sources are off while {label} is on."
-        plugins = _device_backend_plugin_names()
-        if plugins:
-            text += f" Also off: {', '.join(plugins)}."
-        self._exclusive_hint.setText(text)
-        self._exclusive_hint.show()
-
-    def _editor_for(self, row: BackendRow) -> QWidget:
-        editor = self._editors.get(row.id)
-        if editor is not None:
-            return editor
-        backend_type = BackendTypeRegistry.get_instance().get(row.type)
-        if backend_type is None:
-            editor = QLabel(
-                f"Backend type '{row.type}' is not available (is its plugin installed?). "
-                "This row is kept unchanged."
-            )
-            editor.setWordWrap(True)
-        else:
-            editor = backend_type.create_editor(row.config, self._stack)
-            editor.changed.connect(lambda rid=row.id: self._on_editor_changed(rid))
-        self._editors[row.id] = editor
-        assert self._stack is not None
-        self._stack.addWidget(editor)
-        return editor
-
-    def _sync_row(self, row: BackendRow) -> None:
-        editor = self._editors.get(row.id)
-        if isinstance(editor, BackendEditor):
-            row.config = editor.get_config()
-
-    def _row_by_id(self, row_id: str) -> tuple[int, BackendRow] | None:
-        for index, row in enumerate(self._rows):
-            if row.id == row_id:
-                return index, row
-        return None
-
-    # ── Slots ───────────────────────────────────────────────────────
-
-    def _on_selection_changed(self) -> None:
-        index = self._selected_index()
-        if self._detail_group is None or self._name_edit is None or self._stack is None:
-            return
-        # Loading a row into the name field is not an edit of that row.
-        self._name_edit.blockSignals(True)
-        try:
-            if index < 0:
-                self._detail_group.setEnabled(False)
-                self._name_edit.clear()
-                return
-            row = self._rows[index]
-            self._detail_group.setEnabled(True)
-            self._detail_group.setTitle(f"{row.name} ({self._type_label(row)})")
-            self._name_edit.setText(row.name)
-        finally:
-            self._name_edit.blockSignals(False)
-        self._stack.setCurrentWidget(self._editor_for(row))
-
-    def _on_editor_changed(self, row_id: str) -> None:
-        found = self._row_by_id(row_id)
-        if found is None or self._table is None:
-            return
-        index, row = found
-        self._sync_row(row)
-        item = self._table.item(index, _COL_SUMMARY)
-        if item is not None:
-            item.setText(self._summary(row))
-
-    def _on_name_edited(self, text: str) -> None:
-        index = self._selected_index()
-        if index < 0 or self._table is None:
-            return
-        row = self._rows[index]
-        row.name = text.strip()
-        item = self._table.item(index, _COL_NAME)
-        if item is not None:
-            item.setText(row.name)
-        if self._detail_group is not None:
-            self._detail_group.setTitle(f"{row.name} ({self._type_label(row)})")
-
-    def _on_item_changed(self, item: QTableWidgetItem) -> None:
-        if item.column() != _COL_ENABLED or not 0 <= item.row() < len(self._rows):
-            return
-        row = self._rows[item.row()]
-        checked = item.checkState() == Qt.CheckState.Checked
-        backend_type = BackendTypeRegistry.get_instance().get(row.type)
-        if backend_type is None or not backend_type.exclusive or checked == row.enabled:
-            row.enabled = checked
-            return
-        if checked:
-            others = [r for r in self._rows if r is not row and r.enabled]
-            if others and not self._confirm_exclusive(backend_type.display_name, len(others)):
-                self._refresh_table()  # puts the box back to unticked
-                return
-            self._restore_ids = [r.id for r in others]
-            for other in others:
-                other.enabled = False
-            row.enabled = True
-        else:
-            row.enabled = False
-            restore = set(self._restore_ids)
-            for other in self._rows:
-                if other.id in restore:
-                    other.enabled = True
-            self._restore_ids = []
-        self._refresh_table()
-
-    def _confirm_exclusive(self, display_name: str, others: int) -> bool:
-        sources = "device source" if others == 1 else "device sources"
-        answer = QMessageBox.question(
-            self._widget,
-            "Device backends",
-            f"{display_name} mode disables the other {others} {sources}. Continue?",
-        )
-        return answer == QMessageBox.StandardButton.Yes
-
-    def _ask_restart(self, label: str, entering: bool) -> bool:
-        verb = "enter" if entering else "leave"
-        box = QMessageBox(self._widget)
-        box.setWindowTitle("Device backends")
-        box.setText(f"Lightfall needs to restart to {verb} {label}.")
-        restart = box.addButton("Restart now", QMessageBox.ButtonRole.AcceptRole)
-        box.addButton("Later", QMessageBox.ButtonRole.RejectRole)
-        box.setDefaultButton(restart)
-        box.exec()
-        return box.clickedButton() is restart
-
-    def _add_row(self, type_id: str) -> None:
-        backend_type = BackendTypeRegistry.get_instance().get(type_id)
-        if backend_type is None:
-            return
-        row = BackendRow(
-            type=type_id,
-            name=unique_name(type_id, (r.name for r in self._rows)),
-            # An exclusive row is switched on with its own checkbox, which asks first.
-            enabled=not backend_type.exclusive,
-            config=backend_type.default_config(),
-        )
-        self._rows.append(row)
-        self._refresh_table()
-        self._select(len(self._rows) - 1)
-
-    def _duplicate_selected(self) -> None:
-        index = self._selected_index()
-        if index < 0:
-            return
-        source = self._rows[index]
-        self._sync_row(source)
-        row = BackendRow(
-            type=source.type,
-            name=unique_name(source.type, (r.name for r in self._rows)),
-            enabled=source.enabled and not is_exclusive(source, BackendTypeRegistry.get_instance()),
-            config=deepcopy(source.config),
-        )
-        self._rows.insert(index + 1, row)
-        self._refresh_table()
-        self._select(index + 1)
-
-    def _remove_selected(self) -> None:
-        index = self._selected_index()
-        if index < 0:
-            return
-        origin = self._origins.get(self._rows[index].id)
-        if origin is not None and origin != self._target():
-            QMessageBox.information(
-                self._widget,
-                "Device backends",
-                f"This backend comes from {layer_label(origin)}, so it can't be removed "
-                f"here. Untick it to switch it off for {layer_label(self._target())}.",
-            )
-            return
-        row = self._rows.pop(index)
-        if row.enabled and is_exclusive(row, BackendTypeRegistry.get_instance()):
-            # Same as unticking it: the rows it switched off come back.
-            restore = set(self._restore_ids)
-            for other in self._rows:
-                if other.id in restore:
-                    other.enabled = True
-            self._restore_ids = []
-        editor = self._editors.pop(row.id, None)
-        if editor is not None and self._stack is not None:
-            self._stack.removeWidget(editor)
-            editor.deleteLater()
-        self._refresh_table()
-        self._select(min(index, len(self._rows) - 1))
-        if not self._rows:
-            self._on_selection_changed()
-
-    # ── Load / Save ─────────────────────────────────────────────────
-
-    def load_settings(self) -> None:
-        prefs = PreferencesManager.get_instance()
-
-        # Connection settings
-        if self._instantiate_mode:
-            mode = prefs.get("device_instantiate_mode", "background")
-            idx = self._instantiate_mode.findData(mode)
-            if idx >= 0:
-                self._instantiate_mode.setCurrentIndex(idx)
-
-        if self._connection_timeout_spin:
-            self._connection_timeout_spin.setValue(prefs.get("device_connection_timeout", 5.0))
-
-        if self._connect_on_startup:
-            self._connect_on_startup.setChecked(prefs.get("device_connect_on_startup", True))
-
-        # CA Tunnel
-        if self._ca_tunnel_enabled:
-            self._ca_tunnel_enabled.setChecked(prefs.get("ca_tunnel_enabled", False))
-        if self._ca_tunnel_gateway:
-            self._ca_tunnel_gateway.setText(prefs.get("ca_tunnel_gateway", "localhost:5099"))
-            self._ca_tunnel_gateway.setEnabled(prefs.get("ca_tunnel_enabled", False))
-
-        # Backend rows
-        rows = load_rows(prefs.get)
-        stored = rows is not None
-        if rows is None:
-            rows = migrate_legacy(prefs.get)  # shown, not saved, until the user saves
-            self._origins = {}
-        else:
-            self._origins = _item_origins(prefs, rows)
-        self._load_targets(prefs)
-        for editor in self._editors.values():
-            if self._stack is not None:
-                self._stack.removeWidget(editor)
-            editor.deleteLater()
-        self._editors.clear()
-        self._rows = rows
-        # Migrated rows aren't stored anywhere yet, so saving treats them as new.
-        self._loaded = deepcopy(rows) if stored else []
-        self._restore_ids = restore_ids_from_value(prefs.get(EXCLUSIVE_RESTORE_KEY, None))
-        self._refresh_table()
-        self._select(0)
-
-    def save_settings(self) -> None:
-        prefs = PreferencesManager.get_instance()
-
-        # Connection settings
-        if self._instantiate_mode:
-            prefs.set("device_instantiate_mode", self._instantiate_mode.currentData())
-
-        if self._connection_timeout_spin:
-            prefs.set("device_connection_timeout", self._connection_timeout_spin.value())
-
-        if self._connect_on_startup:
-            prefs.set("device_connect_on_startup", self._connect_on_startup.isChecked())
-
-        # CA Tunnel
-        if self._ca_tunnel_enabled:
-            prefs.set("ca_tunnel_enabled", self._ca_tunnel_enabled.isChecked())
-        if self._ca_tunnel_gateway:
-            prefs.set("ca_tunnel_gateway", self._ca_tunnel_gateway.text() or "localhost:5099")
-
-        # Backend rows: only what belongs to the chosen layer is written there.
-        for row in self._rows:
-            self._sync_row(row)
-        target = self._target()
-        stored = _layer_value(prefs, DEVICE_BACKENDS_KEY, target)
-        value = layer_rows_value(self._rows, self._loaded, self._origins, target, stored)
-        if value != layer_rows_value([], [], {}, target, stored):
-            prefs.set(DEVICE_BACKENDS_KEY, value, scope=target)
-        restore = restore_value(self._restore_ids)
-        stored_restore = restore_value(restore_ids_from_value(
-            _layer_value(prefs, EXCLUSIVE_RESTORE_KEY, target)))
-        if restore and restore != stored_restore:
-            prefs.set(EXCLUSIVE_RESTORE_KEY, restore, scope=target)
-        elif not restore and stored_restore:
-            prefs.remove(EXCLUSIVE_RESTORE_KEY, scope=target)
-        self._loaded = deepcopy(self._rows)
-        self._origins = _item_origins(prefs, self._rows)
-        self._refresh_table()
-        self._apply_rows_live(prefs)
-
-    def _load_targets(self, prefs: PreferencesManager) -> None:
-        combo = self._target_combo
-        if combo is None:
-            return
-        targets = _write_targets(prefs)
-        combo.blockSignals(True)
-        combo.clear()
-        for target in targets:
-            combo.addItem(layer_label(target), target)
-        # Most consoles are configured per beamline: default to it when we may write it.
-        shared = [t for t in targets if t.startswith(("branch:", "beamline:"))]
-        default = shared[0] if shared else ("local" if "local" in targets else targets[0])
-        combo.setCurrentIndex(combo.findData(default))
-        combo.setEnabled(len(targets) > 1)
-        combo.blockSignals(False)
-
-    def _apply_rows_live(self, prefs: PreferencesManager) -> None:
-        """Bring the running device catalog in line with the saved rows."""
-        from lightfall.devices.backend_types.rows import build_context
-        from lightfall.devices.backend_types.startup import apply_backend_rows
-
-        if _plan_active():
-            # Removing a backend drops its devices; never do that under a plan.
-            logger.warning("Device backend changes saved; not applied while a plan is running")
-            QMessageBox.information(
-                self._widget,
-                "Device backends",
-                "A plan is running, so the backend changes were saved but not applied. "
-                "Save again once it finishes (or restart).",
-            )
-            return
-        registry = BackendTypeRegistry.get_instance()
-        if crosses_mode_boundary(self._rows, registry):
-            # The EPICS environment is fixed per process: only a restart switches modes.
-            entering = exclusive_row(self._rows, registry)
-            if entering is not None:
-                backend_type = registry.get(entering.type)
-                assert backend_type is not None
-                label = backend_type.session_label(entering.config)
-            else:
-                mode = current_session_mode()
-                label = mode.label if mode else "this mode"
-            if self._ask_restart(label, entering is not None):
-                from lightfall.utils.restart import request_restart
-
-                request_restart()
-            return
-        apply_backend_rows([deepcopy(row) for row in self._rows], build_context(prefs.get))
-
-    def validate(self) -> list[str]:
+    def validate_values(self, values: FormValues) -> list[str]:
         errors: list[str] = []
         seen: set[str] = set()
         registry = BackendTypeRegistry.get_instance()
-        for row in self._rows:
-            self._sync_row(row)
+        raw = values.get(DEVICE_BACKENDS_KEY)
+        for row in rows_from_value(raw):
+            # from_dict falls back to the type for a missing name: check the stored one.
+            item = raw.get(row.id) if isinstance(raw, dict) else None
+            if isinstance(item, dict) and not item.get("name"):
+                row.name = ""
             if not row.name:
                 errors.append("Every backend needs a name")
                 continue
@@ -746,39 +181,38 @@ class DeviceSettingsPlugin(SettingsPlugin):
                 errors.extend(f"{row.name}: {e}" for e in backend_type.validate(row.config))
         return errors
 
+    def after_save(self, scope: str, changed: Mapping[str, Any]) -> None:
+        """Bring the running device catalog in line with the saved rows."""
+        if not any(key in changed for key in _ROW_KEYS):
+            return
+        if _plan_active():
+            # Removing a backend drops its devices; never do that under a plan.
+            logger.warning("Device backend changes saved; not applied while a plan is running")
+            QMessageBox.information(None, "Device backends", PLAN_RUNNING_TEXT)
+            return
+        prefs = PreferencesManager.get_instance()
+        rows = load_rows(prefs.get) or []
+        if crosses_mode_boundary(rows, BackendTypeRegistry.get_instance()):
+            return  # the EPICS environment is fixed per process: restart_reason asks
+        from lightfall.devices.backend_types import startup
 
-def layer_label(scope: str) -> str:
-    """How a settings layer reads in the UI."""
-    if scope == "local":
-        return "This console"
-    kind, _, name = scope.partition(":")
-    if kind == "user":
-        return "Me"
-    if kind == "branch":
-        return f"{name} (branch)"
-    if kind == "beamline":
-        return f"{name} (beamline)"
-    return scope or "?"
+        startup.apply_backend_rows([deepcopy(row) for row in rows], build_context(prefs.get))
 
-
-def _write_targets(prefs: object) -> list[str]:
-    targets = getattr(prefs, "write_targets", None)
-    found = targets(DEVICE_BACKENDS_KEY) if callable(targets) else ["local"]
-    return found or ["local"]
-
-
-def _item_origins(prefs: object, rows: list[BackendRow]) -> dict[str, str]:
-    origins = getattr(prefs, "item_origins", None)
-    if callable(origins):
-        return dict(origins(DEVICE_BACKENDS_KEY))
-    return dict.fromkeys((row.id for row in rows), "local")
-
-
-def _layer_value(prefs: object, key: str, scope: str) -> object:
-    layer = getattr(prefs, "layer_value", None)
-    if callable(layer):
-        return layer(key, scope)
-    return prefs.get(key, None) if scope == "local" else None  # type: ignore[attr-defined]
+    def restart_reason(self, scope: str, changed: Mapping[str, Any]) -> str:
+        if not any(key in changed for key in _ROW_KEYS) or _plan_active():
+            return ""
+        registry = BackendTypeRegistry.get_instance()
+        rows = load_rows(PreferencesManager.get_instance().get) or []
+        if not crosses_mode_boundary(rows, registry):
+            return ""
+        entering = exclusive_row(rows, registry)
+        if entering is not None:
+            backend_type = registry.get(entering.type)
+            label = backend_type.session_label(entering.config) if backend_type else entering.name
+            return f"Device backends: Lightfall needs to restart to enter {label}."
+        mode = current_session_mode()
+        label = mode.label if mode else "this mode"
+        return f"Device backends: Lightfall needs to restart to leave {label}."
 
 
 def _plan_active() -> bool:

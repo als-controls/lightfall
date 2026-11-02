@@ -174,6 +174,7 @@ def _reset_client_registry() -> None:
 # off (and set feed intervals and advisor severities) for everyone who uses it, item by item.
 LOCAL_LAYER_KEYS: frozenset[str] = frozenset({
     "device_backends", "device_backends_exclusive_restore", "plugins.enabled", "tools.enabled",
+    "device_instantiate_mode", "device_connection_timeout", "device_connect_on_startup",
     "monitors.enabled", "monitor_feeds.enabled", "monitor_feeds.interval", "monitor_feeds.severity",
 })
 
