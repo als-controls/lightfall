@@ -23,37 +23,39 @@ def _panel(panel_class):
     return p
 
 
-def test_on_pull_reloads_list(qapp, panel_class):
+def test_refresh_after_pull_reloads_list(qapp, panel_class):
     p = _panel(panel_class)
     p._client.get_entry.return_value = {"id": "e1", "updated_at": "t2"}
     p._displayed_updated_at = "t1"
-    p._on_pull()
-    p._load_entries.assert_called_once()
+    p._refresh_after_pull()
+    p._load_entries.assert_called_once_with(reselect_current=False)
 
 
-def test_on_pull_rerenders_open_entry_when_changed_and_unfocused(qapp, panel_class):
+def test_refresh_after_pull_rerenders_open_entry_when_unfocused(qapp, panel_class):
     p = _panel(panel_class)
     p._displayed_updated_at = "t1"
     p._client.get_entry.return_value = {"id": "e1", "updated_at": "t2"}
-    p._on_pull()
+    p._refresh_after_pull()
     p._select_entry.assert_called_once_with("e1")
 
 
-def test_on_pull_skips_rerender_when_focused(qapp, panel_class):
+def test_refresh_after_pull_skips_rerender_when_focused(qapp, panel_class):
     p = _panel(panel_class)
     p._entry_widget_has_focus.return_value = True
     p._displayed_updated_at = "t1"
     p._client.get_entry.return_value = {"id": "e1", "updated_at": "t2"}
-    p._on_pull()
+    p._refresh_after_pull()
     p._select_entry.assert_not_called()
 
 
-def test_on_pull_skips_rerender_when_unchanged(qapp, panel_class):
+def test_refresh_after_pull_does_not_gate_on_entry_updated_at(qapp, panel_class):
+    """A pull can change fragments without bumping the entry's updated_at;
+    _select_entry (which skips unchanged content itself) must still run."""
     p = _panel(panel_class)
     p._displayed_updated_at = "t1"
     p._client.get_entry.return_value = {"id": "e1", "updated_at": "t1"}
-    p._on_pull()
-    p._select_entry.assert_not_called()
+    p._refresh_after_pull()
+    p._select_entry.assert_called_once_with("e1")
 
 
 def test_pull_callback_registered_and_live_started(qapp, panel_class, monkeypatch):
