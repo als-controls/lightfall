@@ -37,6 +37,7 @@ class _FakePermissionManager:
 class FakeClient:
     def __init__(self, history=None):
         self.calls = []
+        self.expected = []  # expected_revision of each retract/restore
         self.uploaded: bytes | None = None
         self._history = history if history is not None else [
             {"revision": 3, "current": True}, {"revision": 2, "current": False}]
@@ -46,12 +47,15 @@ class FakeClient:
         self.calls.append(("publish", scope, type_, name, manifest, agent))
         return {"revision": 4}
 
-    def retract_content(self, scope, type_, name, *, agent=False):
+    def retract_content(self, scope, type_, name, *, agent=False, expected_revision=None):
         self.calls.append(("retract", scope, type_, name, agent))
+        self.expected.append(expected_revision)
         return {"revision": 3}
 
-    def restore_content(self, scope, type_, name, revision, *, agent=False):
+    def restore_content(self, scope, type_, name, revision, *, agent=False,
+                        expected_revision=None):
         self.calls.append(("restore", scope, type_, name, revision, agent))
+        self.expected.append(expected_revision)
         return {"revision": revision}
 
     def content_history(self, scope, type_, name):
@@ -314,6 +318,33 @@ def test_retract_and_restore_refuse_if_it_changed_while_asking():
         assert err and len(pm.questions) == 1 and client.calls == [], text
         assert f"Not {verb}: scout changed to revision 5 while you were deciding" in text
         assert "ask again" in text
+
+
+def test_agent_sends_expected_revision():
+    args = {"type": "agent", "name": "scout", "scope": BRANCH}
+    pm, client = _FakePermissionManager(content_tools.ALLOW), FakeClient()
+    tools = _tools(pm, client)
+    assert not _call(tools["lightfall_retract_content"], args)[0]
+    assert not _call(tools["lightfall_restore_content"], {**args, "revision": 2})[0]
+    # The revision shown in the question (3) goes to the server as If-Match.
+    assert client.expected == [3, 3]
+
+    # Restoring a retracted item: the question said "nothing", the server is told "none".
+    retracted = FakeClient(history=[{"revision": 3, "current": False},
+                                    {"revision": 2, "current": False}])
+    err, text = _call(_tools(pm, retracted)["lightfall_restore_content"],
+                      {**args, "revision": 2})
+    assert not err, text
+    assert retracted.expected == ["none"]
+
+    # Someone published between the re-check and the write: the server's 412 is explained.
+    class Moved(FakeClient):
+        def retract_content(self, *a, **k):
+            raise ScopesError("changed since you looked: current revision is 5", status=412)
+
+    err, text = _call(_tools(pm, Moved())["lightfall_retract_content"], args)
+    assert err
+    assert text == "Not retracted: Someone changed it while you were deciding — look again."
 
 
 def test_bad_names_are_refused_before_asking():

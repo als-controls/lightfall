@@ -5,7 +5,7 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -383,6 +383,33 @@ class ScopesClient:
         except (ValueError, KeyError, TypeError) as e:
             raise ScopesError(f"Content for {scope}: malformed response ({e})") from e
 
+    def retracted_content(self, scope: str) -> list[ContentItem] | None:
+        """``scope``'s retracted items, each at its last revision.
+
+        None when the server doesn't list retracted items (an older server ignores
+        ``include_retracted`` and its items carry no ``retracted`` field).
+        """
+        what = f"Retracted content for {scope}"
+        r = self._get(f"/logbook/scopes/{scope}/content/", params={"include_retracted": "1"})
+        self._raise_for(r, what)
+        try:
+            raw_items = r.json().get("items") or []
+            raws = [raw for raw in raw_items if isinstance(raw, dict)]
+        except (ValueError, AttributeError, TypeError) as e:
+            raise ScopesError(f"{what}: malformed response ({e})",
+                              code=MALFORMED_RESPONSE) from e
+        if raws and not any("retracted" in raw for raw in raws):
+            return None
+        items = []
+        for raw in raws:
+            if raw.get("retracted") is not True:
+                continue
+            try:
+                items.append(ContentItem.from_dict(raw))
+            except (KeyError, TypeError, ValueError, AttributeError):
+                logger.warning("Ignoring malformed retracted item at {}: {!r}", scope, raw)
+        return items
+
     def download_bundle(self, scope: str, type_: str, name: str, revision: int, dest: Path,
                         *, expected_size: int) -> str:
         """Stream one revision's zip into ``dest``; returns the sha256 of what was written.
@@ -418,8 +445,16 @@ class ScopesClient:
         return f"/logbook/scopes/{scope}/content/{type_}/{name}"
 
     @staticmethod
-    def _agent_headers(agent: bool) -> dict[str, str] | None:
-        return {"X-Lightfall-Agent": "1"} if agent else None
+    def _agent_headers(agent: bool,
+                       expected_revision: int | Literal["none"] | None = None,
+                       ) -> dict[str, str] | None:
+        """Headers for a write: the agent flag, and ``If-Match`` when the caller says which
+        revision it expects to be current (``"none"``: it expects the item retracted)."""
+        headers = {"X-Lightfall-Agent": "1"} if agent else {}
+        if expected_revision is not None:
+            headers["If-Match"] = ("none" if expected_revision == "none"
+                                   else str(int(expected_revision)))
+        return headers or None
 
     def _record(self, r: httpx.Response, what: str) -> dict[str, Any]:
         self._raise_for(r, what)
@@ -447,16 +482,23 @@ class ScopesClient:
             raise ScopesError(f"Logbook server unreachable: {e}") from e
         return self._record(r, what)
 
-    def retract_content(self, scope: str, type_: str, name: str, *,
-                        agent: bool = False) -> dict[str, Any]:
+    def retract_content(self, scope: str, type_: str, name: str, *, agent: bool = False,
+                        expected_revision: int | None = None) -> dict[str, Any]:
+        """Retract the item; with ``expected_revision`` the server refuses (412) unless
+        that revision is still current."""
         r = self._send("POST", f"{self._content_path(scope, type_, name)}/retract",
-                       headers=self._agent_headers(agent))
+                       headers=self._agent_headers(agent, expected_revision))
         return self._record(r, f"Retract {type_} {name} at {scope}")
 
     def restore_content(self, scope: str, type_: str, name: str, revision: int, *,
-                        agent: bool = False) -> dict[str, Any]:
+                        agent: bool = False,
+                        expected_revision: int | Literal["none"] | None = None,
+                        ) -> dict[str, Any]:
+        """Make ``revision`` current; with ``expected_revision`` (a revision, or ``"none"``
+        for "currently retracted") the server refuses (412) if that's no longer so."""
         r = self._send("POST", f"{self._content_path(scope, type_, name)}/restore",
-                       json_body={"revision": revision}, headers=self._agent_headers(agent))
+                       json_body={"revision": revision},
+                       headers=self._agent_headers(agent, expected_revision))
         return self._record(r, f"Restore {type_} {name} at {scope}")
 
     def content_history(self, scope: str, type_: str, name: str) -> list[dict[str, Any]]:
@@ -479,6 +521,8 @@ def describe_error(exc: ScopesError, *, scope: str = "") -> str:
         return f"You're not a maintainer of {describe_source(scope)}."
     if exc.status == 409:
         return "Someone changed it at the same time — try again."
+    if exc.status == 412:
+        return "Someone changed it while you were deciding — look again."
     if exc.status == 413:
         return str(exc)
     if exc.status == 422:

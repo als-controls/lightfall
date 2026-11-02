@@ -101,6 +101,8 @@ def test_describe_error_messages():
     assert d(ScopesError("x", status=403), scope="facility") == \
         "You're not a maintainer of Facility."
     assert d(ScopesError("x", status=409)) == "Someone changed it at the same time — try again."
+    assert d(ScopesError("x", status=412)) == \
+        "Someone changed it while you were deciding — look again."
     assert d(ScopesError("Publish: max_files is 2000; this bundle has 2500", status=413)) == \
         "Publish: max_files is 2000; this bundle has 2500"
     assert d(ScopesError("Publish: bad name", status=422)) == \
@@ -127,6 +129,68 @@ def test_malformed_write_reply_is_not_called_unreachable(httpx_mock, tmp_path):
             assert describe_error(e, scope=BR) == unreadable
         else:
             raise AssertionError("expected ScopesError")
+
+
+LISTING = f"{BASE}/logbook/scopes/{BR}/content/?include_retracted=1"
+
+
+def _rec(name, revision, **extra):
+    return {"type": "plan", "name": name, "revision": revision, "sha256": "ab" * 32,
+            "size": 10, "published_by": "ann", "published_at": "2026-11-01T10:00:00Z",
+            "author": None, "file_count": 1, "uncompressed_size": 20, **extra}
+
+
+def test_retracted_content_parses_and_old_server_is_none(httpx_mock):
+    httpx_mock.add_response(method="GET", url=LISTING, json={
+        "scope": BR, "etag": "e1",
+        "items": [_rec("live", 4, retracted=False), _rec("gone", 2, retracted=True)]})
+    items = _client().retracted_content(BR)
+    assert [(i.name, i.revision, i.file_count) for i in items] == [("gone", 2, 1)]
+    assert items[0].published_by == "ann"
+
+    # An old server ignores include_retracted: items without a "retracted" key.
+    httpx_mock.add_response(method="GET", url=LISTING,
+                            json={"scope": BR, "etag": "e0", "items": [_rec("live", 4)]})
+    assert _client().retracted_content(BR) is None
+
+    httpx_mock.add_response(method="GET", url=LISTING, status_code=403,
+                            json={"detail": "forbidden"})
+    try:
+        _client().retracted_content(BR)
+    except ScopesError as e:
+        assert e.status == 403
+    else:
+        raise AssertionError("expected ScopesError")
+
+
+def test_expected_revision_sends_if_match(httpx_mock):
+    for _ in range(2):
+        httpx_mock.add_response(method="POST", url=f"{URL}/retract", json={"revision": 4})
+    for _ in range(3):
+        httpx_mock.add_response(method="POST", url=f"{URL}/restore", json={"revision": 2})
+    c = _client()
+    c.retract_content(BR, "plan", "scan", expected_revision=4)
+    c.restore_content(BR, "plan", "scan", 2, expected_revision=4, agent=True)
+    c.restore_content(BR, "plan", "scan", 2, expected_revision="none")
+    c.retract_content(BR, "plan", "scan")
+    c.restore_content(BR, "plan", "scan", 2)
+    reqs = httpx_mock.get_requests()
+    assert [r.headers.get("If-Match") for r in reqs] == ["4", "4", "none", None, None]
+    assert reqs[1].headers["X-Lightfall-Agent"] == "1"
+    assert json.loads(reqs[2].read()) == {"revision": 2}
+
+
+def test_412_message(httpx_mock):
+    httpx_mock.add_response(method="POST", url=f"{URL}/retract", status_code=412,
+                            json={"detail": "changed since you looked: current revision is 5"})
+    try:
+        _client().retract_content(BR, "plan", "scan", expected_revision=4)
+    except ScopesError as e:
+        assert e.status == 412
+        assert describe_error(e, scope=BR) == \
+            "Someone changed it while you were deciding — look again."
+    else:
+        raise AssertionError("expected ScopesError")
 
 
 def test_transport_failure_is_unreachable(httpx_mock):

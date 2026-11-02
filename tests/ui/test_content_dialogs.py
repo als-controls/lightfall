@@ -28,6 +28,7 @@ class FakeClient:
         self.error = error
         self.published = []
         self.calls = []
+        self.expected = []  # expected_revision of each retract/restore
         self._history = history or []
 
     def publish_content(self, scope, type_, name, manifest, bundle, *, agent=False):
@@ -39,12 +40,15 @@ class FakeClient:
     def content_history(self, scope, type_, name):
         return self._history
 
-    def retract_content(self, scope, type_, name, *, agent=False):
+    def retract_content(self, scope, type_, name, *, agent=False, expected_revision=None):
         self.calls.append(("retract", scope, type_, name))
+        self.expected.append(expected_revision)
         return {}
 
-    def restore_content(self, scope, type_, name, revision, *, agent=False):
+    def restore_content(self, scope, type_, name, revision, *, agent=False,
+                        expected_revision=None):
         self.calls.append(("restore", scope, type_, name, revision))
+        self.expected.append(expected_revision)
         return {"revision": revision}
 
 
@@ -213,6 +217,40 @@ def test_history_retract_confirms(qtbot, monkeypatch):
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
     d._retract_btn.click()
     assert client.calls == [("retract", BRANCH, "plugin", "tools")]
+
+
+def test_history_restore_sends_expected_revision(qtbot, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    # Revision 3 is current: restore and retract both say so.
+    client = FakeClient(history=history_records())
+    d = history_dialog(qtbot, client)
+    d._table.selectRow(1)
+    d._restore_btn.click()
+    d._retract_btn.click()
+    assert client.expected == [3, 3]
+
+    # Retracted (nothing current): restore says "none".
+    retracted = [{**r, "current": False} for r in history_records()]
+    client = FakeClient(history=retracted)
+    d = history_dialog(qtbot, client)
+    assert not d._retract_btn.isEnabled()
+    d._table.selectRow(0)
+    assert d._restore_btn.isEnabled()
+    d._restore_btn.click()
+    assert client.calls == [("restore", BRANCH, "plugin", "tools", 3)]
+    assert client.expected == ["none"]
+
+
+def test_history_412_is_shown_in_the_dialog(qtbot, monkeypatch):
+    class Moved(FakeClient):
+        def restore_content(self, *a, **k):
+            raise ScopesError("changed since you looked: current revision is 5", status=412)
+
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    d = history_dialog(qtbot, Moved(history=history_records()))
+    d._table.selectRow(1)
+    d._restore_btn.click()
+    assert d._error_label.text() == "Someone changed it while you were deciding — look again."
 
 
 def test_history_read_only_for_non_maintainers(qtbot):

@@ -65,8 +65,8 @@ and the search box to narrow the list. Select a row to enable the buttons:
 | Button | Enabled when |
 |--------|--------------|
 | **Publish…** | The row is yours (source *Mine*) and you are a maintainer or above on at least one scope. |
-| **History…** | The row is published content (facility, beamline or branch), or it is yours (*Mine*) and scoped settings are on. |
-| **Retract** | The row is published and you are a maintainer or above on its scope. |
+| **History…** | The row is published content (facility, beamline or branch), a retracted item (see "Retracted items" below), or it is yours (*Mine*) and scoped settings are on. |
+| **Retract** | The row is published, not already retracted, and you are a maintainer or above on its scope. |
 | **Copy to mine** | The row is published content, or a built-in or package agent or skill. |
 | **Open folder** | The item has a file or folder on disk. |
 
@@ -127,6 +127,32 @@ bring back an item you retracted while you have your own copy of it: a retracted
 item drops out of the table after the next sync, but your row stays. If the item was never published at the scope you picked,
 the History window says so.
 
+**Someone else got there first.** Restore and Retract tell the server which
+revision the History window showed as current (or that it showed the item as
+retracted). If someone published, restored or retracted the item after the
+window read its history, the server refuses and the window says *Someone changed
+it while you were deciding — look again.* Nothing was changed; close and reopen
+History to see what changed before you retry.
+
+### Retracted items
+
+A retracted item no longer reaches anyone, so it drops out of the table, and on
+a console that never had it there is no row to open its History from. Tick
+**Show retracted** above the table and pick a shared scope of your chain
+(most specific first) in the box beside it. The table then also lists the items
+retracted at that scope: **Source** is the scope, **Revision** is the last
+revision it had, and the note says *Retracted*. Select one and press
+**History…** to see its revisions; a maintainer or above can select a revision
+and press **Restore** to bring it back. Everyone at that scope receives it again
+at their next sync, and it then shows as an ordinary published row. **Retract**
+and **Copy to mine** are not offered on a retracted row.
+
+The list is fetched from the logbook server when you tick the box, change the
+scope, or the table refreshes. A server too old to list retracted items shows
+*This server doesn't list retracted items.* below the table, and no rows are
+added. If you have your own copy of the item, you can still reach its History
+from your row, as described above.
+
 ### Copy to mine
 
 **Copy to mine** copies a published item (or a built-in or package agent or
@@ -148,7 +174,9 @@ restore question gives the current revision (and, for restore, the revision that
 becomes current). If you deny, close the question or let it time out, nothing is
 sent and the assistant is told you declined. For a retract or restore, if the
 item's current revision changed while you were deciding, the request is refused
-and the assistant must ask again. Revisions made this way are marked as made by
+and the assistant must ask again. The revision named in the question is also sent
+to the server, which refuses the change if the item moved on in the last moment
+(*Someone changed it while you were deciding — look again.*). Revisions made this way are marked as made by
 the agent in the history.
 
 ## When changes take effect

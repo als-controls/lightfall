@@ -151,24 +151,38 @@ class ContentHistoryDialog(LFDialog):
         answer = QMessageBox.question(self, title, text)
         return answer == QMessageBox.StandardButton.Yes
 
+    def _shown_current(self) -> int | str:
+        """The revision this dialog shows as current, ``"none"`` when it's retracted.
+
+        Sent as the expected revision, so the server refuses (412) if someone changed
+        the item after the history was read.
+        """
+        return next((int(r["revision"]) for r in self._records if r.get("current")), "none")
+
     def _on_restore(self) -> None:
         sel = self._selected()
         if sel is None or sel.get("current"):
             return
         rev, row = int(sel["revision"]), self._row
+        expected = self._shown_current()
         label = describe_source(row.source)
         if not self._confirm("Restore revision",
                              f"Make revision {rev} of {row.name} current at {label}?"):
             return
-        self._start(lambda: actions.restore(self._client, row.source, row.type, row.name, rev),
+        self._start(lambda: actions.restore(self._client, row.source, row.type, row.name, rev,
+                                            expected_revision=expected),
                     "Restored", f"Restored {row.name} at {label} to revision {rev}")
 
     def _on_retract(self) -> None:
         row = self._row
+        expected = self._shown_current()
+        if expected == "none":
+            return  # nothing current to retract (the button is disabled then)
         label = describe_source(row.source)
         if not self._confirm("Retract", retract_question(row.type, row.name, row.source)):
             return
-        self._start(lambda: actions.retract(self._client, row.source, row.type, row.name),
+        self._start(lambda: actions.retract(self._client, row.source, row.type, row.name,
+                                            expected_revision=expected),
                     "Retracted", f"Retracted {row.name} at {label}")
 
     def _start(self, work, done_title: str, done_text: str) -> None:

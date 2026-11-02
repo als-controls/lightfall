@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from lightfall.content.publish import Bundle, LocalItem, make_manifest
 from lightfall.content.store import (
@@ -97,18 +97,40 @@ def publish(client: Any, item: LocalItem, bundle: Bundle, scope: str, *, message
     return record
 
 
-def retract(client: Any, scope: str, type_: str, name: str, *,
-            agent: bool = False) -> dict[str, Any]:
-    record = client.retract_content(scope, type_, name, agent=agent)
+def _expecting(expected_revision: Any) -> dict[str, Any]:
+    return {} if expected_revision is None else {"expected_revision": expected_revision}
+
+
+def retract(client: Any, scope: str, type_: str, name: str, *, agent: bool = False,
+            expected_revision: int | None = None) -> dict[str, Any]:
+    """Retract; with ``expected_revision`` the server refuses (412) if it moved on."""
+    record = client.retract_content(scope, type_, name, agent=agent,
+                                    **_expecting(expected_revision))
     refresh_sync()
     return record
 
 
 def restore(client: Any, scope: str, type_: str, name: str, revision: int, *,
-            agent: bool = False) -> dict[str, Any]:
-    record = client.restore_content(scope, type_, name, revision, agent=agent)
+            agent: bool = False,
+            expected_revision: int | Literal["none"] | None = None) -> dict[str, Any]:
+    """Restore ``revision``; ``expected_revision`` is the revision the user saw as current
+    (``"none"``: retracted), which the server checks (412 if it changed)."""
+    record = client.restore_content(scope, type_, name, revision, agent=agent,
+                                    **_expecting(expected_revision))
     refresh_sync()
     return record
+
+
+def retracted_rows(client: Any, scope: str) -> list[ContentRow] | None:
+    """Rows for ``scope``'s retracted items at their last revision, or None when the
+    server doesn't list retracted items. Network: worker thread only."""
+    items = client.retracted_content(scope)
+    if items is None:
+        return None
+    order = {t: i for i, t in enumerate(CONTENT_TYPES)}
+    rows = [ContentRow(i.type, i.name, scope, i.revision, None, (), None, retracted=True)
+            for i in items if i.type in order]
+    return sorted(rows, key=lambda r: (order[r.type], r.name.lower()))
 
 
 def history(client: Any, scope: str, type_: str, name: str) -> list[dict[str, Any]]:
@@ -126,6 +148,7 @@ class ContentRow:
     path: Path | None  # entry point; None for core/package plans
     shadows: tuple[str, ...]  # sources this row's item wins over, lowest first
     error: str | None
+    retracted: bool = False  # retracted at ``source`` (revision is its last one)
 
 
 # Loader labels -> one vocabulary: skills say "builtin"/"user" and call an endstation
