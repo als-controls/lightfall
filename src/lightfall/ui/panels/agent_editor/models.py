@@ -19,6 +19,7 @@ import yaml
 from lightfall.agents import skills_store
 from lightfall.agents.drafts import list_drafts
 from lightfall.agents.spec import AgentSpecError, parse_agent_file
+from lightfall.content.labels import describe_source
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -54,6 +55,7 @@ class AgentRow:
     shadowed_scopes: tuple[str, ...]
     error: str | None
     source_path: Path
+    full_scope: str = ""  # e.g. "branch:7.0.1.1"; "" when only the kind is known
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,7 @@ def agent_rows(registry: AgentSpecRegistry) -> list[AgentRow]:
                 shadowed_scopes=shadowed,
                 error=None,
                 source_path=spec.source_path,
+                full_scope=spec.scope,
             )
         )
 
@@ -156,8 +159,31 @@ def _skill_scope(source: str) -> str:
 def skill_label(row: SkillRow) -> str:
     """List label for a skill row: its name, plus what it shadows if anything."""
     if row.shadowed_scopes:
-        return f"{row.name}  (shadows {', '.join(row.shadowed_scopes)})"
+        return f"{row.name}  (shadows {_shadow_text(row.shadowed_scopes)})"
     return row.name
+
+
+def _shadow_text(scopes: tuple[str, ...]) -> str:
+    return ", ".join(describe_source(s) for s in scopes)
+
+
+def agent_label(row: AgentRow) -> str:
+    """List label for an agent row: its name, plus an error or what it shadows."""
+    if row.error:
+        return f"{row.name}  (error)"
+    if row.shadowed_scopes:
+        return f"{row.name}  (shadows {_shadow_text(row.shadowed_scopes)})"
+    return row.name
+
+
+def group_header(kind: str, full_scopes: set[str], kind_label: str) -> str:
+    """Header for a scope-kind group: the one full scope's label if all rows share it."""
+    scopes = {s for s in full_scopes if s}
+    if len(scopes) == 1:
+        (only,) = scopes
+        if ":" in only:
+            return describe_source(only)
+    return kind_label
 
 
 def group_skill_rows(
