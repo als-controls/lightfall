@@ -295,3 +295,23 @@ def test_facility_viewer_without_grant_stays_read_only(pm):  # noqa: F811
     facility = next(c for c in manager.scope_choices() if c.kind == "facility")
     assert "facility admins" in facility.read_only_reason
     assert not manager.writable_at("tiled_url", "facility")
+
+
+def test_plugin_console_keys_are_console_only(pm):  # noqa: F811
+    from lightfall.plugins.settings_plugin import SettingsPlugin
+
+    class _Page(SettingsPlugin):
+        name = "console_keys_page"
+
+        def console_keys(self):
+            return ("vibe.device_id",)
+
+    manager, _ = pm
+    _login(manager)
+    assert manager.allowed_at("vibe.device_id", "user:u1")
+    _Page()
+    assert not manager.allowed_at("vibe.device_id", "user:u1")
+    assert not manager.allowed_at("vibe.device_id", "beamline:7.0.1")
+    assert manager.allowed_at("vibe.device_id", "local")
+    assert manager.writable_at("vibe.device_id", "local")
+    assert not manager.writable_at("vibe.device_id", "user:u1")

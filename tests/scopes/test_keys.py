@@ -126,3 +126,14 @@ def test_server_approved_specs_win_over_client_advisory_ones():
     assert reg.get("panel_layout").scopes == {"facility"}        # server beats CLIENT_SPECS
     assert reg.get("plugins.enabled").policy == "union"         # core rules stay
     assert not reg.is_declared("bad")                            # unreadable: skipped
+
+
+def test_registered_console_keys_are_local_only():
+    from lightfall.scopes.keys import _reset_client_registry, console_only, register_console_keys
+
+    assert not is_local_only("dev.some_path")
+    register_console_keys(["dev.some_path"])
+    register_console_keys(["dev.some_path"])  # idempotent
+    assert is_local_only("dev.some_path") and console_only("dev.some_path")
+    _reset_client_registry()
+    assert not is_local_only("dev.some_path")

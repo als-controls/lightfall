@@ -90,10 +90,11 @@ class SettingsPlugin(PluginType):
         self.register_specs()
 
     def register_specs(self) -> None:
-        """Declare this page's specs in the shared client registry."""
-        from lightfall.scopes.keys import register_client_specs
+        """Declare this page's specs in the shared client registry, and its console keys."""
+        from lightfall.scopes.keys import register_client_specs, register_console_keys
 
         register_client_specs(self.specs())
+        register_console_keys(self.console_keys())
 
     def sections(self) -> Sequence[Section]:
         """Schema sections for a form page; empty for hand-built pages."""
@@ -104,6 +105,14 @@ class SettingsPlugin(PluginType):
 
         Called at registration time, so it must not depend on instance state set
         after ``super().__init__()``.
+        """
+        return ()
+
+    def console_keys(self) -> Sequence[str]:
+        """Keys that belong to this console only (its devices, paths, daemons).
+
+        They are shown and saved only at "This console" and never written to a
+        server scope, like the core's local-only keys. Called at registration time.
         """
         return ()
 

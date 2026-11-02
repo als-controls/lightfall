@@ -16,6 +16,7 @@ from qtpy.QtGui import QColor, QPalette
 from qtpy.QtWidgets import (
     QApplication,
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -537,6 +538,80 @@ class SecretEditor(TextEditor):
         self._toggle.setText("Hide" if shown else "Show")
 
 
+class PathEditor(TextEditor):
+    """Text editor for a file or folder path, with a "Browse…" button.
+
+    The dialog starts at the current text; a chosen path replaces the text
+    and emits ``changed``. Cancelling leaves the value alone.
+    """
+
+    def __init__(self, spec: EditorSpec, placeholder: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(placeholder, parent, blank_is_unset=spec.blank_is_unset)
+        self._mode = spec.mode
+        self._filter = spec.file_filter
+        self._browse = QToolButton(self)
+        self._browse.setText("Browse…")
+        self._browse.clicked.connect(self._on_browse)
+        self.layout().insertWidget(1, self._browse)
+
+    def _on_browse(self) -> None:
+        start = self._edit.text().strip()
+        if self._mode == "dir":
+            chosen = QFileDialog.getExistingDirectory(self, "Choose folder", start)
+        else:
+            chosen, _ = QFileDialog.getOpenFileName(self, "Choose file", start, self._filter)
+        if not chosen:
+            return
+        self._edit.setText(chosen)
+        self._on_edited(chosen)
+
+    def set_read_only(self, read_only: bool) -> None:
+        super().set_read_only(read_only)
+        self._browse.setEnabled(not read_only)
+
+
+NUMBER_LIST_PROBLEM = "Enter numbers separated by commas"
+
+
+class NumberListEditor(TextEditor):
+    """One line of comma-separated numbers (``"0.001, 0.01, 0.1"``); value is ``list[float]``.
+
+    Blank is Not set. Text that does not parse, or a number below the spec's
+    ``minimum``, is invalid.
+    """
+
+    def __init__(self, spec: EditorSpec, placeholder: str = "", parent: QWidget | None = None) -> None:
+        self._min = spec.minimum
+        super().__init__(placeholder, parent, blank_is_unset=True)
+
+    def _parse(self, text: str) -> list[float]:
+        """The numbers in ``text``; raise ValueError if any part is not an acceptable number."""
+        nums = [float(part) for part in text.split(",")]  # an empty part raises
+        for num in nums:
+            if not math.isfinite(num) or (self._min is not None and num < self._min):
+                raise ValueError(str(num))
+        return nums
+
+    def _problem(self, text: str) -> str:
+        text = text.strip()
+        if not text:
+            return ""
+        try:
+            self._parse(text)
+        except ValueError:
+            return NUMBER_LIST_PROBLEM
+        return ""
+
+    def value(self) -> list[float] | None:
+        text = super().value()
+        if text is None or not self._valid:
+            return None
+        return self._parse(text)
+
+    def set_value(self, value: Any) -> None:
+        super().set_value(None if value is None else ", ".join(f"{float(v):g}" for v in value))
+
+
 def create_editor(spec: EditorSpec, field: SettingField, parent: QWidget | None = None) -> FieldEditor:
     """Build the editor widget for ``spec``; unknown kinds raise ValueError."""
     if spec.kind == "toggle":
@@ -551,6 +626,10 @@ def create_editor(spec: EditorSpec, field: SettingField, parent: QWidget | None 
         editor = UrlEditor(spec, field.placeholder)
     elif spec.kind == "secret":
         editor = SecretEditor(field.placeholder)
+    elif spec.kind == "path":
+        editor = PathEditor(spec, field.placeholder)
+    elif spec.kind == "numberlist":
+        editor = NumberListEditor(spec, field.placeholder)
     elif spec.kind == "catalog":
         # Imported here: the catalog module builds on this one.
         from lightfall.ui.preferences.form.catalog import CatalogEditor

@@ -46,8 +46,21 @@ def is_secret_key(key: str) -> bool:
     return any(marker in lowered for marker in _SECRET_MARKERS)
 
 
+# Keys settings plugins declare console-only (SettingsPlugin.console_keys()): this
+# console's devices, paths and daemons. Treated exactly like LOCAL_ONLY_KEYS.
+_CONSOLE_KEYS: set[str] = set()
+
+
+def register_console_keys(keys: Iterable[str]) -> None:
+    """Make ``keys`` local-only (kept in this console's YAML, never in a server scope).
+
+    Idempotent; called from ``SettingsPlugin.register_specs()``.
+    """
+    _CONSOLE_KEYS.update(keys)
+
+
 def is_local_only(key: str) -> bool:
-    return key in LOCAL_ONLY_KEYS or key.startswith("_") or is_secret_key(key)
+    return key in LOCAL_ONLY_KEYS or key in _CONSOLE_KEYS or key.startswith("_") or is_secret_key(key)
 
 
 def console_only(key: str) -> bool:
@@ -162,9 +175,10 @@ def base_spec(key: str, registry: SpecRegistry | None = None) -> SettingSpec:
 
 
 def _reset_client_registry() -> None:
-    """Forget cached registries and registered specs (test isolation)."""
+    """Forget cached registries, registered specs and console keys (test isolation)."""
     _REGISTRIES.clear()
     _CLIENT_REGISTERED.clear()
+    _CONSOLE_KEYS.clear()
 
 
 # Keys with a writable console layer: the console's own YAML sits between branch and user
