@@ -576,7 +576,7 @@ NUMBER_LIST_PROBLEM = "Enter numbers separated by commas"
 class NumberListEditor(TextEditor):
     """One line of comma-separated numbers (``"0.001, 0.01, 0.1"``); value is ``list[float]``.
 
-    Blank is Not set. Text that does not parse, or a number below the spec's
+    Shown with up to 15 significant digits. Blank is Not set. Text that does not parse, or a number below the spec's
     ``minimum``, is invalid.
     """
 
@@ -609,7 +609,7 @@ class NumberListEditor(TextEditor):
         return self._parse(text)
 
     def set_value(self, value: Any) -> None:
-        super().set_value(None if value is None else ", ".join(f"{float(v):g}" for v in value))
+        super().set_value(None if value is None else ", ".join(f"{float(v):.15g}" for v in value))
 
 
 def create_editor(spec: EditorSpec, field: SettingField, parent: QWidget | None = None) -> FieldEditor:

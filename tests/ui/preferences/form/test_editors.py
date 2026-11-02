@@ -653,3 +653,10 @@ def test_numberlist_below_minimum_invalid(qtbot):
     _edit_to(editor, "1, -0.5")
     assert not editor.is_valid()
     assert editor._hint.text() == "Enter numbers separated by commas"
+
+
+def test_numberlist_keeps_precision(qtbot):
+    editor = make_spec(qtbot, NumberList())
+    editor.set_value([0.0012345678, 0.1, 1.0])
+    assert editor.findChild(QLineEdit).text() == "0.0012345678, 0.1, 1"
+    assert editor.value() == [0.0012345678, 0.1, 1.0]

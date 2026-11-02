@@ -1,7 +1,8 @@
 """Serves facility/beamline/branch values from local scope files while server scopes are off.
 
 Owns only keys the files mention. The user's YAML value overrides file values, except
-where a file locks the key.
+where a file locks the key. Local-only keys are never read from the files; that is checked
+at call time, as settings plugins register console keys after the files are loaded.
 """
 from __future__ import annotations
 
@@ -22,14 +23,16 @@ class LocalScopesBackend(PreferenceBackend):
         self._local = local
         self._registry = registry or client_registry()
         self._store = ScopedStore(self._registry, state)
-        self._keys = frozenset(k for k in self._store.keys() if not is_local_only(k))
+        self._keys = frozenset(self._store.keys())
 
     @property
     def chain(self) -> tuple[str, ...]:
         return self._store.chain
 
     def resolution(self, key: str) -> Any:
-        """How ``key`` resolves through the scope files (origin, lock)."""
+        """How ``key`` resolves through the scope files (origin, lock); None for local-only keys."""
+        if is_local_only(key):
+            return None
         return self._store.resolve(key)
 
     def layer_value(self, key: str, scope: str) -> Any:
@@ -41,12 +44,14 @@ class LocalScopesBackend(PreferenceBackend):
         if scope == "local":
             value = self._local.get(key, MISSING)
             return MISSING if value is None else value
+        if is_local_only(key):
+            return MISSING
         return self._store.scope_value(scope, key)
 
     def item_origins(self, key: str) -> dict[str, str]:
         """For an item-merged key: item id -> the scope it comes from (``"local"`` = this
         console's YAML, which overrides the files item by item)."""
-        if self._registry.get(key).policy != "union":
+        if is_local_only(key) or self._registry.get(key).policy != "union":
             return {}
         res = self._store.resolve(key)
         origins = {name: str(scope) for name, scope in res.item_origins.items()}
@@ -73,12 +78,15 @@ class LocalScopesBackend(PreferenceBackend):
         return dict(value)  # None items drop what the file layers gave them, as the resolver does
 
     def keys(self) -> set[str]:
-        return set(self._keys)
+        return {k for k in self._keys if not is_local_only(k)}
 
     def owns(self, key: str) -> bool:
-        return key in self._keys
+        return key in self._keys and not is_local_only(key)
 
     def get(self, key: str, default: Any = None) -> Any:
+        if is_local_only(key):  # this console's YAML only, never a file value or lock
+            value = self._local.get(key, MISSING)
+            return default if value is MISSING or value is None else value
         res = self._store.resolve(key)
         if res.locked_at is not None:
             return res.value
