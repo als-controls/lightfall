@@ -375,6 +375,12 @@ builtin_manifest = PluginManifest(
         ),
         PluginEntry(
             type_name="panel",
+            name="shared_content",
+            import_path="lightfall.ui.panels.plugins.content_panel_plugin:ContentPanelPlugin",
+            preload=True,  # register metadata; panel instantiated lazily (proactive_init=False)
+        ),
+        PluginEntry(
+            type_name="panel",
             name="threads",
             import_path="lightfall.ui.panels.plugins.threads_plugin:ThreadsPanelPlugin",
             preload=True,
