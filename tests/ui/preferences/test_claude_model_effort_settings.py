@@ -114,3 +114,19 @@ def test_agy_base_model_is_left_alone(fake_prefs):
     fake_prefs.set("agy_model", "gemini-plain")
     assert cs.ClaudeSettingsProvider.get_agy_model() == "gemini-plain"
     assert "agy_effort" not in fake_prefs._data
+
+
+@pytest.mark.parametrize("stored", [None, ""])
+def test_agy_project_and_location_defaults_for_blank(fake_prefs, stored):
+    if stored is not None:
+        fake_prefs.set("agy_gcp_project", stored)
+        fake_prefs.set("agy_gcp_location", stored)
+    assert cs.ClaudeSettingsProvider.get_agy_project() == "lbl-gemini-enterprise-access"
+    assert cs.ClaudeSettingsProvider.get_agy_location() == "global"
+
+
+def test_agy_project_and_location_explicit(fake_prefs):
+    fake_prefs.set("agy_gcp_project", "p")
+    fake_prefs.set("agy_gcp_location", "us")
+    assert cs.ClaudeSettingsProvider.get_agy_project() == "p"
+    assert cs.ClaudeSettingsProvider.get_agy_location() == "us"

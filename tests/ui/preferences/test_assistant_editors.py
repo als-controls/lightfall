@@ -316,3 +316,69 @@ def test_agy_result_after_close_dropped(qtbot, monkeypatch, prefs):
     editor.deleteLater()
     qtbot.waitUntil(lambda: not _alive(editor), timeout=3000)
     started[0].finish()
+
+
+# Not set is a placeholder, not text ------------------------------------------
+def test_claude_not_set_is_placeholder_and_typing_gives_the_id(qtbot, monkeypatch, prefs):
+    _use(monkeypatch, InlineFuture)
+    _fetch(monkeypatch, None)
+    editor = _claude(qtbot)
+    editor.set_value("claude-sonnet")
+    editor.set_value(None)
+    line = editor._combo.lineEdit()
+    assert line.text() == "" and line.placeholderText() == NOT_SET
+    qtbot.keyClicks(line, "claude-x")
+    assert editor.value() == "claude-x"
+    editor._combo.setCurrentIndex(1)
+    editor._combo.setCurrentIndex(0)  # picking Not set from the list
+    assert line.text() == "" and editor.value() is None
+
+
+def test_agy_not_set_is_placeholder_and_typing_gives_the_id(qtbot, monkeypatch, prefs):
+    editor, _ = _agy(qtbot, monkeypatch, _Info(MODELS))
+    editor.set_value(None)
+    line = editor._model._combo.lineEdit()
+    assert line.text() == "" and line.placeholderText() == NOT_SET
+    qtbot.keyClicks(line, "claude-x")
+    assert editor.value() == "claude-x"
+
+
+# The agy list is fetched again when the popup opens and it is still unknown ---
+class _FlakyInfo(_Info):
+    def __init__(self):
+        super().__init__(MODELS)
+        self.calls = 0
+
+    def list_models(self, refresh=False):
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("not signed in")
+        return self.models
+
+
+def _popup(combo):
+    combo.showPopup()
+    combo.hidePopup()
+
+
+def test_agy_popup_refetches_unknown_list(qtbot, monkeypatch, prefs):
+    info = _FlakyInfo()
+    editor, started = _agy(qtbot, monkeypatch, info)
+    assert info.calls == 1 and _items(editor._model._combo) == [NOT_SET]
+    _popup(editor._model._combo)
+    assert info.calls == 2
+    assert _items(editor._model._combo) == [NOT_SET, "Gemini 4 Argon", "Gemini 4 Flash", "Plain"]
+    _popup(editor._model._combo)  # known now: no further fetch
+    assert info.calls == 2
+
+
+def test_agy_popup_does_not_refetch_while_in_flight(qtbot, monkeypatch, prefs):
+    info = _FlakyInfo()
+    editor, started = _agy(qtbot, monkeypatch, info, future=DeferredFuture)
+    _popup(editor._model._combo)
+    assert len(started) == 1  # the first fetch has not finished
+    started[0].finish()  # fails
+    _popup(editor._model._combo)
+    assert len(started) == 2
+    started[1].finish()
+    assert editor._models is not None

@@ -391,7 +391,7 @@ def test_status_action_runs_on_show_and_failure_text(qtbot, env):
     dialog = _dialog(qtbot, owned=False)
     status = _action(dialog, "Check status")
     qtbot.waitUntil(lambda: status.status.text() == "✓ Using API key", timeout=3000)
-    assert env.infos["claude-code"].refreshes == [True]
+    assert env.infos["claude-code"].refreshes == [False]  # automatic runs use the 60 s cache
 
     env.infos["claude-code"].error = RuntimeError("boom")
     status.button.click()
@@ -422,6 +422,13 @@ def test_check_status_unit(env):
     env.infos["claude-code"].status = AuthStatus(False, "No authentication")
     assert cs._check_status(_frozen()) == "No authentication"
     assert env.calls[-1] == ("claude-code", None)
+
+
+def test_check_status_is_served_from_the_cache(env):
+    cs._check_status(_frozen(agent_backend="agy"))
+    cs._check_status(_frozen())
+    assert env.infos["agy"].refreshes == [False]
+    assert env.infos["claude-code"].refreshes == [False]
 
 
 # Sign-in actions ---------------------------------------------------------------

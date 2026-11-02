@@ -260,13 +260,14 @@ class ClaudeSettingsProvider:
     def get_agy_project() -> str:
         """GCP project agy bills Gemini Enterprise usage to."""
         prefs = PreferencesManager.get_instance()
-        return prefs.get("agy_gcp_project", "lbl-gemini-enterprise-access")
+        default = "lbl-gemini-enterprise-access"
+        return prefs.get("agy_gcp_project", default) or default
 
     @staticmethod
     def get_agy_location() -> str:
         """GCP location for agy."""
         prefs = PreferencesManager.get_instance()
-        return prefs.get("agy_gcp_location", "global")
+        return prefs.get("agy_gcp_location", "global") or "global"
 
     @staticmethod
     def get_agy_model() -> str:
@@ -527,12 +528,18 @@ def _effective_base_url(values: FormValues) -> str:
 
 
 def _check_status(values: FormValues) -> str:
-    """Auth status of the chosen backend (worker thread; agy's check can take 30 s)."""
+    """Auth status of the chosen backend (worker thread; agy's check can take 30 s).
+
+    Served from the backend's 60 s auth cache (``refresh=False``): the action
+    API cannot tell a click from a run_on_show / refresh_on run, and the
+    automatic runs must not re-run agy every time the page opens. Sign-in
+    polls with ``refresh=True``, which refreshes that cache.
+    """
     from lightfall.agents.backends import info
 
     kind = values.effective("agent_backend", "claude-code")
     try:
-        status = info.backend_info(kind, agy_path=_agy_path(values)).auth_status(refresh=True)
+        status = info.backend_info(kind, agy_path=_agy_path(values)).auth_status(refresh=False)
     except Exception as exc:  # noqa: BLE001 - shown as the action's error
         raise RuntimeError(f"Couldn't check: {exc}") from exc
     return ("✓ " if status.ok else "") + status.detail

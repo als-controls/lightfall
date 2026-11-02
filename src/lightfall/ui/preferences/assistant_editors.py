@@ -12,6 +12,8 @@ from collections.abc import Sequence
 from typing import Any
 
 import shiboken6
+from qtpy.QtCore import QEvent, QObject
+from qtpy.QtGui import QPalette
 from qtpy.QtWidgets import QComboBox, QHBoxLayout, QLabel, QWidget
 
 from lightfall.agents.backends.info import (
@@ -26,7 +28,7 @@ from lightfall.ui.preferences.claude_settings import (
     cached_model_ids,
     get_cached_models,
 )
-from lightfall.ui.preferences.form.editors import NOT_SET, ChoiceEditor, FieldEditor
+from lightfall.ui.preferences.form.editors import NOT_SET, ChoiceEditor, FieldEditor, muted_color
 from lightfall.ui.preferences.form.schema import EditorSpec, SettingField
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture
@@ -38,7 +40,9 @@ class _OptionsCombo(ChoiceEditor):
     """A ChoiceEditor whose options can be replaced later, optionally editable.
 
     Editable: typed text is the value (stripped; blank or "Not set" is None) unless
-    it matches an option's label, and finishing an edit emits ``changed``.
+    it matches an option's label, and finishing an edit emits ``changed``. While
+    "Not set" is current the line is empty with a muted "Not set" placeholder, so
+    typing starts a fresh id instead of appending to the words "Not set".
     """
 
     def __init__(self, editable: bool = False, parent: QWidget | None = None) -> None:
@@ -50,6 +54,7 @@ class _OptionsCombo(ChoiceEditor):
             self._combo.setEditable(True)
             self._combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
             line = self._combo.lineEdit()
+            line.setPlaceholderText(NOT_SET)
             line.editingFinished.connect(self._on_edit_finished)
             line.textChanged.connect(lambda _t: self._mute_not_set())
         self.changed.connect(self._remember)
@@ -62,10 +67,24 @@ class _OptionsCombo(ChoiceEditor):
             self.changed.emit()
 
     def _shows_not_set(self) -> bool:
-        return self._combo.currentIndex() == 0 and self._combo.currentText() == NOT_SET
+        return self._combo.currentIndex() == 0 and self._combo.currentText() in ("", NOT_SET)
 
-    def options(self) -> list[Any]:
-        return self._values[1:]
+    def _apply_mute(self) -> None:
+        super()._apply_mute()
+        if getattr(self, "_editable", False):  # set after ChoiceEditor.__init__; the line's "Not set" placeholder is muted like the list entry
+            line = self._combo.lineEdit()
+            pal = line.palette()
+            pal.setColor(QPalette.ColorRole.PlaceholderText, muted_color(self._combo))
+            line.setPalette(pal)
+
+    def _blank_not_set(self) -> None:
+        """Editable and on "Not set": empty the line (QComboBox copied the entry's text into it)."""
+        if self._editable and self._combo.currentIndex() == 0 and self._combo.currentText() == NOT_SET:
+            self._combo.lineEdit().clear()
+
+    def _on_index(self, index: int) -> None:
+        self._blank_not_set()
+        super()._on_index(index)
 
     def set_options(self, options: Sequence[tuple[Any, str]], keep: Any = None) -> None:
         """Replace the options (after "Not set") and show ``keep``, silently."""
@@ -93,6 +112,8 @@ class _OptionsCombo(ChoiceEditor):
     def set_value(self, value: Any) -> None:
         if not self._editable or value is None or value in self._values[1:]:
             super().set_value(value)
+            self._blank_not_set()
+            self._mute_not_set()
         else:  # an id the list does not offer is shown as typed text
             self._loading = True
             try:
@@ -156,7 +177,24 @@ class AgyModelEditor(FieldEditor):
         self._variant_level = ""
         self._model.changed.connect(self._on_model_changed)
         self._effort.changed.connect(self.changed)
-        agy_path = ClaudeSettingsProvider.get_agy_path() or None
+        self._agy_path = ClaudeSettingsProvider.get_agy_path() or None
+        self._fetching = False
+        self._future: QThreadFuture | None = None
+        # Opening the model list while agy has not listed its models (e.g. before
+        # "Sign in" succeeded) asks again; the popup container's Show covers every way to open it.
+        self._model._combo.view().window().installEventFilter(self)
+        self._fetch_models()
+
+    # Model list -----------------------------------------------------------
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.Show and obj is self._model._combo.view().window():
+            if self._models is None and not self._fetching:
+                self._fetch_models()
+        return super().eventFilter(obj, event)
+
+    def _fetch_models(self) -> None:
+        agy_path = self._agy_path
+        self._fetching = True
         self._future = QThreadFuture(
             lambda: backend_info("agy", agy_path=agy_path).list_models(),
             callback_slot=self._on_models,
@@ -166,11 +204,11 @@ class AgyModelEditor(FieldEditor):
         )
         self._future.start()
 
-    # Model list -----------------------------------------------------------
     def _on_models(self, models: list[ModelOption] | None) -> None:
         if not shiboken6.isValid(self):
             logger.debug("agy model list arrived after its editor closed; dropped")
             return
+        self._fetching = False
         if not models:
             return  # nothing listed: keep what is shown
         self._models = list(models)
@@ -178,6 +216,8 @@ class AgyModelEditor(FieldEditor):
         self._refresh_efforts(self._effort.value())
 
     def _on_models_failed(self, exc: Exception) -> None:
+        if shiboken6.isValid(self):
+            self._fetching = False
         logger.info("agy model list failed: {}", exc)
 
     def _refresh_efforts(self, keep: str | None) -> None:

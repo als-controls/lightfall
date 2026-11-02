@@ -397,8 +397,10 @@ class NumberEditor(FieldEditor):
 class TextEditor(FieldEditor):
     """Line edit; ``""`` is a value, shown with an "(empty)" hint.
 
-    With ``blank_is_unset`` a blank (whitespace-only) entry, typed or stored, is
-    Not set (``None``) instead, and the "(empty)" hint never shows.
+    With ``blank_is_unset`` the value is stripped of leading/trailing
+    whitespace, a blank (whitespace-only) entry, typed or stored, is Not set
+    (``None``) instead (typed whitespace is cleared from the line), and the
+    "(empty)" hint never shows.
 
     Subclasses may override ``_problem`` to reject text: the hint label and
     tooltip then show the reason, the text turns the theme error colour and
@@ -448,11 +450,16 @@ class TextEditor(FieldEditor):
         self._edit.setPlaceholderText("" if is_empty_value else self._placeholder)
         self.empty_hint.setVisible(is_empty_value)
 
-    def _unset_if_blank(self, value: str | None) -> str | None:
-        return None if self._blank_is_unset and value is not None and not value.strip() else value
+    def _clean(self, value: str | None) -> str | None:
+        """The value for ``value`` as typed or stored: stripped, blank -> None, with ``blank_is_unset``."""
+        if value is None or not self._blank_is_unset:
+            return value
+        return value.strip() or None
 
     def _on_edited(self, text: str) -> None:
-        self._value = self._unset_if_blank(text)
+        self._value = self._clean(text)
+        if self._value is None and self._edit.text():
+            self._edit.clear()  # whitespace-only means Not set: show the placeholder, not the spaces
         self._set_valid(self._problem(text))
         self._refresh()
         self.changed.emit()
@@ -464,7 +471,7 @@ class TextEditor(FieldEditor):
         return self._valid
 
     def set_value(self, value: Any) -> None:
-        self._value = self._unset_if_blank(None if value is None else str(value))
+        self._value = self._clean(None if value is None else str(value))
         self._edit.setText(self._value or "")
         self._edit.setCursorPosition(0)  # show the start (a URL's scheme and host), not the tail
         self._set_valid("")
@@ -504,7 +511,11 @@ class UrlEditor(TextEditor):
 
 
 class SecretEditor(TextEditor):
-    """Masked text editor with a Show/Hide toggle. Never logs its value."""
+    """Masked text editor with a Show/Hide toggle. Never logs its value.
+
+    The value is always stripped (a pasted key's trailing newline breaks
+    auth); whitespace-only is Not set. An exact ``""`` stays a value.
+    """
 
     def __init__(self, placeholder: str = "", parent: QWidget | None = None) -> None:
         super().__init__(placeholder, parent)
@@ -514,6 +525,12 @@ class SecretEditor(TextEditor):
         self._toggle.setText("Show")
         self._toggle.toggled.connect(self._on_toggled)
         self.layout().insertWidget(1, self._toggle)
+
+    def _clean(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return None if value and not stripped else stripped
 
     def _on_toggled(self, shown: bool) -> None:
         self._edit.setEchoMode(QLineEdit.EchoMode.Normal if shown else QLineEdit.EchoMode.Password)

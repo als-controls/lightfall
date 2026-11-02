@@ -514,3 +514,45 @@ def test_blank_is_a_value_by_default(qtbot, spec):
     line.setText("")
     line.textEdited.emit("")
     assert editor.value() == ""
+
+
+# Trimming (blank_is_unset Text and Secret) ------------------------------------
+def _edit_to(editor, text):
+    line = editor.findChild(QLineEdit)
+    line.setText(text)
+    line.textEdited.emit(text)
+    return line
+
+
+def test_blank_is_unset_text_is_stripped(qtbot):
+    editor = make_spec(qtbot, Text(blank_is_unset=True))
+    _edit_to(editor, "  proj  ")
+    assert editor.value() == "proj"
+    editor.set_value(" loc\n")
+    assert editor.value() == "loc"
+
+
+def test_default_text_is_not_stripped(qtbot):
+    editor = make_spec(qtbot, Text())
+    _edit_to(editor, " a ")
+    assert editor.value() == " a "
+    editor.set_value(" b ")
+    assert editor.value() == " b "
+
+
+def test_blank_is_unset_whitespace_clears_the_display(qtbot):
+    editor = make_spec(qtbot, Text(blank_is_unset=True))
+    line = _edit_to(editor, "   ")
+    assert editor.value() is None
+    assert line.text() == ""
+
+
+@pytest.mark.parametrize(("typed", "expected"), [(" key\n", "key"), ("   ", None)])
+def test_secret_is_stripped(qtbot, typed, expected):
+    editor = make_spec(qtbot, Secret())
+    line = _edit_to(editor, typed)
+    assert editor.value() == expected
+    if expected is None:
+        assert line.text() == ""
+    editor.set_value(typed)
+    assert editor.value() == expected
