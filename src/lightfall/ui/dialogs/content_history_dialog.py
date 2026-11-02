@@ -133,6 +133,7 @@ class ContentHistoryDialog(LFDialog):
 
     def _on_loaded(self, records: list[dict[str, Any]]) -> None:
         if self._alive:
+            self._busy = False  # after a 412 the dialog stayed busy until this reload
             self._show_error(self._notice)  # kept across a reload after a 412
             self._notice = ""
             self._fill(records)
@@ -140,7 +141,8 @@ class ContentHistoryDialog(LFDialog):
     def _on_failed(self, exc: Exception) -> None:
         if not self._alive:
             return
-        self._busy = False
+        reloading = isinstance(exc, ScopesError) and exc.status == 412
+        self._busy = reloading  # stays busy until the reload lands (_on_loaded) or fails
         if isinstance(exc, ScopesError) and exc.status == 404:
             # Opened from your own copy for a scope where it was never published.
             text = f"{self._row.name} isn't published at {describe_source(self._row.source)}."
@@ -149,7 +151,7 @@ class ContentHistoryDialog(LFDialog):
         self._show_error(text)
         self._refresh()
         self._notice = ""
-        if isinstance(exc, ScopesError) and exc.status == 412:
+        if reloading:
             # Someone changed it after we read the history: show what is current now,
             # so the next Restore/Retract expects that revision.
             self._notice = text

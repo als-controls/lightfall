@@ -438,3 +438,33 @@ def test_history_retract_wording_and_toast_titles(qtbot, monkeypatch, toasts):
     assert asked[1] == ("Retract plugin 'tools' from Branch 7.0.1.1?\n"
                         "Everyone there stops receiving it; history keeps it.")
     assert [t for t, _ in toasts] == ["Restored", "Retracted"]
+
+
+def test_history_stays_busy_until_reloaded_after_a_412(qtbot, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    pending = []
+
+    class Moved(FakeClient):
+        def restore_content(self, scope, type_, name, revision, *, agent=False,
+                            expected_revision=None):
+            refused.append(1)
+            raise ScopesError("changed since you looked", status=412)
+
+    refused = []
+
+    def run(fn, ok, err):
+        if refused:
+            pending.append((fn, ok, err))  # the reload after the 412 is held back
+        else:
+            sync_run(fn, ok, err)
+
+    d = ContentHistoryDialog(row(), {BRANCH: "maintainer"},
+                             client=Moved(history=history_records()), run=run)
+    qtbot.addWidget(d)
+    d._table.selectRow(1)
+    d._restore_btn.click()
+    assert len(pending) == 1  # the reload is in flight
+    assert not d._restore_btn.isEnabled() and not d._retract_btn.isEnabled()
+    fn, ok, err = pending.pop()
+    sync_run(fn, ok, err)
+    assert d._retract_btn.isEnabled()
