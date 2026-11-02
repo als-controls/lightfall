@@ -216,7 +216,8 @@ class EntryWidget(QFrame):
 
         # Build fragment widgets
         self._widget_items: list[QWidget] = []
-        self._rebuild_fragments()
+        self._widget_keys: list[tuple[str, str]] = []
+        self._rebuild_fragments(reuse=False)
 
     # -- public --
 
@@ -225,10 +226,26 @@ class EntryWidget(QFrame):
         return self._entry
 
     def set_entry(self, entry: EntryData) -> None:
-        """Replace the displayed entry."""
+        """Display *entry*.
+
+        Re-showing the entry already on screen (a refresh after a run document
+        or a sync pull) is incremental: unchanged fragment widgets are kept,
+        changed ones update in place, and only new ones are built. That keeps
+        scroll position, expanded groups and any text being edited. A
+        different entry gets a fresh set of widgets.
+        """
+        same_entry = entry.id == self._entry.id
+        old_header = self._header_state()
         self._entry = entry
-        self._update_header()
-        self._rebuild_fragments()
+        if not same_entry or self._header_state() != old_header:
+            self._update_header()
+        self._rebuild_fragments(reuse=same_entry)
+
+    def refresh_pending_images(self) -> None:
+        """Load images that were still syncing when their widget was built."""
+        for w in self._widget_items:
+            if isinstance(w, ImageFragmentWidget) and w.is_pending:
+                w.refresh_image()
 
     def set_collapse_mode(self, mode: CollapseMode) -> None:
         if mode != self._collapse_mode:
@@ -268,8 +285,12 @@ class EntryWidget(QFrame):
         self._update_header()
         return header
 
+    def _header_state(self) -> tuple:
+        return (self._entry.id, self._entry.title, tuple(self._entry.tags), self._entry.created_at)
+
     def _update_header(self) -> None:
-        self._title_edit.setText(self._entry.title or "")
+        if not self._title_edit.hasFocus():  # don't clobber a title being typed
+            self._title_edit.setText(self._entry.title or "")
         self._date_label.setText(self._entry.created_at.strftime("%Y-%m-%d %H:%M"))
 
         # Clear old tag chips
@@ -413,42 +434,108 @@ class EntryWidget(QFrame):
         tag_input.returnPressed.connect(commit)
         tag_input.editingFinished.connect(commit)
 
-    def _rebuild_fragments(self) -> None:
-        """Rebuild all fragment widgets, grouping readonly runs."""
-        # Remove old widgets (keep add button and trailing stretch)
-        for w in self._widget_items:
+    @staticmethod
+    def _group_key(group: list[FragmentData]) -> tuple[str, str]:
+        """Identity of the widget that shows *group* (kind, first fragment id)."""
+        first = group[0]
+        if len(group) == 1 and first.fragment_type == FragmentType.TEXT:
+            return ("text", first.id)
+        if len(group) == 1 and first.fragment_type == FragmentType.IMAGE:
+            return ("image", first.id)
+        if len(group) > 1 and all(f.fragment_type == FragmentType.READONLY for f in group):
+            return ("group", first.id)
+        return ("readonly", first.id)
+
+    def _build_group_widget(self, group: list[FragmentData]) -> QWidget:
+        widget: QWidget
+        if len(group) == 1 and group[0].fragment_type == FragmentType.TEXT:
+            widget = TextFragmentWidget(group[0])
+            widget.content_changed.connect(self._on_fragment_changed)
+            widget.delete_requested.connect(self._on_fragment_delete)
+            widget.claude_requested.connect(self._on_fragment_claude)
+        elif len(group) == 1 and group[0].fragment_type == FragmentType.IMAGE:
+            widget = ImageFragmentWidget(group[0])
+            widget.delete_requested.connect(self._on_fragment_delete)
+            widget.caption_changed.connect(self._on_fragment_changed)
+            widget.claude_requested.connect(self._on_fragment_claude)
+        elif all(f.fragment_type == FragmentType.READONLY for f in group) and len(group) > 1:
+            widget = CollapsibleGroup(group)
+            widget.collapse_mode = self._collapse_mode
+        elif len(group) == 1 and group[0].fragment_type == FragmentType.READONLY:
+            widget = ReadonlyFragmentWidget(group[0])
+            widget.delete_requested.connect(self._on_fragment_delete)
+            widget.claude_requested.connect(self._on_fragment_claude)
+        else:
+            # Mixed single item fallback
+            widget = ReadonlyFragmentWidget(group[0]) if group else QWidget()
+        return widget
+
+    @staticmethod
+    def _reuse_widget(widget: QWidget, group: list[FragmentData], mode: CollapseMode) -> list[FragmentData]:
+        """Bring a kept widget up to date with *group*; return the fragments it shows."""
+        if isinstance(widget, CollapsibleGroup):
+            widget.collapse_mode = mode
+            return widget.set_fragments(group)
+        if isinstance(widget, TextFragmentWidget):
+            widget.update_fragment(group[0])  # no-op while the user is editing
+            return [widget.fragment]
+        if isinstance(widget, ImageFragmentWidget):
+            widget.update_fragment(group[0])
+            return [widget.fragment_data]
+        if isinstance(widget, ReadonlyFragmentWidget):
+            widget.update_fragment(group[0])
+            return [widget.fragment]
+        return list(group)
+
+    def _rebuild_fragments(self, *, reuse: bool = True) -> None:
+        """Sync fragment widgets with ``self._entry.fragments``.
+
+        Consecutive readonly fragments are grouped. With *reuse* (the
+        default) each existing widget is kept when its group is still shown
+        -- matched by kind and first fragment id -- and only updated in place;
+        new groups get new widgets and vanished ones are deleted. Kept
+        widgets own their ``FragmentData`` objects, so the entry's fragment
+        list is rewritten to point at them (edits in progress stay coherent).
+        """
+        groups = _group_fragments(self._entry.fragments, self._collapse_mode)
+        groups = [g for g in groups if g]
+
+        old: dict[tuple[str, str], QWidget] = {}
+        if reuse:
+            old = dict(zip(self._widget_keys, self._widget_items, strict=True))
+        else:
+            for w in self._widget_items:
+                self._fragment_layout.removeWidget(w)
+                w.deleteLater()
+
+        new_items: list[QWidget] = []
+        new_keys: list[tuple[str, str]] = []
+        shown: list[FragmentData] = []
+        for group in groups:
+            key = self._group_key(group)
+            widget = old.pop(key, None)
+            if widget is not None:
+                shown.extend(self._reuse_widget(widget, group, self._collapse_mode))
+            else:
+                widget = self._build_group_widget(group)
+                shown.extend(group)
+            new_items.append(widget)
+            new_keys.append(key)
+
+        for w in old.values():  # groups no longer shown
             self._fragment_layout.removeWidget(w)
             w.deleteLater()
-        self._widget_items.clear()
 
-        groups = _group_fragments(self._entry.fragments, self._collapse_mode)
-        insert_idx = 0
-        for group in groups:
-            widget: QWidget
-            if len(group) == 1 and group[0].fragment_type == FragmentType.TEXT:
-                widget = TextFragmentWidget(group[0])
-                widget.content_changed.connect(self._on_fragment_changed)
-                widget.delete_requested.connect(self._on_fragment_delete)
-                widget.claude_requested.connect(self._on_fragment_claude)
-            elif len(group) == 1 and group[0].fragment_type == FragmentType.IMAGE:
-                widget = ImageFragmentWidget(group[0])
-                widget.delete_requested.connect(self._on_fragment_delete)
-                widget.caption_changed.connect(self._on_fragment_changed)
-                widget.claude_requested.connect(self._on_fragment_claude)
-            elif all(f.fragment_type == FragmentType.READONLY for f in group) and len(group) > 1:
-                widget = CollapsibleGroup(group)
-                widget.collapse_mode = self._collapse_mode
-            elif len(group) == 1 and group[0].fragment_type == FragmentType.READONLY:
-                widget = ReadonlyFragmentWidget(group[0])
-                widget.delete_requested.connect(self._on_fragment_delete)
-                widget.claude_requested.connect(self._on_fragment_claude)
-            else:
-                # Mixed single item fallback
-                widget = ReadonlyFragmentWidget(group[0]) if group else QWidget()
+        # Place widgets in order ahead of the add button / stretch; kept
+        # widgets that are already in position are not touched.
+        for i, w in enumerate(new_items):
+            if self._fragment_layout.indexOf(w) != i:
+                self._fragment_layout.removeWidget(w)
+                self._fragment_layout.insertWidget(i, w)
 
-            self._fragment_layout.insertWidget(insert_idx, widget)
-            self._widget_items.append(widget)
-            insert_idx += 1
+        self._widget_items = new_items
+        self._widget_keys = new_keys
+        self._entry.fragments = shown
 
     # -- slots --
 

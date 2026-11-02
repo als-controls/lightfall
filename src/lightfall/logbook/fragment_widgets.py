@@ -74,6 +74,24 @@ class FragmentData:
     created_at: datetime = field(default_factory=datetime.now)
 
 
+def same_fragment_content(a: FragmentData, b: FragmentData) -> bool:
+    """Whether *a* and *b* would render identically (``created_at`` ignored)."""
+    return (
+        a.id == b.id
+        and a.fragment_type == b.fragment_type
+        and a.content == b.content
+        and a.subtype == b.subtype
+        and a.metadata == b.metadata
+    )
+
+
+def _adopt(dst: FragmentData, src: FragmentData) -> None:
+    """Copy *src*'s displayed fields into *dst* (keeps *dst*'s identity)."""
+    dst.content = src.content
+    dst.subtype = src.subtype
+    dst.metadata = src.metadata
+
+
 # ---------------------------------------------------------------------------
 # Style helpers
 # ---------------------------------------------------------------------------
@@ -429,6 +447,27 @@ class TextFragmentWidget(_HoverMixin, QFrame):
         self._editor.setPlainText(text)
         self._render_preview()
 
+    @property
+    def is_editing(self) -> bool:
+        """True while the editor is open (the user may have unsaved typing)."""
+        return self._editor_visible
+
+    def update_fragment(self, fragment: FragmentData) -> bool:
+        """Show *fragment*'s stored content in place.
+
+        Returns False (and changes nothing) while the user is editing, so a
+        refresh never overwrites typing in progress. The widget keeps its own
+        ``FragmentData`` object; callers should keep using :attr:`fragment`.
+        """
+        if self._editor_visible:
+            return False
+        if fragment.content != self._fragment.content:
+            _adopt(self._fragment, fragment)
+            self._render_preview()
+        else:
+            _adopt(self._fragment, fragment)
+        return True
+
     # -- focus switching --
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
@@ -548,6 +587,15 @@ class ReadonlyFragmentWidget(_HoverMixin, QFrame):
     @property
     def fragment(self) -> FragmentData:
         return self._fragment
+
+    def update_fragment(self, fragment: FragmentData) -> None:
+        """Re-render in place if *fragment* differs from what is shown."""
+        if same_fragment_content(self._fragment, fragment):
+            return
+        if fragment.subtype != self._fragment.subtype:
+            self.setStyleSheet(_card_stylesheet(fragment.subtype))
+        _adopt(self._fragment, fragment)
+        self._render()
 
     # -- rendering per subtype --
 
@@ -758,6 +806,29 @@ class ImageFragmentWidget(_HoverMixin, QFrame):
         self._load_image()
 
     @property
+    def is_pending(self) -> bool:
+        """True while the image file has not been downloaded yet."""
+        return self._full_pixmap is None and bool(self._image_id)
+
+    def update_fragment(self, fragment: FragmentData) -> None:
+        """Update caption / image in place; never clobbers a caption being typed."""
+        if same_fragment_content(self._data, fragment):
+            # Still reload if the image was syncing and has since arrived.
+            if self.is_pending:
+                self._load_image()
+            return
+        new_image_id = fragment.metadata.get("image_id", "")
+        caption_busy = self._caption.hasFocus()
+        if caption_busy:
+            fragment.content = self._data.content
+        _adopt(self._data, fragment)
+        if not caption_busy and self._caption.text() != self._data.content:
+            self._caption.setText(self._data.content)
+        if new_image_id != self._image_id or self._full_pixmap is None:
+            self._image_id = new_image_id
+            self._load_image()
+
+    @property
     def fragment_data(self) -> FragmentData:
         return self._data
 
@@ -864,6 +935,38 @@ class CollapsibleGroup(QFrame):
     @property
     def is_collapsed(self) -> bool:
         return self._collapsed
+
+    def set_fragments(self, fragments: list[FragmentData]) -> list[FragmentData]:
+        """Show *fragments*, reusing the existing card widget per fragment id.
+
+        Unchanged cards are left alone, changed ones re-render in place, new
+        ones are created and removed ones deleted; the collapsed/expanded
+        state is kept. Returns the list now shown, which holds each reused
+        card's own ``FragmentData`` object.
+        """
+        old = {w.fragment.id: w for w in self._fragment_widgets}
+        widgets: list[ReadonlyFragmentWidget] = []
+        for frag in fragments:
+            w = old.pop(frag.id, None)
+            if w is None:
+                w = ReadonlyFragmentWidget(frag)
+            else:
+                w.update_fragment(frag)
+            widgets.append(w)
+        for w in old.values():
+            self._content_layout.removeWidget(w)
+            w.deleteLater()
+        if widgets != self._fragment_widgets:
+            for i, w in enumerate(widgets):
+                if self._content_layout.indexOf(w) != i:
+                    self._content_layout.removeWidget(w)
+                    self._content_layout.insertWidget(i, w)
+        self._fragment_widgets = widgets
+        self._fragments = [w.fragment for w in widgets]
+        self._update_header()
+        if not self._collapsed:
+            self._content_widget.setMaximumHeight(16777215)
+        return list(self._fragments)
 
     # -- internal --
 

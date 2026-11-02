@@ -60,6 +60,10 @@ class LogbookPanel(BasePanel):
 
     note_added = Signal(str)
 
+    #: Bursts of run documents / sync pulls within this window collapse into
+    #: one refresh of the open entry.
+    REFRESH_DEBOUNCE_MS = 150
+
     def __init__(self, parent: QWidget | None = None) -> None:
         self._client: LogbookClient | None = None
         self._logbook_id: str | None = None
@@ -67,6 +71,11 @@ class LogbookPanel(BasePanel):
         self._entries: dict[str, EntryData] = {}
         self._displayed_updated_at: str | None = None
         self._live: LogbookLiveUpdates | None = None
+        self._list_signature: tuple | None = None
+        self._displayed_signature: tuple | None = None
+        self._pending_pull = False
+        self._pending_reselect = False
+        self._refresh_timer: QTimer | None = None
         super().__init__(parent)
 
         # Deferred init (after widget is shown)
@@ -236,7 +245,7 @@ class LogbookPanel(BasePanel):
         else:
             self._warning_banner.hide()
 
-    def _load_entries(self) -> None:
+    def _load_entries(self, *, reselect_current: bool = True) -> None:
         if not self._client or not self._logbook_id:
             return
 
@@ -250,14 +259,35 @@ class LogbookPanel(BasePanel):
             self._entries[ed.id] = ed
             entry_datas.append(ed)
 
-        if self._entries_panel:
-            self._entries_panel.set_entries(entry_datas)
+        # The open entry's fragments live on the widget's EntryData (the
+        # single source of truth for what is shown). Carry them onto the
+        # fresh object so code reading self._entries (e.g. Ask Claude) sees
+        # them even when the refresh below is skipped or deferred.
+        widget = getattr(self, "_entry_widget", None)
+        shown = widget.entry if widget is not None else None
+        if shown is not None and shown.id in self._entries:
+            self._entries[shown.id].fragments = shown.fragments
 
-        if entry_datas:
-            first = entry_datas[0]
-            if self._entries_panel:
-                self._entries_panel.select_entry(first.id)
-            self._select_entry(first.id)
+        # Only reset the sidebar model when the list itself changed; a pull
+        # that touched fragments alone leaves it (and its selection) intact.
+        signature = (
+            self._logbook_id,
+            tuple((e.id, e.title, tuple(e.tags), e.created_at) for e in entry_datas),
+        )
+        if self._entries_panel and signature != getattr(self, "_list_signature", None):
+            self._entries_panel.set_entries(entry_datas)
+        self._list_signature = signature
+
+        if not entry_datas:
+            return
+        # Keep the open entry if it is still listed (a reload after a pull
+        # must not jump the user back to the newest entry); else the newest.
+        current = self._current_entry_id
+        target = current if current in self._entries else entry_datas[0].id
+        if self._entries_panel:
+            self._entries_panel.select_entry(target)
+        if target != current or reselect_current:
+            self._select_entry(target)
 
     def _entry_widget_has_focus(self) -> bool:
         from PySide6.QtWidgets import QApplication
@@ -265,17 +295,46 @@ class LogbookPanel(BasePanel):
         return focus is not None and self._entry_widget.isAncestorOf(focus)
 
     def _on_pull(self) -> None:
+        """Sync pulled new data: refresh shortly (debounced, coalesced)."""
+        self._pending_pull = True
+        self._schedule_refresh()
+
+    def _schedule_refresh(self) -> None:
+        if self._refresh_timer is None:
+            self._refresh_timer = QTimer(self)
+            self._refresh_timer.setSingleShot(True)
+            self._refresh_timer.timeout.connect(self._flush_refresh)
+        if not self._refresh_timer.isActive():
+            # Not restarted on every call: a steady document stream still
+            # refreshes every REFRESH_DEBOUNCE_MS instead of starving.
+            self._refresh_timer.start(self.REFRESH_DEBOUNCE_MS)
+
+    def _flush_refresh(self) -> None:
+        """Apply whatever refreshes were requested since the timer started."""
+        pull, reselect = self._pending_pull, self._pending_reselect
+        self._pending_pull = self._pending_reselect = False
+        if pull:
+            self._refresh_after_pull()
+        if reselect and self._current_entry_id:
+            # Injected readonly fragments show even while the user types: the
+            # incremental update leaves an open editor alone.
+            self._select_entry(self._current_entry_id)
+
+    def _refresh_after_pull(self) -> None:
         """Refresh after a sync pull brought new data."""
         if not self._client or not self._logbook_id:
             return
-        self._load_entries()
+        self._load_entries(reselect_current=False)
         eid = self._current_entry_id
         if not eid:
             return
         row = self._client.get_entry(eid)
         if not row:
             return
-        if row.get("updated_at") != self._displayed_updated_at and not self._entry_widget_has_focus():
+        # A pull can change fragments without bumping the entry's updated_at,
+        # so don't gate on it: _select_entry itself skips an unchanged entry
+        # and updates a changed one incrementally.
+        if not self._entry_widget_has_focus():
             self._select_entry(eid)
 
     def _row_to_entry_data(self, row: dict[str, Any]) -> EntryData:
@@ -341,6 +400,27 @@ class LogbookPanel(BasePanel):
 
         # Load fragments
         frag_rows = self._client.list_fragments(entry_id)
+        entry_data = self._entries.get(entry_id, EntryData(id=entry_id))
+
+        # Skip entirely when the entry on screen already shows exactly this
+        # content (the common case for a sync pull mid-scan).
+        signature = (
+            entry_id, entry_data.title, tuple(entry_data.tags), entry_data.created_at,
+            [(fr["id"], fr.get("kind"), fr.get("content"), fr.get("subtype"), fr.get("data"))
+             for fr in frag_rows],
+        )
+        if (
+            signature == getattr(self, "_displayed_signature", None)
+            and self._entry_widget.entry.id == entry_id
+        ):
+            # Same title/tags/fragments as on screen: keep the widget's
+            # EntryData as the panel's copy so both stay one object.
+            self._entries[entry_id] = self._entry_widget.entry
+            # A sync may have downloaded image files without touching rows.
+            self._entry_widget.refresh_pending_images()
+            return
+        self._displayed_signature = signature
+
         fragments: list[FragmentData] = []
         for fr in frag_rows:
             data_raw = fr.get("data")
@@ -360,7 +440,6 @@ class LogbookPanel(BasePanel):
                 metadata=data_raw or {},
             ))
 
-        entry_data = self._entries.get(entry_id, EntryData(id=entry_id))
         entry_data.fragments = fragments
         self._entry_widget.set_entry(entry_data)
         row = self._client.get_entry(entry_id) if self._client else None
@@ -420,9 +499,14 @@ class LogbookPanel(BasePanel):
 
     @Slot(str)
     def _on_fragment_injected(self, entry_id: str) -> None:
-        """Refresh the entry view when the EventListener injects a fragment."""
+        """Refresh the entry view when the EventListener injects a fragment.
+
+        Debounced: a scan's document stream yields one refresh per
+        ``REFRESH_DEBOUNCE_MS`` window, not one per document.
+        """
         if entry_id == self._current_entry_id:
-            self._select_entry(entry_id)
+            self._pending_reselect = True
+            self._schedule_refresh()
 
     @Slot(str, str)
     def _on_title_changed(self, entry_id: str, new_title: str) -> None:

@@ -6,6 +6,8 @@ real-time status updates, historical tracking, and CPU usage monitoring.
 
 from __future__ import annotations
 
+import functools
+import sys
 import threading
 import weakref
 from dataclasses import dataclass
@@ -26,10 +28,67 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor
 
 from lightfall.utils.logging import logger
-from lightfall.utils.threads import QThreadFuture, thread_manager
+from lightfall.utils.threads import ManagedThreadPool, QThreadFuture, thread_manager
 
 if TYPE_CHECKING:
     pass
+
+
+@functools.cache
+def _kernel32() -> Any:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenThread.restype = wintypes.HANDLE  # default int would truncate on x64
+    kernel32.GetThreadTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    kernel32.GetThreadTimes.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    return kernel32
+
+
+def _win_thread_times(native_ids: set[int]) -> dict[int, tuple[float, float]]:
+    """Per-thread (user, system) CPU seconds via kernel32.GetThreadTimes.
+
+    ``psutil.Process.threads()`` on Windows walks the system-wide process
+    list with the GIL held (60-130 ms with ~80 threads), which stalls the GUI
+    even from a worker thread. Querying only the threads we can name is a
+    handful of ctypes calls, each of which releases the GIL.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = _kernel32()
+    thread_query_limited_information = 0x0800
+    times: dict[int, tuple[float, float]] = {}
+    creation, exit_, kernel, user = (wintypes.FILETIME() for _ in range(4))
+    for tid in native_ids:
+        handle = kernel32.OpenThread(thread_query_limited_information, False, tid)
+        if not handle:
+            continue
+        try:
+            if kernel32.GetThreadTimes(
+                handle, ctypes.byref(creation), ctypes.byref(exit_),
+                ctypes.byref(kernel), ctypes.byref(user),
+            ):
+                def secs(ft: wintypes.FILETIME) -> float:
+                    return ((ft.dwHighDateTime << 32) | ft.dwLowDateTime) / 1e7
+                times[tid] = (secs(user), secs(kernel))
+        finally:
+            kernel32.CloseHandle(handle)
+    return times
+
+
+def _thread_cpu_times(process: psutil.Process, native_ids: set[int]) -> dict[int, tuple[float, float]]:
+    """(user, system) CPU seconds for *native_ids* in this process."""
+    if sys.platform == "win32":
+        try:
+            return _win_thread_times(native_ids)
+        except (OSError, AttributeError):  # pragma: no cover - fall back to psutil
+            pass
+    return {t.id: (t.user_time, t.system_time) for t in process.threads() if t.id in native_ids}
 
 
 # CPU tracking helper
@@ -61,9 +120,9 @@ class ThreadCpuTracker:
             if native_id is not None:
                 self._name_to_native_id[thread.name] = native_id
 
-        # Get CPU times from psutil
+        # Get CPU times for those threads
         try:
-            thread_times = {t.id: (t.user_time, t.system_time) for t in self._process.threads()}
+            thread_times = _thread_cpu_times(self._process, set(self._name_to_native_id.values()))
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return
 
@@ -188,12 +247,77 @@ class ThreadRecord:
         return f"{self.cpu_percent:.1f}%"
 
 
+@dataclass
+class _ThreadState:
+    """Plain-data view of one ThreadManager thread, captured on the GUI thread.
+
+    Holds no QThreadFuture: only a weak reference, so this object can never
+    keep a thread alive (or have its C++ destructor run) anywhere else.
+    """
+
+    ref: weakref.ref
+    name: str
+    status: ThreadStatus
+    exception_msg: str | None
+    key: str | None = None
+    method_name: str = ""
+    args_repr: str = ""
+
+
+@dataclass
+class _Snapshot:
+    """CPU figures gathered on the sampler thread (plain data only)."""
+
+    cpu_by_name: dict[str, float | None]
+    native_by_name: dict[str, int | None]
+
+
+def _describe_call(thread: QThreadFuture) -> tuple[str, str]:
+    """(method name, short args repr) for a new thread's record."""
+    method_name = getattr(thread, "_name", "unnamed")
+    method = getattr(thread, "_method", None)
+    if method is not None:
+        method_name = getattr(method, "__name__", method_name)
+    args = getattr(thread, "_args", ())
+    kwargs = getattr(thread, "_kwargs", {})
+    args_repr = ""
+    if args or kwargs:
+        args_parts = [repr(a)[:50] for a in args[:3]]
+        kwargs_parts = [f"{k}={repr(v)[:30]}" for k, v in list(kwargs.items())[:3]]
+        args_repr = ", ".join(args_parts + kwargs_parts)
+        if len(args) > 3 or len(kwargs) > 3:
+            args_repr += ", ..."
+    return method_name, args_repr
+
+
+def _thread_status(thread: QThreadFuture) -> ThreadStatus:
+    if thread.isRunning():
+        return ThreadStatus.RUNNING
+    if thread.isFinished():
+        if thread.cancelled:
+            return ThreadStatus.CANCELLED
+        if thread.exception is not None:
+            return ThreadStatus.ERROR
+        return ThreadStatus.COMPLETED
+    return ThreadStatus.PENDING
+
+
 class ThreadManagerObserver(QObject):
     """Observer that monitors ThreadManager without modifying it.
 
     Polls ThreadManager._threads periodically to detect changes and
     emits Qt signals for thread lifecycle events. Also tracks CPU usage
     per thread using psutil.
+
+    ``psutil.Process.threads()`` takes tens of milliseconds on Windows, so CPU
+    times are gathered on a single background sampler thread. ThreadManager's
+    QThreadFuture objects are read only on the GUI thread (cheap status calls)
+    and reduced to plain data plus weak references; nothing QObject-valued
+    crosses to the sampler, so it can never hold the last reference to a
+    thread and run its destructor off the GUI thread. At most one sample
+    is in flight: a tick that finds the previous sample still running is
+    skipped. Callers own the polling lifetime (``start``/``stop``); the
+    Threads panel runs it only while it is visible.
 
     Signals:
         thread_added: Emitted when a new thread is detected.
@@ -206,10 +330,12 @@ class ThreadManagerObserver(QObject):
     thread_updated = Signal(object)  # ThreadRecord
     thread_removed = Signal(int)  # thread_id
     cpu_updated = Signal()  # Emitted when CPU stats refresh
+    # Emitted from the sampler thread; queued onto the observer's (GUI) thread.
+    _snapshot_ready = Signal(object)
 
     def __init__(
         self,
-        poll_interval_ms: int = 100,
+        poll_interval_ms: int = 1000,
         parent: QObject | None = None,
     ) -> None:
         """Initialize the observer.
@@ -224,16 +350,43 @@ class ThreadManagerObserver(QObject):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._poll)
         self._cpu_tracker = ThreadCpuTracker()
+        self._pool: ManagedThreadPool | None = None
+        self._sample_in_flight = False
+        self._pending_states: dict[int, _ThreadState] | None = None
+        self._snapshot_ready.connect(self._on_snapshot_ready, Qt.ConnectionType.QueuedConnection)
+
+    @property
+    def is_polling(self) -> bool:
+        """Whether the periodic poll timer is running."""
+        return self._timer.isActive()
 
     def start(self) -> None:
-        """Start observing ThreadManager."""
-        self._timer.start(self._poll_interval)
-        # Do initial poll
+        """Start observing ThreadManager (first sample is requested at once)."""
+        if not self._timer.isActive():
+            self._timer.start(self._poll_interval)
         self._poll()
 
     def stop(self) -> None:
-        """Stop observing ThreadManager."""
+        """Stop observing ThreadManager. A sample already in flight still lands."""
         self._timer.stop()
+
+    def shutdown(self) -> None:
+        """Stop polling and release the sampler thread."""
+        self.stop()
+        if self._pool is not None:
+            self._pool.shutdown(wait=False)
+            self._pool = None
+
+    def refresh_now(self) -> None:
+        """Sample synchronously, for one-off reads while polling is stopped.
+
+        Cheap on Windows (no psutil thread walk); skipped if a background
+        sample is in flight, since that one is about to land anyway.
+        """
+        if self._sample_in_flight:
+            return
+        states = self._collect_states()
+        self._apply_snapshot(states, self._gather_cpu({s.name for s in states.values()}))
 
     def get_records(self) -> list[ThreadRecord]:
         """Get all known thread records."""
@@ -254,32 +407,85 @@ class ThreadManagerObserver(QObject):
             self.thread_removed.emit(tid)
 
     def _poll(self) -> None:
-        """Poll ThreadManager for changes."""
-        current_ids = set()
+        """Read thread states here (GUI), sample CPU on the worker (non-blocking)."""
+        if self._sample_in_flight:
+            return
+        if self._pool is None:
+            self._pool = ManagedThreadPool(max_workers=1, name="thread-monitor")
+        states = self._collect_states()
+        self._pending_states = states
+        names = frozenset(s.name for s in states.values())
+        self._sample_in_flight = True
+        try:
+            self._pool.submit(self._sample_and_post, names)
+        except RuntimeError:  # pool shut down underneath us (app quitting)
+            self._sample_in_flight = False
+            self._pending_states = None
 
-        # Update CPU tracking
-        self._cpu_tracker.update()
-
-        # Access ThreadManager's internal thread dict
+    def _collect_states(self) -> dict[int, _ThreadState]:
+        """Plain-data thread states. GUI thread; the strong refs stay local."""
         with thread_manager._registry_lock:
             threads_snapshot = dict(thread_manager._threads)
 
+        states: dict[int, _ThreadState] = {}
         for thread_id, thread in threads_snapshot.items():
             # thread_manager._threads stores QThreadFuture objects directly (strong refs)
             if thread is None:
                 continue
+            exc = thread.exception
+            state = _ThreadState(
+                ref=weakref.ref(thread),
+                name=getattr(thread, "_name", "unnamed"),
+                status=_thread_status(thread),
+                exception_msg=str(exc) if exc is not None else None,
+                key=getattr(thread, "_manager_key", None),
+            )
+            if thread_id not in self._known_threads:
+                state.method_name, state.args_repr = _describe_call(thread)
+            states[thread_id] = state
+        return states
 
+    def _sample_and_post(self, names: frozenset[str]) -> None:
+        """Sampler-thread body: CPU times for *names*, queued back to the GUI."""
+        try:
+            snapshot = self._gather_cpu(names)
+        except Exception as exc:  # never let a sampler error wedge polling
+            logger.debug("Thread monitor sample failed: {}", exc)
+            snapshot = None
+        try:
+            self._snapshot_ready.emit(snapshot)
+        except RuntimeError:  # observer deleted while sampling
+            pass
+
+    def _gather_cpu(self, names: frozenset[str] | set[str]) -> _Snapshot:
+        """Collect per-thread CPU figures. Runs off the GUI thread; no QObjects."""
+        tracker = self._cpu_tracker
+        tracker.update()
+        return _Snapshot(
+            cpu_by_name={n: tracker.get_cpu_percent(n) for n in names},
+            native_by_name={n: tracker.get_native_id(n) for n in names},
+        )
+
+    def _on_snapshot_ready(self, snapshot: _Snapshot | None) -> None:
+        self._sample_in_flight = False
+        states, self._pending_states = self._pending_states, None
+        if snapshot is not None and states is not None:
+            self._apply_snapshot(states, snapshot)
+
+    def _apply_snapshot(self, states: dict[int, _ThreadState], snapshot: _Snapshot) -> None:
+        """Diff states + CPU against the known records. GUI thread; no psutil."""
+        current_ids = set()
+
+        for thread_id, state in states.items():
             current_ids.add(thread_id)
 
             if thread_id not in self._known_threads:
-                # New thread detected
-                record = self._create_record(thread, thread_id)
+                record = self._create_record(state, thread_id, snapshot)
                 self._known_threads[thread_id] = record
                 self.thread_added.emit(record)
                 logger.trace("ThreadObserver: detected new thread {}", thread_id)
             else:
-                # Update existing thread
-                self._update_record(thread_id, thread)
+                self._update_record(thread_id, state, snapshot)
 
         # Detect threads that have been garbage collected
         for thread_id in list(self._known_threads.keys()):
@@ -296,86 +502,48 @@ class ThreadManagerObserver(QObject):
         # Signal that CPU stats have been updated
         self.cpu_updated.emit()
 
-    def _create_record(self, thread: QThreadFuture, thread_id: int) -> ThreadRecord:
+    def _create_record(self, state: _ThreadState, thread_id: int, snapshot: _Snapshot) -> ThreadRecord:
         """Create a ThreadRecord for a new thread."""
-        # Extract method info
-        thread_name = getattr(thread, "_name", "unnamed")
-        method_name = thread_name
-        method = getattr(thread, "_method", None)
-        if method is not None:
-            method_name = getattr(method, "__name__", method_name)
-
-        args = getattr(thread, "_args", ())
-        kwargs = getattr(thread, "_kwargs", {})
-        args_repr = ""
-        if args or kwargs:
-            args_parts = [repr(a)[:50] for a in args[:3]]
-            kwargs_parts = [f"{k}={repr(v)[:30]}" for k, v in list(kwargs.items())[:3]]
-            args_repr = ", ".join(args_parts + kwargs_parts)
-            if len(args) > 3 or len(kwargs) > 3:
-                args_repr += ", ..."
-
-        # Determine initial status
-        if thread.isRunning():
-            status = ThreadStatus.RUNNING
-        elif thread.isFinished():
-            if thread.cancelled:
-                status = ThreadStatus.CANCELLED
-            elif thread.exception is not None:
-                status = ThreadStatus.ERROR
-            else:
-                status = ThreadStatus.COMPLETED
-        else:
-            status = ThreadStatus.PENDING
+        thread_name = state.name
+        status = state.status
 
         # Get CPU info if running
         cpu_percent = 0.0
         native_id = None
         if status == ThreadStatus.RUNNING:
-            cpu_percent = self._cpu_tracker.get_cpu_percent(thread_name) or 0.0
-            native_id = self._cpu_tracker.get_native_id(thread_name)
+            cpu_percent = snapshot.cpu_by_name.get(thread_name) or 0.0
+            native_id = snapshot.native_by_name.get(thread_name)
 
+        finished = status in (ThreadStatus.COMPLETED, ThreadStatus.CANCELLED, ThreadStatus.ERROR)
         return ThreadRecord(
             thread_id=thread_id,
             name=thread_name,
-            key=getattr(thread, "_manager_key", None),
+            key=state.key,
             status=status,
             started_at=datetime.now(),
-            finished_at=datetime.now() if thread.isFinished() else None,
-            exception_msg=str(thread.exception) if thread.exception else None,
-            thread_ref=weakref.ref(thread),
-            method_name=method_name,
-            args_repr=args_repr,
+            finished_at=datetime.now() if finished else None,
+            exception_msg=state.exception_msg,
+            thread_ref=state.ref,
+            method_name=state.method_name or thread_name,
+            args_repr=state.args_repr,
             cpu_percent=cpu_percent,
             native_thread_id=native_id,
         )
 
-    def _update_record(self, thread_id: int, thread: QThreadFuture) -> None:
+    def _update_record(self, thread_id: int, state: _ThreadState, snapshot: _Snapshot) -> None:
         """Update an existing thread record with current state."""
         record = self._known_threads[thread_id]
         old_status = record.status
-
-        # Determine new status
-        if thread.isRunning():
-            new_status = ThreadStatus.RUNNING
-        elif thread.isFinished():
-            if thread.cancelled:
-                new_status = ThreadStatus.CANCELLED
-            elif thread.exception is not None:
-                new_status = ThreadStatus.ERROR
-            else:
-                new_status = ThreadStatus.COMPLETED
-        else:
-            new_status = ThreadStatus.PENDING
+        new_status = state.status
 
         # Update CPU info for running threads
         if new_status == ThreadStatus.RUNNING:
-            cpu = self._cpu_tracker.get_cpu_percent(record.name)
+            cpu = snapshot.cpu_by_name.get(record.name)
             if cpu is not None:
                 record.cpu_percent = cpu
             # Update native ID if not set
             if record.native_thread_id is None:
-                record.native_thread_id = self._cpu_tracker.get_native_id(record.name)
+                record.native_thread_id = snapshot.native_by_name.get(record.name)
         else:
             record.cpu_percent = 0.0
 
@@ -385,8 +553,8 @@ class ThreadManagerObserver(QObject):
             if new_status in (ThreadStatus.COMPLETED, ThreadStatus.CANCELLED, ThreadStatus.ERROR):
                 record.finished_at = datetime.now()
                 record.cpu_percent = 0.0
-            if thread.exception is not None:
-                record.exception_msg = str(thread.exception)
+            if state.exception_msg is not None:
+                record.exception_msg = state.exception_msg
             self.thread_updated.emit(record)
 
 
@@ -427,9 +595,18 @@ class ThreadTableModel(QAbstractTableModel):
         self._observer.cpu_updated.connect(self._on_cpu_updated)
 
         # Timer for updating duration column
+        # Timer for updating duration column; driven by set_live() so it
+        # only ticks while a view is showing the model.
         self._refresh_timer = QTimer(self)
+        self._refresh_timer.setInterval(500)  # Update durations every 500ms
         self._refresh_timer.timeout.connect(self._refresh_durations)
-        self._refresh_timer.start(500)  # Update durations every 500ms
+
+    def set_live(self, live: bool) -> None:
+        """Start or stop the duration-column refresh timer."""
+        if live and not self._refresh_timer.isActive():
+            self._refresh_timer.start()
+        elif not live:
+            self._refresh_timer.stop()
 
     def set_max_history(self, max_count: int) -> None:
         """Set maximum number of historical records to keep."""
