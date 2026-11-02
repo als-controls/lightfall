@@ -6,6 +6,7 @@ and search functionality, showing display names and category icons.
 
 from __future__ import annotations
 
+import html
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lightfall.content.labels import describe_source
 from lightfall.ui.theme import scaled_px
 
 if TYPE_CHECKING:
@@ -123,7 +125,10 @@ class PlanListModel(QStandardItemModel):
             display_name = plan_info.get_display_name()
             item = QStandardItem(display_name)
             item.setData(plan_info, self.PLAN_INFO_ROLE)
-            item.setToolTip(f"{plan_info.name}\n{plan_info.description or ''}")
+            item.setToolTip(
+                f"{plan_info.name}\n{plan_info.description or ''}\n"
+                f"From: {describe_source(plan_info.source)}"
+            )
             item.setEditable(False)
             # Set category icon
             item.setIcon(self._get_icon(plan_info))
@@ -342,11 +347,12 @@ class PlanSelectorWidget(QWidget):
         Returns:
             HTML string.
         """
-        display_name = plan_info.get_display_name()
+        display_name = html.escape(plan_info.get_display_name())
         lines = [
             f"<h3>{display_name}</h3>",
-            f"<p><b>Name:</b> {plan_info.name}</p>",
-            f"<p><b>Category:</b> {plan_info.category}</p>",
+            f"<p><b>Name:</b> {html.escape(plan_info.name)}</p>",
+            f"<p><b>Category:</b> {html.escape(plan_info.category)}</p>",
+            f"<p><b>From:</b> {html.escape(describe_source(plan_info.source))}</p>",
         ]
 
         if plan_info.description:

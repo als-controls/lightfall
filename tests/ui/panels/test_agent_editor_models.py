@@ -373,7 +373,7 @@ class TestSkillRows:
         assert rows["fit"].scope == "user"
         assert rows["fit"].shadowed_scopes == ("core", "branch:7.0.1.1")
         assert rows["plain"].shadowed_scopes == ()
-        assert models.skill_label(rows["fit"]) == "fit  (shadows core, branch:7.0.1.1)"
+        assert models.skill_label(rows["fit"]) == "fit  (shadows Built-in, Branch 7.0.1.1)"
         assert models.skill_label(rows["plain"]) == "plain"
 
 
@@ -391,3 +391,31 @@ def test_group_skill_rows_shows_synced_and_plugin_skills():
     assert [r.name for r in groups["beamline"]] == ["c"]
     assert [r.name for r in groups["unknown"]] == ["e"]
     assert "plugin" in panel._SCOPE_LABEL
+
+
+class TestScopeLabels:
+    def test_shadow_labels_use_people_names(self):
+        row = models.AgentRow(
+            name="a", scope="user", description="", editable=True,
+            shadowed_scopes=("branch:7.0.1.1", "core"), error=None, source_path=Path("a.md"),
+        )
+        label = models.agent_label(row)
+        assert "shadows Branch 7.0.1.1, Built-in" in label
+        skill = models.SkillRow(
+            name="s", scope="user", path=Path("s"), editable=True,
+            shadowed_scopes=("beamline:7.0.1",),
+        )
+        assert models.skill_label(skill) == "s  (shadows Beamline 7.0.1)"
+
+    def test_group_header_labels_full_scope(self):
+        assert models.group_header("branch", {"branch:7.0.1.1"}, "Branch") == "Branch 7.0.1.1"
+        assert models.group_header("branch", {"branch:1", "branch:2"}, "Branch") == "Branch"
+        assert models.group_header("core", {"core"}, "Shipped (core)") == "Shipped (core)"
+
+    def test_agent_editor_header_labels_full_scope(self, registry, tmp_path):
+        from lightfall.content.sources import SourceItem
+
+        br = _agent(tmp_path / "br", "extra")
+        registry.set_synced([SourceItem("agent", "extra", "branch:7.0.1.1", br)])
+        row = models.agent_rows(registry)[0]
+        assert row.full_scope == "branch:7.0.1.1"

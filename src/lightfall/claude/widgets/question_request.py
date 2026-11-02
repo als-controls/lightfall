@@ -31,6 +31,9 @@ from PySide6.QtWidgets import (
 )
 
 _FILLER_WORDS = {"option", "the", "number"}
+# Labels a fragment must never select: a misheard "a" or "low" must not answer Allow on
+# an agent's publish/retract/restore card. These match only as the whole word.
+_WHOLE_WORD_ONLY = {"allow"}
 
 
 def _normalise(text: str) -> str:
@@ -47,7 +50,7 @@ def _match_one(part: str, labels: list[str]) -> str | None:
     exact = [lb for lb, n in normed if n == norm]
     if exact:
         return exact[0]
-    partial = [lb for lb, n in normed if norm in n]
+    partial = [lb for lb, n in normed if norm in n and n not in _WHOLE_WORD_ONLY]
     return partial[0] if len(partial) == 1 else None
 
 
@@ -55,7 +58,8 @@ def match_options(text: str, labels: list[str]) -> list[str]:
     """Labels matched by a single-select utterance (0 or 1 item).
 
     An exact normalised match wins; otherwise a unique label containing the
-    normalised text; otherwise nothing (the text belongs in "Other").
+    normalised text (never "Allow", which needs the whole word); otherwise nothing
+    (the text belongs in "Other").
     """
     m = _match_one(text, labels)
     return [m] if m is not None else []

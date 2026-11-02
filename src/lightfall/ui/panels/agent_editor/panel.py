@@ -301,14 +301,11 @@ class AgentEditorPanel(BasePanel):
             in_scope = [r for r in rows if r.scope == scope]
             if not in_scope:
                 continue
-            self._agent_list.addItem(_header_item(_SCOPE_LABEL.get(scope, scope)))
+            self._agent_list.addItem(_header_item(models.group_header(
+                scope, {r.full_scope for r in in_scope}, _SCOPE_LABEL.get(scope, scope)
+            )))
             for row in in_scope:
-                label = row.name
-                if row.error:
-                    label = f"{row.name}  (error)"
-                elif row.shadowed_scopes:
-                    label = f"{row.name}  (shadows {', '.join(row.shadowed_scopes)})"
-                item = QListWidgetItem(label)
+                item = QListWidgetItem(models.agent_label(row))
                 item.setData(_ROLE_KIND, "agent")
                 item.setData(_ROLE_NAME, row.name)
                 self._agent_list.addItem(item)
@@ -334,7 +331,9 @@ class AgentEditorPanel(BasePanel):
         rows = models.skill_rows()
         self._skill_rows = {r.name: r for r in rows}
         for scope, in_scope in models.group_skill_rows(rows, _SCOPE_ORDER):
-            self._skill_list.addItem(_header_item(_SCOPE_LABEL.get(scope, scope)))
+            self._skill_list.addItem(_header_item(models.group_header(
+                scope, {r.scope for r in in_scope}, _SCOPE_LABEL.get(scope, scope)
+            )))
             for row in in_scope:
                 item = QListWidgetItem(models.skill_label(row))
                 item.setData(_ROLE_KIND, "skill")
@@ -388,7 +387,10 @@ class AgentEditorPanel(BasePanel):
             self._save_btn.setEnabled(False)
             return
 
-        self._agent_title.setText(f"{row.name}  —  {_SCOPE_LABEL.get(row.scope, row.scope)}")
+        self._agent_title.setText(
+            f"{row.name}  —  "
+            f"{models.group_header(row.scope, {row.full_scope}, _SCOPE_LABEL.get(row.scope, row.scope))}"
+        )
         if row.error:
             self._agent_error.setText(row.error)
 

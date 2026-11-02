@@ -19,6 +19,7 @@ from lightfall.agents.backends.claude_code.options import (
     build_claude_options,
 )
 from lightfall.agents.bus_tools import BUS_ALLOWED_TOOLS, create_bus_tools_server
+from lightfall.agents.content_tools import CONTENT_ALLOWED_TOOLS, create_content_tools_server
 from lightfall.agents.skill_tools import SKILLS_ALLOWED_TOOLS, create_skill_tools_server
 from lightfall.agents.tooling import ToolServer, tool_id
 from lightfall.claude._internal.worker import PersistentClaudeWorker
@@ -442,6 +443,18 @@ class QtClaudeAgent(QObject):
             permission_manager=self._permission_manager,
         )))
         allowed_tools.extend(SKILLS_ALLOWED_TOOLS)
+
+        # The content server is always-on too: list shared content and its history,
+        # and publish/retract/restore it, each write asked of the user in chat
+        # (Allow / Deny only). Allow-listed so the SDK doesn't prompt a second time;
+        # never auto-approved by the PermissionManager.
+        tool_servers.append(("content", create_content_tools_server(
+            permission_manager=self._permission_manager,
+            agent_name=self._approval_agent_name,
+            author_name=lambda: self.bus_name,
+            session_id=lambda: self._current_session_id,
+        )))
+        allowed_tools.extend(CONTENT_ALLOWED_TOOLS)
 
         # Synthesize per-session SDK plugin dir
         from lightfall.claude._session_assembly import init_session_plugin_dir

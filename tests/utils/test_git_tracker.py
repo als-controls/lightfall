@@ -138,3 +138,40 @@ def test_singleton_uses_home_lightfall_by_default(monkeypatch, tmp_path):
     GitTracker.reset_instance()
     instance = GitTracker.get_instance()
     assert instance.repo_root == Path.home() / "lightfall"
+
+
+def test_head_commit_clean_dirty_untracked(tracker, repo_root, tmp_path):
+    tracker.ensure_repo()
+    f = repo_root / "a.py"
+    f.write_text("1")
+    assert tracker.head_commit(f) is None  # untracked
+    assert tracker.head_commit(tmp_path / "outside.py") is None
+    assert tracker.head_commit(repo_root / "missing.py") is None
+    tracker.commit([f], "add a")
+    first = _git(repo_root, "rev-parse", "HEAD")
+    assert tracker.head_commit(f) == first
+    other = repo_root / "b.py"
+    other.write_text("2")
+    tracker.commit([other], "add b")
+    assert tracker.head_commit(f) == first  # last commit touching the path
+    f.write_text("changed")
+    assert tracker.head_commit(f) is None  # dirty
+    pkg = repo_root / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    tracker.commit([pkg], "add pkg")
+    assert tracker.head_commit(pkg) == _git(repo_root, "rev-parse", "HEAD")
+    (pkg / "new.py").write_text("")  # untracked file inside the folder
+    assert tracker.head_commit(pkg) is None
+
+
+def test_head_commit_never_raises(tracker, repo_root, monkeypatch):
+    t = tracker
+    assert t.head_commit(repo_root / "a.py") is None  # not a repo yet
+    t.ensure_repo()
+
+    def boom(*a, **k):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    assert t.head_commit(repo_root / "a.py") is None

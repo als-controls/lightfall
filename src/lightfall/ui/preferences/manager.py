@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QByteArray, QObject, QSettings, Signal, Slot
 
+from lightfall.scopes.client import ContentPolicy
 from lightfall.ui.preferences.backend import BEAMLINE_SPECIFIC_PREFS
 from lightfall.utils.logging import logger
 
@@ -188,6 +189,8 @@ class ScopeInfo:
     mode: str  # "server" | "local" | "off"
     chain: tuple[str, ...] = ()
     roles: dict[str, str | None] = field(default_factory=dict)
+    # The server's limits on published bundles (``/chain``); defaults off-server.
+    content_policy: ContentPolicy = ContentPolicy()
 
 
 _BOUND_KINDS = ("beamline", "branch")  # a site.bind kind that binds this console
@@ -640,7 +643,10 @@ class PreferencesManager(QObject):
             self.scopes_changed.emit(info)
 
     def _on_scoped_chain(self, chain_info: Any) -> None:
-        self._set_scope_info(ScopeInfo("server", tuple(chain_info.chain), dict(chain_info.roles)))
+        self._set_scope_info(ScopeInfo(
+            "server", tuple(chain_info.chain), dict(chain_info.roles),
+            getattr(chain_info, "content_policy", None) or ContentPolicy(),
+        ))
 
     def _local_or_off(self) -> ScopeInfo:
         if self._local_scopes is not None:
