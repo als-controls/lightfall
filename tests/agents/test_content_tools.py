@@ -288,3 +288,53 @@ def test_server_registered_in_agent(qtbot, monkeypatch):
     for i in ids:
         assert i in options.allowed_tools
         assert i not in PermissionManager.DEFAULT_AUTO_APPROVED
+
+
+class ChangingClient(FakeClient):
+    """History says revision 3 is current before the question, 5 after it."""
+
+    def __init__(self):
+        super().__init__()
+        self.reads = 0
+
+    def content_history(self, scope, type_, name):
+        self.reads += 1
+        if self.reads == 1:
+            return [{"revision": 3, "current": True}, {"revision": 2, "current": False}]
+        return [{"revision": 5, "current": True}, {"revision": 3, "current": False},
+                {"revision": 2, "current": False}]
+
+
+def test_retract_and_restore_refuse_if_it_changed_while_asking():
+    args = {"type": "agent", "name": "scout", "scope": BRANCH}
+    for tool_name, extra, verb in (("lightfall_retract_content", {}, "retracted"),
+                                   ("lightfall_restore_content", {"revision": 2}, "restored")):
+        pm, client = _FakePermissionManager(content_tools.ALLOW), ChangingClient()
+        err, text = _call(_tools(pm, client)[tool_name], {**args, **extra})
+        assert err and len(pm.questions) == 1 and client.calls == [], text
+        assert f"Not {verb}: scout changed to revision 5 while you were deciding" in text
+        assert "ask again" in text
+
+
+def test_bad_names_are_refused_before_asking():
+    pm, client = _FakePermissionManager(content_tools.ALLOW), FakeClient()
+    tools = _tools(pm, client)
+    bad = {"type": "plan", "name": "../x", "scope": BRANCH}
+    for tool_name, extra in (("lightfall_retract_content", {}),
+                             ("lightfall_restore_content", {"revision": 2}),
+                             ("lightfall_content_history", {}),
+                             ("lightfall_publish_content", {"message": "m"})):
+        err, text = _call(tools[tool_name], {**bad, **extra})
+        assert err and "../x" in text, (tool_name, text)
+    assert pm.questions == [] and client.calls == []
+
+
+def test_history_error_is_explained():
+    class Refusing(FakeClient):
+        def content_history(self, *a):
+            raise ScopesError("forbidden", status=403)
+
+    pm = _FakePermissionManager(content_tools.ALLOW)
+    err, text = _call(_tools(pm, Refusing())["lightfall_content_history"],
+                      {"type": "plan", "name": "xafs", "scope": BRANCH})
+    assert err and "not a maintainer of Branch 7.0.1.1" in text

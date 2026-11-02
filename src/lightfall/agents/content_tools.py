@@ -31,7 +31,7 @@ from lightfall.content.publish import (
 from lightfall.content.publish import (
     local_items as _default_local_items,
 )
-from lightfall.content.store import CONTENT_TYPES, _is_shared_scope
+from lightfall.content.store import CONTENT_TYPES, _is_shared_scope, valid_item
 from lightfall.plugins.agents._mcp_helpers import mcp_error, mcp_result
 from lightfall.scopes.client import ScopesClient, ScopesError, describe_error
 from lightfall.utils.logging import logger
@@ -114,6 +114,8 @@ def _make_tools(
             return f"Unknown type '{type_}'; use one of {', '.join(CONTENT_TYPES)}."
         if not name:
             return "A name is required."
+        if not valid_item(type_, name):
+            return f"'{name}' is not a valid {type_} name."
         if not _is_shared_scope(scope):
             return f"'{scope}' is not a shared scope (facility, beamline:X or branch:X)."
         if not actions._role_at_least(roles.get(scope), actions.PUBLISH_ROLE):
@@ -126,6 +128,21 @@ def _make_tools(
 
     async def _history(client: Any, scope: str, type_: str, name: str) -> list[dict[str, Any]]:
         return await asyncio.to_thread(actions.history, client, scope, type_, name)
+
+    def _current(records: list[dict[str, Any]]) -> Any:
+        return next((r.get("revision") for r in records if r.get("current")), None)
+
+    async def _changed(client: Any, scope: str, type_: str, name: str, shown: Any,
+                       verb: str) -> str | None:
+        """Re-read after Allow: the reason to send nothing if the current revision moved."""
+        try:
+            now = _current(await _history(client, scope, type_, name))
+        except Exception as exc:  # noqa: BLE001
+            return f"Not {verb}: {_write_error(exc, scope)}"
+        if now == shown:
+            return None
+        what = f"changed to revision {now}" if now is not None else "was retracted"
+        return (f"Not {verb}: {name} {what} while you were deciding — ask again.")
 
     @tool(
         name="lightfall_list_content",
@@ -169,10 +186,12 @@ def _make_tools(
         type_, name, scope = (str(args.get(k) or "") for k in ("type", "name", "scope"))
         if type_ not in CONTENT_TYPES or not name or not _is_shared_scope(scope):
             return mcp_error("type, name and a shared scope are required.")
+        if not valid_item(type_, name):
+            return mcp_error(f"'{name}' is not a valid {type_} name.")
         try:
             records = await _history(client_factory(), scope, type_, name)
         except ScopesError as exc:
-            return mcp_error(str(exc) if exc.status is not None else describe_error(exc))
+            return mcp_error(_write_error(exc, scope))
         except Exception as exc:  # noqa: BLE001
             logger.exception("content_tools.content_history failed")
             return mcp_error(f"lightfall_content_history error: {exc}")
@@ -276,7 +295,7 @@ def _make_tools(
             records = await _history(client, scope, type_, name)
         except Exception as exc:  # noqa: BLE001
             return mcp_error(f"Not retracted: {_write_error(exc, scope)}")
-        current = next((r.get("revision") for r in records if r.get("current")), None)
+        current = _current(records)
         if current is None:
             return mcp_error(f"Not retracted: {type_} '{name}' isn't currently published "
                              f"at {label}.")
@@ -286,6 +305,9 @@ def _make_tools(
         outcome = await _ask("Retract content", question)
         if outcome != "allow":
             return _not_done("retracted", outcome, type_, name)
+        moved = await _changed(client, scope, type_, name, current, "retracted")
+        if moved:
+            return mcp_error(moved)
         try:
             await asyncio.to_thread(actions.retract, client, scope, type_, name, agent=True)
         except Exception as exc:  # noqa: BLE001
@@ -324,7 +346,7 @@ def _make_tools(
         if target not in known:
             return mcp_error(f"Not restored: {type_} '{name}' has no revision {target} at "
                              f"{label}.")
-        current = next((r.get("revision") for r in records if r.get("current")), None)
+        current = _current(records)
         if current == target:
             return mcp_error(f"Revision {target} is already current at {label}.")
         now = f"revision {current}" if current is not None else "nothing (retracted)"
@@ -333,6 +355,9 @@ def _make_tools(
         outcome = await _ask("Restore content", question)
         if outcome != "allow":
             return _not_done("restored", outcome, type_, name)
+        moved = await _changed(client, scope, type_, name, current, "restored")
+        if moved:
+            return mcp_error(moved)
         try:
             await asyncio.to_thread(actions.restore, client, scope, type_, name, target,
                                     agent=True)
