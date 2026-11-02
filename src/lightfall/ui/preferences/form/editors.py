@@ -232,10 +232,14 @@ class ChoiceEditor(FieldEditor):
         pal = QPalette()  # fresh: everything else keeps inheriting from the theme
         for role in TEXT_ROLES:
             pal.setColor(QPalette.ColorGroup.Disabled, role, muted)
-        if self._combo.currentIndex() == 0:  # the label only; the arrow keeps its colour
+        if self._shows_not_set():  # the label only; the arrow keeps its colour
             for group in _ACTIVE_GROUPS:
                 pal.setColor(group, QPalette.ColorRole.Text, muted)
         self._combo.setPalette(pal)
+
+    def _shows_not_set(self) -> bool:
+        """True while the closed combo shows "Not set" (an editable subclass also checks its text)."""
+        return self._combo.currentIndex() == 0
 
     def changeEvent(self, event: QEvent) -> None:  # noqa: N802
         # A theme switch reaches widgets as a palette change on the editor.
