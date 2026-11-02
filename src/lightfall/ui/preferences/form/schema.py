@@ -146,12 +146,20 @@ class Action:
     click: ``get``/``effective`` of any other key raise KeyError. ``scopes`` are scope kinds ("user", "local", "beamline", ...);
     None shows the action at every scope. Actions write nothing, so
     read-only scopes never disable them.
+
+    ``run_on_show`` starts the action once each time its section is built for
+    a scope, or, if it is hidden or disabled then, when an edit first makes it
+    visible and enabled. After an edit to a key in ``refresh_on`` such an
+    action runs again if it is visible, enabled and not already running.
     """
 
     label: str
     run: Callable[[FormValues], str]
     enabled_when: Predicate | None = None
     scopes: frozenset[str] | None = None
+    visible_when: Predicate | None = None
+    run_on_show: bool = False
+    refresh_on: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -159,12 +167,14 @@ class Info:
     """A muted status line; a callable is re-evaluated after every edit (GUI thread).
 
     ``field`` names the setting the line describes; the line then lines up
-    with the field labels instead of the section edge.
+    with the field labels instead of the section edge. ``visible_when`` false
+    hides the line (and its text is not evaluated).
     """
 
     text: Callable[[FormValues], str] | str
     scopes: frozenset[str] | None = None
     field: str | None = None
+    visible_when: Predicate | None = None
 
 
 @dataclass(frozen=True)

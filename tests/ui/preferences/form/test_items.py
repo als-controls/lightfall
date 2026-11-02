@@ -329,3 +329,172 @@ def test_info_that_raises_shows_error_text_and_form_keeps_working(qtbot):
     assert not button.isEnabled()
     type_into(qtbot, form, NAME, "a")  # predicates after the broken Info still run
     assert button.isEnabled()
+
+
+# Actions that run when shown --------------------------------------------------
+class DeferredFuture:
+    """Stands in for QThreadFuture: records each start; ``finish()`` delivers the result later."""
+
+    started: list[DeferredFuture] = []
+
+    def __init__(self, fn, *args, callback_slot=None, except_slot=None, **_kwargs):
+        self._fn, self._args = fn, args
+        self._callback, self._except = callback_slot, except_slot
+
+    def start(self):
+        DeferredFuture.started.append(self)
+
+    def finish(self):
+        try:
+            result = self._fn(*self._args)
+        except Exception as exc:  # noqa: BLE001 - mirrors QThreadFuture's except_slot
+            self._except(exc)
+        else:
+            self._callback(result)
+
+
+class InlineFuture(DeferredFuture):
+    """Runs the work and delivers its result inside ``start()``."""
+
+    def start(self):
+        super().start()
+        self.finish()
+
+
+@pytest.fixture
+def futures(monkeypatch):
+    DeferredFuture.started = []
+
+    def use(cls):
+        monkeypatch.setattr("lightfall.ui.preferences.form.items.QThreadFuture", cls)
+        return DeferredFuture.started
+
+    return use
+
+
+def test_run_on_show_starts_once_per_show(qtbot, futures):
+    started = futures(InlineFuture)
+    calls = []
+
+    def run(values):
+        calls.append(values.scope)
+        return f"ok {len(calls)}"
+
+    sections = [Section("Status", [SettingField(NAME, Text()), Action("Check status", run, run_on_show=True)])]
+    form, _ = make_form(qtbot, sections)
+    assert calls == [USER]
+    assert action_item(form).status.text() == "ok 1"
+    type_into(qtbot, form, NAME, "ab")  # edits do not re-run it
+    assert calls == [USER]
+    form.refresh_from_store()
+    assert calls == [USER]
+    form.show_scope(BEAMLINE)
+    assert calls == [USER, BEAMLINE]
+    assert len(started) == 2
+
+
+def test_action_start_is_public_and_click_still_works(qtbot, futures):
+    futures(InlineFuture)
+    calls = []
+    form, _ = make_form(qtbot, [Section("Status", [Action("Check", lambda v: calls.append(1) or "done")])])
+    assert calls == []  # not run_on_show
+    item = action_item(form)
+    item.start()
+    assert calls == [1] and item.status.text() == "done"
+    item.findChild(QPushButton).click()
+    assert calls == [1, 1]
+
+
+def test_run_on_show_skipped_when_disabled_then_runs_when_enabled(qtbot, futures):
+    futures(InlineFuture)
+    calls = []
+    sections = [Section("Status", [
+        SettingField(NAME, Text()),
+        Action("Check", lambda v: calls.append(v.get(NAME)) or "ok", run_on_show=True,
+               enabled_when=lambda v: bool(v.get(NAME))),
+        Action("Hidden check", lambda v: calls.append("hidden:" + v.get(NAME)) or "ok", run_on_show=True,
+               visible_when=lambda v: v.get(NAME) == "ab"),
+    ])]
+    form, _ = make_form(qtbot, sections)
+    assert calls == []
+    type_into(qtbot, form, NAME, "a")
+    assert calls == ["a"]
+    type_into(qtbot, form, NAME, "b")
+    assert calls == ["a", "hidden:ab"]  # the enabled one ran already; the hidden one now shows
+    type_into(qtbot, form, NAME, "c")
+    assert calls == ["a", "hidden:ab"]
+
+
+def test_action_visible_when_hides_and_empty_section_hides(qtbot, futures):
+    futures(InlineFuture)
+    sections = [
+        Section("Settings", [SettingField(NAME, Text())]),
+        Section("Claude", [
+            Action("Sign in", lambda v: "", visible_when=lambda v: v.get(NAME) == "claude"),
+            Info("Signed out", visible_when=lambda v: v.get(NAME) == "claude"),
+        ]),
+    ]
+    form, _ = make_form(qtbot, sections)
+    box = next(b for b in form.findChildren(QGroupBox) if b.title() == "Claude")
+    item, info = action_item(form), form.findChild(InfoItem)
+    assert not box.isVisibleTo(form)
+    type_into(qtbot, form, NAME, "claude")
+    assert box.isVisibleTo(form)
+    assert item.isVisibleTo(form) and info.isVisibleTo(form)
+    type_into(qtbot, form, NAME, "x")
+    assert not box.isVisibleTo(form)
+
+
+def test_info_visible_when_hides_line_but_keeps_section_with_visible_action(qtbot):
+    sections = [Section("Claude", [
+        SettingField(NAME, Text()),
+        Action("Check", lambda v: ""),
+        Info("Signed out", visible_when=lambda v: False),
+    ])]
+    form, _ = make_form(qtbot, sections, scope=LOCAL)  # NAME not allowed: no rows
+    assert form.findChild(QGroupBox).isVisibleTo(form)
+    assert not form.findChild(InfoItem).isVisibleTo(form)
+
+
+def test_run_on_show_result_after_close_is_dropped(qtbot, futures):
+    started = futures(DeferredFuture)
+    dialog = QDialog()
+    QVBoxLayout(dialog)
+    form, _ = make_form(qtbot, [Section("Status", [Action("Check", lambda v: "late", run_on_show=True)])],
+                        parent=dialog)
+    dialog.layout().addWidget(form)
+    dialog.show()
+    item = action_item(form)
+    assert len(started) == 1 and item.status.text() == "Working…"
+    dialog.close()
+    dialog.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert not shiboken6.isValid(item)
+    started[0].finish()  # must not touch the deleted widget
+
+
+def test_refresh_on_reruns_after_edit_and_skips_while_running(qtbot, futures):
+    started = futures(DeferredFuture)
+    other = "items.other"
+    ALLOWED[other] = {USER}
+    try:
+        sections = [Section("Status", [
+            SettingField(NAME, Text()),
+            SettingField(other, Text()),
+            Action("Check", lambda v: f"checked {v.get(NAME)}", run_on_show=True, refresh_on=(NAME,)),
+        ])]
+        form, _ = make_form(qtbot, sections)
+        item = action_item(form)
+        assert len(started) == 1
+        type_into(qtbot, form, NAME, "a")  # in flight: not stacked
+        assert len(started) == 1
+        started[0].finish()
+        assert item.status.text() == "checked None"
+        type_into(qtbot, form, NAME, "b")
+        assert len(started) == 2
+        started[1].finish()
+        assert item.status.text() == "checked ab"
+        type_into(qtbot, form, other, "z")  # not in refresh_on
+        assert len(started) == 2
+    finally:
+        del ALLOWED[other]

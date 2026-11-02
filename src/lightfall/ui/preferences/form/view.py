@@ -40,7 +40,7 @@ class _SectionBlock:
         self.rows: list[SettingRow] = []
         self.actions: list[ActionItem] = []
         self.infos: list[InfoItem] = []
-        self.has_items = False  # any Action / Info / Embed shown at this scope
+        self.has_embeds = False  # any Embed shown at this scope (always visible)
 
 
 class SettingsForm(QWidget):
@@ -170,7 +170,6 @@ class SettingsForm(QWidget):
             layout.addWidget(row)
             block.rows.append(row)
             return
-        block.has_items = True
         if isinstance(item, Action):
             action = ActionItem(item, lambda: self._action_values(scope), block.box)
             layout.addWidget(action)
@@ -181,6 +180,7 @@ class SettingsForm(QWidget):
             block.infos.append(info)
         elif isinstance(item, Embed):
             layout.addWidget(item.factory(block.box))
+            block.has_embeds = True
         else:  # pragma: no cover - a page bug
             raise TypeError(f"Unknown section item: {item!r}")
 
@@ -303,7 +303,7 @@ class SettingsForm(QWidget):
 
     def _after_edit(self, key: str) -> None:
         self._refresh_markers(key)
-        self._apply_predicates()
+        self._apply_predicates(edited=key)
         self.edited.emit()
 
     def _refresh_markers(self, key: str) -> None:
@@ -318,18 +318,37 @@ class SettingsForm(QWidget):
         awaiting = getattr(self._prefs, "awaiting_approval", None)
         row.set_awaiting_approval(bool(awaiting) and awaiting(key, scope) is not MISSING)
 
-    def _apply_predicates(self) -> None:
-        """Re-evaluate visible_when / enabled_when against the pending values."""
+    def _apply_predicates(self, edited: str | None = None) -> None:
+        """Re-evaluate visible_when / enabled_when against the pending values.
+
+        Also starts ``run_on_show`` actions that are visible and enabled and have
+        not run for this build yet, and re-runs those whose ``refresh_on`` holds
+        the ``edited`` key (unless they are still running).
+        """
         if self._scope is None:
             return
         values = self._model.values(self._scope)
         for block in self._blocks:
-            any_visible = block.has_items
+            any_visible = block.has_embeds
             for info in block.infos:
-                info.update_text(values)
+                visible = bool(info.info.visible_when(values)) if info.info.visible_when else True
+                if visible:
+                    info.update_text(values)
+                info.set_predicate_visible(visible)
+                any_visible = any_visible or visible
             for action in block.actions:
-                when = action.action.enabled_when
-                action.set_predicate_enabled(bool(when(values)) if when else True)
+                spec = action.action
+                visible = bool(spec.visible_when(values)) if spec.visible_when else True
+                enabled = bool(spec.enabled_when(values)) if spec.enabled_when else True
+                action.setVisible(visible)
+                action.set_predicate_enabled(enabled)
+                any_visible = any_visible or visible
+                if spec.run_on_show and visible and enabled:
+                    if not action.shown_run_started:
+                        action.shown_run_started = True
+                        action.start()
+                    elif edited is not None and edited in spec.refresh_on and not action.is_running:
+                        action.start()
             for row in block.rows:
                 field = self._fields[row.key]
                 visible = field.visible_when(values) if field.visible_when else True
