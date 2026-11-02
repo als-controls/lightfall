@@ -39,4 +39,5 @@ def test_form_pages_declare_specs_for_every_field(qapp):
                         missing.append(f"{name}: {key}")
     assert len(checked) >= 2, "expected at least the Visualization and Login form pages"
     assert "devices" in checked, "the Devices page is a form page"
+    assert "claude" in checked, "the Assistant page is a form page"
     assert not missing, "form-page fields without a declared scope rule:\n" + "\n".join(missing)
