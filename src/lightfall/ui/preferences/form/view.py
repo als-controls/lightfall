@@ -86,7 +86,8 @@ class SettingsForm(QWidget):
         """
         self._scope = scope
         for field in fields_at(self._plugin.sections(), scope, self._prefs.allowed_at):
-            self._model.reload(scope, field.key)
+            for key in (field.key, *field.companions):
+                self._model.reload(scope, key)
         self._rows.clear()
         self._fields.clear()
         self._needs_approval.clear()
@@ -142,9 +143,12 @@ class SettingsForm(QWidget):
         if scope is None:
             return
         for key, row in self._rows.items():
-            self._model.reload(scope, key)
-            if not self._model.is_dirty(scope, key):
+            keys = self._own_keys(key)
+            for k in keys:
+                self._model.reload(scope, k)
+            if not any(self._model.is_dirty(scope, k) for k in keys):
                 row.editor.set_value(self._model.pending(scope, key))
+                self._show_companions(key, row.editor, scope)
                 row.set_invalid(False)
             self._show_inherited(key, row.editor, scope)
             self._refresh_markers(key)
@@ -162,7 +166,7 @@ class SettingsForm(QWidget):
     def _add_item(self, block: _SectionBlock, item: object, scope: str, read_only_reason: str) -> None:
         layout = block.box.layout()
         if isinstance(item, SettingField):
-            row = self._build_row(item, scope, read_only_reason, block.box)
+            row = self._build_row(item, scope, read_only_reason, block.box, block.box.title())
             layout.addWidget(row)
             block.rows.append(row)
             return
@@ -197,7 +201,9 @@ class SettingsForm(QWidget):
             layout.addWidget(desc)
         return box
 
-    def _build_row(self, field: SettingField, scope: str, scope_reason: str, parent: QWidget) -> SettingRow:
+    def _build_row(
+        self, field: SettingField, scope: str, scope_reason: str, parent: QWidget, section_title: str = ""
+    ) -> SettingRow:
         spec = client_registry().get(field.key)
         editor = create_editor(field.editor, field)
         row = SettingRow(
@@ -207,8 +213,11 @@ class SettingsForm(QWidget):
             editor,
             restart_required=field.restart_required or spec.restart_required,
             parent=parent,
+            section_title=section_title,
         )
+        self._fields[field.key] = field
         editor.set_value(self._model.pending(scope, field.key))
+        self._show_companions(field.key, editor, scope)
         self._show_inherited(field.key, editor, scope)
         reason = self._read_only_reason(field.key, scope, scope_reason)
         # The header already states the scope's reason; repeat only the lock glyph.
@@ -218,10 +227,20 @@ class SettingsForm(QWidget):
         key = field.key
         editor.changed.connect(lambda: self._on_editor_changed(key))
         row.clear_requested.connect(lambda: self._on_clear(key))
-        self._fields[key] = field
         self._rows[key] = row
         self._refresh_markers(key)
         return row
+
+    def _own_keys(self, key: str) -> tuple[str, ...]:
+        """The field's key and the companion keys its editor owns."""
+        return (key, *self._fields[key].companions)
+
+    def _show_companions(self, key: str, editor: Any, scope: str) -> None:
+        """Give an editor that owns companion keys their pending values at ``scope``."""
+        companions = self._fields[key].companions
+        set_companion_values = getattr(editor, "set_companion_values", None)
+        if companions and set_companion_values is not None:
+            set_companion_values({k: self._model.pending(scope, k) for k in companions})
 
     def _show_inherited(self, key: str, editor: Any, scope: str) -> None:
         """Give an item-merged editor what broader scopes set (the one exception to "own layer only")."""
@@ -265,14 +284,20 @@ class SettingsForm(QWidget):
         row.set_invalid(not valid)
         if valid:
             self._model.edit(self._scope, key, row.editor.value())
+            companion_values = getattr(row.editor, "companion_values", None)
+            if self._fields[key].companions and companion_values is not None:
+                for k, value in companion_values().items():
+                    self._model.edit(self._scope, k, value)
         self._after_edit(key)
 
     def _on_clear(self, key: str) -> None:
         row = self._rows.get(key)
         if row is None or row.is_read_only() or self._scope is None:
             return
-        self._model.edit(self._scope, key, None)
+        for k in self._own_keys(key):
+            self._model.edit(self._scope, k, None)
         row.editor.set_value(None)
+        self._show_companions(key, row.editor, self._scope)
         row.set_invalid(False)
         self._after_edit(key)
 
@@ -284,10 +309,11 @@ class SettingsForm(QWidget):
     def _refresh_markers(self, key: str) -> None:
         scope = self._scope
         row = self._rows[key]
+        keys = self._own_keys(key)
         row.set_markers(
             is_set=self._model.pending(scope, key) is not None,
-            dirty=self._model.is_dirty(scope, key),
-            conflict=self._model.conflict(scope, key),
+            dirty=any(self._model.is_dirty(scope, k) for k in keys),
+            conflict=any(self._model.conflict(scope, k) for k in keys),
         )
         awaiting = getattr(self._prefs, "awaiting_approval", None)
         row.set_awaiting_approval(bool(awaiting) and awaiting(key, scope) is not MISSING)

@@ -94,6 +94,8 @@ def test_client_registry_uses_deployment_specs():
 
 def test_local_layer_keys_are_the_device_rows_and_plugins():
     assert LOCAL_LAYER_KEYS == {"device_backends", "device_backends_exclusive_restore",
+                                "device_instantiate_mode", "device_connection_timeout",
+                                "device_connect_on_startup",
                                 "plugins.enabled", "tools.enabled", "monitors.enabled",
                                 "monitor_feeds.enabled", "monitor_feeds.interval",
                                 "monitor_feeds.severity"}

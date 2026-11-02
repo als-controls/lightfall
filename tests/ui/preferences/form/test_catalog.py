@@ -340,3 +340,45 @@ def test_console_none_item_drops_file_items_everywhere(files_pm):
     files_pm._local.store_quiet(KEY, {"a": None, "c": True})
     assert files_pm.get(KEY) == {"b": True, "c": True}
     assert files_pm.item_origins(KEY) == {"b": "beamline:7.0.1", "c": "local"}
+
+
+# Table polish (plan 4, task 6) --------------------------------------------------
+def test_full_width_label_matching_section_title_is_hidden(qtbot):
+    prefs = CatalogPrefs(inherited={USER: {}})
+    sections = [Section(" plugins ", [SettingField(KEY, Catalog(lambda: ITEMS, ("Type",)), label="Plugins")])]
+    form = SettingsForm(FakePlugin(sections), FormModel(prefs.layer_value), prefs)
+    qtbot.addWidget(form)
+    form.show_scope(USER)
+    (row,) = form.findChildren(SettingRow)
+    assert row.key == KEY
+    assert row.label_text().strip().casefold() == "plugins"  # still exposed to lookups
+    assert row._label.isHidden()
+
+
+def test_label_differing_from_title_is_shown(qtbot):
+    prefs = CatalogPrefs(inherited={USER: {}})
+    sections = [Section("Something else", [SettingField(KEY, Catalog(lambda: ITEMS, ("Type", "Category")))])]
+    form = SettingsForm(FakePlugin(sections), FormModel(prefs.layer_value), prefs)
+    qtbot.addWidget(form)
+    form.show_scope(USER)
+    (row,) = form.findChildren(SettingRow)
+    assert not row._label.isHidden()
+
+
+def test_font_change_refits_columns(qtbot):
+    editor = make_editor(qtbot)
+    editor.set_inherited({"alpha": (False, "Beamline 7.0.1")})
+    editor.resize(900, 400)
+    editor.show()
+    qtbot.waitExposed(editor)
+    t = table(editor)
+    column = t.columnCount() - 1
+    refits = []
+    real = editor._finish_rows
+    editor._finish_rows = lambda: (refits.append(1), real())[1]
+    before = t.columnWidth(column)
+    font = t.font()  # the table itself: an app stylesheet may pin its font, so set it there
+    font.setPointSize(font.pointSize() + 8)
+    t.setFont(font)
+    assert refits  # the change event itself refits, not just a later resize
+    assert t.columnWidth(column) > before

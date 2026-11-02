@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
@@ -209,37 +209,122 @@ def build_context(get: Getter) -> BuildContext:
     )
 
 
-def layer_rows_value(
-    rows: Iterable[BackendRow],
-    loaded: Iterable[BackendRow],
-    origins: dict[str, str],
-    target: str,
-    stored: Any,
-) -> dict[str, dict[str, Any]]:
-    """What to store at ``target`` after the page edited the merged row table.
+# --- Layered rows: what a scope shows, and edits to its own layer ---------------------
 
-    ``loaded`` is the table as resolved when the page opened and ``origins`` maps each
-    row id to the layer it came from. The target keeps the items it already stored,
-    gains every row added or edited on the page, and loses rows it owned that were
-    removed. Rows another layer provides are written only when edited (a per-row
-    override); they can't be removed from here.
+Own = dict[str, dict[str, Any]] | None
+Inherited = Mapping[str, tuple[dict[str, Any], str]]
+
+
+@dataclass(frozen=True)
+class ShownRow:
+    """A row as a scope shows it.
+
+    ``origin`` is the inherited source's label (None for a row only this scope has);
+    ``own`` is True when this scope stores the row (new or override).
     """
-    before = {row.id: row.to_dict() for row in loaded}
-    current = list(rows)
-    kept_ids = {row.id for row in current}
-    out = {rid: item for rid, item in _union_items(stored).items()
-           if not (origins.get(rid) == target and rid not in kept_ids)}
-    for row in current:
-        item = row.to_dict()
-        if row.id not in before or before[row.id] != item or origins.get(row.id) == target:
-            out[row.id] = item
-    # Table order first, then items shadowed by another layer (not shown on the page).
-    ordered = [row.id for row in current if row.id in out]
-    ordered += [rid for rid in out if rid not in kept_ids]
-    return {rid: out[rid] for rid in ordered}
+
+    row: BackendRow
+    origin: str | None
+    own: bool
 
 
-def _union_items(stored: Any) -> dict[str, Any]:
-    if isinstance(stored, dict):
-        return {str(k): v for k, v in stored.items() if v is not None}
-    return rows_to_value(rows_from_value(stored)) if stored else {}
+def _own_items(own: Own) -> dict[str, Any]:
+    return {str(rid): item for rid, item in (own or {}).items()}
+
+
+def _canonical(item: Any, rid: str) -> dict[str, Any] | None:
+    """``item`` as a row dict under id ``rid``; None when malformed."""
+    if not isinstance(item, dict):
+        return None
+    try:
+        return BackendRow.from_dict({**item, "id": rid}).to_dict()
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def shown_rows(own: Own, inherited: Inherited) -> list[ShownRow]:
+    """Inherited rows first (own overrides replace them in place), then own-only rows."""
+    own_items = _own_items(own)
+    shown: list[ShownRow] = []
+    for rid, (item, origin) in inherited.items():
+        override = own_items.get(rid)
+        source, is_own = (override, True) if override is not None else (item, False)
+        data = _canonical(source, rid)
+        if data is None:
+            logger.warning("Ignoring malformed device backend row {!r}", source)
+            continue
+        shown.append(ShownRow(BackendRow.from_dict(data), origin, is_own))
+    for rid, item in own_items.items():
+        if rid in inherited:
+            continue
+        data = _canonical(item, rid)
+        if data is None:
+            logger.warning("Ignoring malformed device backend row {!r}", item)
+            continue
+        shown.append(ShownRow(BackendRow.from_dict(data), None, True))
+    return shown
+
+
+def normalized(own: Own, inherited: Inherited) -> Own:
+    """``own`` without items identical to the inherited row; None when nothing is left."""
+    out: dict[str, dict[str, Any]] = {}
+    for rid, item in _own_items(own).items():
+        if rid in inherited and item is not None:
+            if _canonical(item, rid) == _canonical(inherited[rid][0], rid):
+                continue
+        out[rid] = dict(item) if isinstance(item, dict) else item
+    return out or None
+
+
+def with_row(own: Own, row: BackendRow) -> dict[str, dict[str, Any]]:
+    """A new dict with the row put in (an existing id keeps its position)."""
+    out = {rid: (dict(item) if isinstance(item, dict) else item)
+           for rid, item in _own_items(own).items()}
+    out[row.id] = row.to_dict()
+    return out
+
+
+def without_row(own: Own, row_id: str, inherited: Inherited) -> Own:
+    """Remove an own item (for an override: use the inherited row again)."""
+    items = {rid: item for rid, item in _own_items(own).items() if rid != row_id}
+    return normalized(items, inherited)
+
+
+def set_enabled(own: Own, inherited: Inherited, row_id: str, enabled: bool) -> Own:
+    """Set ``enabled`` on the own item, or on a copy of the inherited one."""
+    items = _own_items(own)
+    source = items.get(row_id)
+    if source is None and row_id in inherited:
+        source = inherited[row_id][0]
+    data = _canonical(source, row_id)
+    if data is None:
+        return normalized(items, inherited)
+    items[row_id] = {**data, "enabled": bool(enabled)}
+    return normalized(items, inherited)
+
+
+def enter_exclusive(
+    own: Own, inherited: Inherited, row_id: str, registry: Any
+) -> tuple[Own, list[str]]:
+    """Switch ``row_id`` on and every other shown, enabled row off.
+
+    Returns the new own layer and the ids switched off, in shown order.
+    """
+    off_ids = [s.row.id for s in shown_rows(own, inherited)
+               if s.row.id != row_id and s.row.enabled]
+    out = own
+    for rid in off_ids:
+        out = set_enabled(out, inherited, rid, False)
+    return set_enabled(out, inherited, row_id, True), off_ids
+
+
+def leave_exclusive(
+    own: Own, inherited: Inherited, row_id: str, restore_ids: Iterable[str]
+) -> Own:
+    """Switch ``row_id`` off and each still-shown restore id on."""
+    out = set_enabled(own, inherited, row_id, False)
+    shown_ids = {s.row.id for s in shown_rows(out, inherited)}
+    for rid in restore_ids:
+        if rid in shown_ids and rid != row_id:
+            out = set_enabled(out, inherited, rid, True)
+    return out

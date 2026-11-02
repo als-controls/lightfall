@@ -23,12 +23,12 @@ def _settings_plugins():
 
 def test_form_pages_declare_specs_for_every_field(qapp):
     missing: list[str] = []
-    checked = 0
+    checked: list[str] = []
     for name, cls in _settings_plugins():
         plugin = cls()
         if not plugin.is_form_page():
             continue
-        checked += 1
+        checked.append(name)
         plugin.register_specs()
         registry = client_registry()
         for section in plugin.sections():
@@ -37,5 +37,6 @@ def test_form_pages_declare_specs_for_every_field(qapp):
                     key = item.key
                     if not (console_only(key) or registry.is_declared(key)):
                         missing.append(f"{name}: {key}")
-    assert checked >= 2, "expected at least the Visualization and Login form pages"
+    assert len(checked) >= 2, "expected at least the Visualization and Login form pages"
+    assert "devices" in checked, "the Devices page is a form page"
     assert not missing, "form-page fields without a declared scope rule:\n" + "\n".join(missing)

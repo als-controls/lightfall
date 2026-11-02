@@ -114,6 +114,14 @@ class SettingsPlugin(PluginType):
     def after_save(self, scope: str, changed: Mapping[str, Any]) -> None:
         """Called after a form page saved ``changed`` values at ``scope``."""
 
+    def restart_reason(self, scope: str, changed: Mapping[str, Any]) -> str:
+        """Why the values just saved at ``scope`` need a restart; "" if they don't.
+
+        Called after ``after_save`` with the same ``changed`` (companion keys included).
+        A non-empty reason makes the dialog offer one restart and lists it there.
+        """
+        return ""
+
     def preview(self, values: FormValues) -> None:
         """Live preview of a form page's pending ``values`` (at ``values.scope``).
 
