@@ -129,3 +129,84 @@ def test_auto_refresh_off_stops_polling_while_visible(panel, qtbot):
     assert not panel._observer.is_polling
     panel._auto_refresh_check.setChecked(True)
     assert panel._observer.is_polling
+
+
+# -- no QThreadFuture crosses to the sampler thread ----------------------------
+
+
+def _contains_qobject(value) -> bool:
+    from PySide6.QtCore import QObject
+
+    if isinstance(value, QObject):
+        return True
+    if isinstance(value, dict):
+        return any(_contains_qobject(k) or _contains_qobject(v) for k, v in value.items())
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(_contains_qobject(v) for v in value)
+    if hasattr(value, "__dataclass_fields__"):
+        return any(_contains_qobject(getattr(value, f)) for f in value.__dataclass_fields__)
+    return False
+
+
+def test_sampler_receives_and_returns_plain_data_only(qtbot):
+    from lightfall.utils.threads import QThreadFuture
+
+    gate = threading.Event()
+    f = QThreadFuture(gate.wait, 5, name="plain-data-probe")
+    f.start()
+    observer = ThreadManagerObserver(poll_interval_ms=10_000)
+    submitted = []
+    try:
+        observer._poll()  # creates the pool
+        qtbot.waitUntil(lambda: not observer._sample_in_flight, timeout=3000)
+        orig_submit = observer._pool.submit
+
+        def spy(fn, *args, **kw):
+            submitted.append((args, kw))
+            return orig_submit(fn, *args, **kw)
+
+        observer._pool.submit = spy
+        with qtbot.waitSignal(observer._snapshot_ready, timeout=3000) as blocker:
+            observer._poll()
+        assert submitted
+        assert not _contains_qobject(submitted)
+        assert not _contains_qobject(blocker.args)
+        assert any(r.name == "plain-data-probe" for r in observer.get_records())
+    finally:
+        gate.set()
+        f.wait(3000)
+        observer.shutdown()
+
+
+def test_in_flight_sample_does_not_keep_a_finished_thread_alive(qtbot):
+    import gc
+    import weakref
+
+    from lightfall.utils.threads import QThreadFuture, thread_manager
+
+    observer = ThreadManagerObserver(poll_interval_ms=10_000)
+    gate = threading.Event()
+    entered = threading.Event()
+
+    def blocking_lookup(name):  # runs on the sampler, after thread states exist
+        entered.set()
+        gate.wait(5)
+
+    observer._cpu_tracker.get_cpu_percent = blocking_lookup
+    f = QThreadFuture(lambda: None, name="fire-and-forget")
+    f.start()
+    try:
+        observer._poll()  # sample now blocked on the worker, holding its args
+        assert observer._sample_in_flight
+        assert entered.wait(3)
+        f.wait(3000)
+        fid = id(f)
+        qtbot.waitUntil(lambda: fid not in thread_manager._threads, timeout=3000)
+        ref = weakref.ref(f)
+        del f
+        gc.collect()
+        assert ref() is None  # neither the sampler nor the pending states held it
+    finally:
+        gate.set()
+        qtbot.waitUntil(lambda: not observer._sample_in_flight, timeout=3000)
+        observer.shutdown()

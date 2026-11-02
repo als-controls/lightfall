@@ -259,6 +259,15 @@ class LogbookPanel(BasePanel):
             self._entries[ed.id] = ed
             entry_datas.append(ed)
 
+        # The open entry's fragments live on the widget's EntryData (the
+        # single source of truth for what is shown). Carry them onto the
+        # fresh object so code reading self._entries (e.g. Ask Claude) sees
+        # them even when the refresh below is skipped or deferred.
+        widget = getattr(self, "_entry_widget", None)
+        shown = widget.entry if widget is not None else None
+        if shown is not None and shown.id in self._entries:
+            self._entries[shown.id].fragments = shown.fragments
+
         # Only reset the sidebar model when the list itself changed; a pull
         # that touched fragments alone leaves it (and its selection) intact.
         signature = (
@@ -404,6 +413,9 @@ class LogbookPanel(BasePanel):
             signature == getattr(self, "_displayed_signature", None)
             and self._entry_widget.entry.id == entry_id
         ):
+            # Same title/tags/fragments as on screen: keep the widget's
+            # EntryData as the panel's copy so both stay one object.
+            self._entries[entry_id] = self._entry_widget.entry
             # A sync may have downloaded image files without touching rows.
             self._entry_widget.refresh_pending_images()
             return

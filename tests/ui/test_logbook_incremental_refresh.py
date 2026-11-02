@@ -281,3 +281,24 @@ def test_pending_image_loads_on_refresh_without_row_changes(qtbot, tmp_path, mon
     state["path"] = png
     w.refresh_pending_images()
     assert not image_widget.is_pending
+
+
+@pytest.mark.parametrize("focused", [False, True])
+def test_ask_claude_finds_fragment_after_noop_pull(panel, qtbot, monkeypatch, focused):
+    """A pull that changes nothing must leave the panel's copy of the open
+    entry with its fragments, or Ask Claude silently finds nothing."""
+    older = panel.entry_ids["older"]
+    panel._select_entry(older)
+    frag_id = panel._entry_widget.entry.fragments[1].id
+    monkeypatch.setattr(panel, "_entry_widget_has_focus", lambda: focused)
+    sent = []
+    monkeypatch.setattr(panel, "_send_to_claude", lambda eid, prompt: sent.append((eid, prompt)))
+
+    panel._on_pull()
+    qtbot.wait(panel.REFRESH_DEBOUNCE_MS * 3)
+    panel._on_claude_requested(older, frag_id)
+
+    assert sent
+    assert sent[0][0] == older
+    if not focused:
+        assert panel._entries[older] is panel._entry_widget.entry

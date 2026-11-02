@@ -249,20 +249,45 @@ class ThreadRecord:
 
 @dataclass
 class _ThreadState:
-    """Status of one ThreadManager thread, captured off the GUI thread."""
+    """Plain-data view of one ThreadManager thread, captured on the GUI thread.
 
-    thread: QThreadFuture
+    Holds no QThreadFuture: only a weak reference, so this object can never
+    keep a thread alive (or have its C++ destructor run) anywhere else.
+    """
+
+    ref: weakref.ref
+    name: str
     status: ThreadStatus
     exception_msg: str | None
+    key: str | None = None
+    method_name: str = ""
+    args_repr: str = ""
 
 
 @dataclass
 class _Snapshot:
-    """Everything one poll needs, gathered on the sampler thread."""
+    """CPU figures gathered on the sampler thread (plain data only)."""
 
-    threads: dict[int, _ThreadState]
     cpu_by_name: dict[str, float | None]
     native_by_name: dict[str, int | None]
+
+
+def _describe_call(thread: QThreadFuture) -> tuple[str, str]:
+    """(method name, short args repr) for a new thread's record."""
+    method_name = getattr(thread, "_name", "unnamed")
+    method = getattr(thread, "_method", None)
+    if method is not None:
+        method_name = getattr(method, "__name__", method_name)
+    args = getattr(thread, "_args", ())
+    kwargs = getattr(thread, "_kwargs", {})
+    args_repr = ""
+    if args or kwargs:
+        args_parts = [repr(a)[:50] for a in args[:3]]
+        kwargs_parts = [f"{k}={repr(v)[:30]}" for k, v in list(kwargs.items())[:3]]
+        args_repr = ", ".join(args_parts + kwargs_parts)
+        if len(args) > 3 or len(kwargs) > 3:
+            args_repr += ", ..."
+    return method_name, args_repr
 
 
 def _thread_status(thread: QThreadFuture) -> ThreadStatus:
@@ -284,9 +309,12 @@ class ThreadManagerObserver(QObject):
     emits Qt signals for thread lifecycle events. Also tracks CPU usage
     per thread using psutil.
 
-    ``psutil.Process.threads()`` takes tens of milliseconds on Windows, so the
-    snapshot is gathered on a single background sampler thread; only the cheap
-    diff against the known records runs on the GUI thread. At most one sample
+    ``psutil.Process.threads()`` takes tens of milliseconds on Windows, so CPU
+    times are gathered on a single background sampler thread. ThreadManager's
+    QThreadFuture objects are read only on the GUI thread (cheap status calls)
+    and reduced to plain data plus weak references; nothing QObject-valued
+    crosses to the sampler, so it can never hold the last reference to a
+    thread and run its destructor off the GUI thread. At most one sample
     is in flight: a tick that finds the previous sample still running is
     skipped. Callers own the polling lifetime (``start``/``stop``); the
     Threads panel runs it only while it is visible.
@@ -324,6 +352,7 @@ class ThreadManagerObserver(QObject):
         self._cpu_tracker = ThreadCpuTracker()
         self._pool: ManagedThreadPool | None = None
         self._sample_in_flight = False
+        self._pending_states: dict[int, _ThreadState] | None = None
         self._snapshot_ready.connect(self._on_snapshot_ready, Qt.ConnectionType.QueuedConnection)
 
     @property
@@ -356,7 +385,8 @@ class ThreadManagerObserver(QObject):
         """
         if self._sample_in_flight:
             return
-        self._apply_snapshot(self._gather_snapshot())
+        states = self._collect_states()
+        self._apply_snapshot(states, self._gather_cpu({s.name for s in states.values()}))
 
     def get_records(self) -> list[ThreadRecord]:
         """Get all known thread records."""
@@ -377,21 +407,48 @@ class ThreadManagerObserver(QObject):
             self.thread_removed.emit(tid)
 
     def _poll(self) -> None:
-        """Request a snapshot from the sampler thread (non-blocking)."""
+        """Read thread states here (GUI), sample CPU on the worker (non-blocking)."""
         if self._sample_in_flight:
             return
         if self._pool is None:
             self._pool = ManagedThreadPool(max_workers=1, name="thread-monitor")
+        states = self._collect_states()
+        self._pending_states = states
+        names = frozenset(s.name for s in states.values())
         self._sample_in_flight = True
         try:
-            self._pool.submit(self._sample_and_post)
+            self._pool.submit(self._sample_and_post, names)
         except RuntimeError:  # pool shut down underneath us (app quitting)
             self._sample_in_flight = False
+            self._pending_states = None
 
-    def _sample_and_post(self) -> None:
-        """Sampler-thread body: gather a snapshot and queue it to the GUI."""
+    def _collect_states(self) -> dict[int, _ThreadState]:
+        """Plain-data thread states. GUI thread; the strong refs stay local."""
+        with thread_manager._registry_lock:
+            threads_snapshot = dict(thread_manager._threads)
+
+        states: dict[int, _ThreadState] = {}
+        for thread_id, thread in threads_snapshot.items():
+            # thread_manager._threads stores QThreadFuture objects directly (strong refs)
+            if thread is None:
+                continue
+            exc = thread.exception
+            state = _ThreadState(
+                ref=weakref.ref(thread),
+                name=getattr(thread, "_name", "unnamed"),
+                status=_thread_status(thread),
+                exception_msg=str(exc) if exc is not None else None,
+                key=getattr(thread, "_manager_key", None),
+            )
+            if thread_id not in self._known_threads:
+                state.method_name, state.args_repr = _describe_call(thread)
+            states[thread_id] = state
+        return states
+
+    def _sample_and_post(self, names: frozenset[str]) -> None:
+        """Sampler-thread body: CPU times for *names*, queued back to the GUI."""
         try:
-            snapshot = self._gather_snapshot()
+            snapshot = self._gather_cpu(names)
         except Exception as exc:  # never let a sampler error wedge polling
             logger.debug("Thread monitor sample failed: {}", exc)
             snapshot = None
@@ -400,44 +457,26 @@ class ThreadManagerObserver(QObject):
         except RuntimeError:  # observer deleted while sampling
             pass
 
-    def _gather_snapshot(self) -> _Snapshot:
-        """Collect psutil CPU times and thread states. Runs off the GUI thread."""
-        self._cpu_tracker.update()
-
-        with thread_manager._registry_lock:
-            threads_snapshot = dict(thread_manager._threads)
-
-        states: dict[int, _ThreadState] = {}
-        names: set[str] = set()
-        for thread_id, thread in threads_snapshot.items():
-            # thread_manager._threads stores QThreadFuture objects directly (strong refs)
-            if thread is None:
-                continue
-            exc = thread.exception
-            states[thread_id] = _ThreadState(
-                thread=thread,
-                status=_thread_status(thread),
-                exception_msg=str(exc) if exc is not None else None,
-            )
-            names.add(getattr(thread, "_name", "unnamed"))
-
+    def _gather_cpu(self, names: frozenset[str] | set[str]) -> _Snapshot:
+        """Collect per-thread CPU figures. Runs off the GUI thread; no QObjects."""
         tracker = self._cpu_tracker
+        tracker.update()
         return _Snapshot(
-            threads=states,
             cpu_by_name={n: tracker.get_cpu_percent(n) for n in names},
             native_by_name={n: tracker.get_native_id(n) for n in names},
         )
 
     def _on_snapshot_ready(self, snapshot: _Snapshot | None) -> None:
         self._sample_in_flight = False
-        if snapshot is not None:
-            self._apply_snapshot(snapshot)
+        states, self._pending_states = self._pending_states, None
+        if snapshot is not None and states is not None:
+            self._apply_snapshot(states, snapshot)
 
-    def _apply_snapshot(self, snapshot: _Snapshot) -> None:
-        """Diff a snapshot against the known records. GUI thread; no psutil."""
+    def _apply_snapshot(self, states: dict[int, _ThreadState], snapshot: _Snapshot) -> None:
+        """Diff states + CPU against the known records. GUI thread; no psutil."""
         current_ids = set()
 
-        for thread_id, state in snapshot.threads.items():
+        for thread_id, state in states.items():
             current_ids.add(thread_id)
 
             if thread_id not in self._known_threads:
@@ -465,24 +504,7 @@ class ThreadManagerObserver(QObject):
 
     def _create_record(self, state: _ThreadState, thread_id: int, snapshot: _Snapshot) -> ThreadRecord:
         """Create a ThreadRecord for a new thread."""
-        thread = state.thread
-        # Extract method info
-        thread_name = getattr(thread, "_name", "unnamed")
-        method_name = thread_name
-        method = getattr(thread, "_method", None)
-        if method is not None:
-            method_name = getattr(method, "__name__", method_name)
-
-        args = getattr(thread, "_args", ())
-        kwargs = getattr(thread, "_kwargs", {})
-        args_repr = ""
-        if args or kwargs:
-            args_parts = [repr(a)[:50] for a in args[:3]]
-            kwargs_parts = [f"{k}={repr(v)[:30]}" for k, v in list(kwargs.items())[:3]]
-            args_repr = ", ".join(args_parts + kwargs_parts)
-            if len(args) > 3 or len(kwargs) > 3:
-                args_repr += ", ..."
-
+        thread_name = state.name
         status = state.status
 
         # Get CPU info if running
@@ -496,14 +518,14 @@ class ThreadManagerObserver(QObject):
         return ThreadRecord(
             thread_id=thread_id,
             name=thread_name,
-            key=getattr(thread, "_manager_key", None),
+            key=state.key,
             status=status,
             started_at=datetime.now(),
             finished_at=datetime.now() if finished else None,
             exception_msg=state.exception_msg,
-            thread_ref=weakref.ref(thread),
-            method_name=method_name,
-            args_repr=args_repr,
+            thread_ref=state.ref,
+            method_name=state.method_name or thread_name,
+            args_repr=state.args_repr,
             cpu_percent=cpu_percent,
             native_thread_id=native_id,
         )
