@@ -240,18 +240,21 @@ class ThreadsPanel(BasePanel):
     # Signals
     thread_selected = Signal(object)  # ThreadRecord
 
+    #: Thread-list poll period while the panel is visible.
+    POLL_INTERVAL_MS = 1000
+
     def __init__(self, parent: QWidget | None = None) -> None:
         """Initialize the threads panel."""
-        # Create observer and model before calling super().__init__
-        self._observer = ThreadManagerObserver(poll_interval_ms=100)
+        # Create observer and model before calling super().__init__.
+        # Polling is gated on visibility (showEvent/hideEvent): the panel
+        # lives in an auto-hide sidebar, and nothing should sample the
+        # process thread list while no one is looking at it.
+        self._observer = ThreadManagerObserver(poll_interval_ms=self.POLL_INTERVAL_MS)
         self._model = ThreadTableModel(self._observer)
         self._proxy_model = ThreadFilterProxyModel()
         self._proxy_model.setSourceModel(self._model)
 
         super().__init__(parent)
-
-        # Start observing after UI is set up
-        self._observer.start()
 
     def _setup_ui(self) -> None:
         """Setup the panel UI."""
@@ -331,10 +334,10 @@ class ThreadsPanel(BasePanel):
         # Connect selection
         self._table_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
 
-        # Details refresh timer
+        # Details refresh timer (started by _update_polling while visible)
         self._details_timer = QTimer(self)
+        self._details_timer.setInterval(500)
         self._details_timer.timeout.connect(self._details_widget.refresh)
-        self._details_timer.start(500)
 
     def _create_toolbar(self) -> QToolBar:
         """Create the panel toolbar."""
@@ -425,14 +428,20 @@ class ThreadsPanel(BasePanel):
         self._proxy_model.set_visible_statuses(statuses)
 
     @Slot(bool)
-    def _on_auto_refresh_toggled(self, checked: bool) -> None:
+    def _on_auto_refresh_toggled(self, checked: bool) -> None:  # noqa: ARG002
         """Handle auto-refresh toggle."""
-        if checked:
+        self._update_polling(self.isVisible())
+
+    def _update_polling(self, visible: bool) -> None:
+        """Poll only while the panel is visible and auto-refresh is on."""
+        live = visible and self._auto_refresh_check.isChecked()
+        if live:
             self._observer.start()
-            self._details_timer.start(500)
+            self._details_timer.start()
         else:
             self._observer.stop()
             self._details_timer.stop()
+        self._model.set_live(live)
 
     @Slot()
     def _on_selection_changed(self) -> None:
@@ -453,15 +462,30 @@ class ThreadsPanel(BasePanel):
 
     # === Lifecycle ===
 
+    def showEvent(self, event) -> None:  # noqa: N802
+        """Start polling when the panel (or its dock/sidebar) becomes visible."""
+        super().showEvent(event)
+        self._update_polling(True)
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        """Stop polling when hidden: auto-hide collapse, tab switch, minimise."""
+        super().hideEvent(event)
+        # Explicit False: on a spontaneous hide (window minimised) isVisible()
+        # still reports True.
+        self._update_polling(False)
+
     def _on_closing(self) -> None:
         """Handle panel closing."""
-        self._observer.stop()
+        self._observer.shutdown()
         self._details_timer.stop()
+        self._model.set_live(False)
 
     # === Introspection ===
 
     def _get_specific_introspection_data(self) -> dict[str, Any]:
         """Get thread panel-specific introspection data."""
+        if not self._observer.is_polling:  # hidden: records may be stale
+            self._observer.refresh_now()
         records = self._observer.get_records()
 
         running_count = sum(1 for r in records if r.status == ThreadStatus.RUNNING)
