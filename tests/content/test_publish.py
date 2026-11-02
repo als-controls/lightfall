@@ -73,6 +73,7 @@ def test_folder_plugin_bundle_round_trips_through_sources(tmp_path):
     (pkg / ".git" / "HEAD").write_bytes(b"ref")
     (pkg / ".DS_Store").write_bytes(b"j")
     (pkg / "sub" / "Thumbs.db").write_bytes(b"j")
+    (pkg / "sub" / "deep" / ".git").write_bytes(b"gitdir: elsewhere")
     b = build_bundle(LocalItem("plugin", "pkg", pkg), tmp_path / "out")
     assert _names(b) == ["__init__.py", "sub/data.txt", "sub/deep/m.py"]
     assert (b.file_count, b.uncompressed_size) == (3, 6 + 7 + 3)
@@ -227,3 +228,27 @@ def test_upload_sends_the_built_bundle_bytes(tmp_path):
     assert hashlib.sha256(b.path.read_bytes()).hexdigest() == b.sha256
     with zipfile.ZipFile(b.path) as zf:
         assert zf.read("scan.py") == b"x = 1\n"
+
+
+def test_builds_are_deterministic(tmp_path, monkeypatch):
+    clock = iter(range(1_700_000_000, 1_800_000_000, 10))
+    monkeypatch.setattr(zipfile.time, "time", lambda: next(clock))
+    f = tmp_path / "scan.py"
+    f.write_bytes(b"x = 1")
+    item = LocalItem("plan", "scan", f)
+    a = build_bundle(item, tmp_path / "one")
+    b = build_bundle(item, tmp_path / "two")
+    assert a.sha256 == b.sha256
+
+
+def test_each_build_gets_its_own_file(tmp_path):
+    f = tmp_path / "scan.py"
+    f.write_bytes(b"x = 1")
+    item = LocalItem("plan", "scan", f)
+    a = build_bundle(item, tmp_path / "out")
+    first = a.path.read_bytes()
+    f.write_bytes(b"x = 22")
+    b = build_bundle(item, tmp_path / "out")
+    assert a.path != b.path
+    assert a.path.read_bytes() == first
+    assert a.sha256 != b.sha256

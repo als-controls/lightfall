@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import socket
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,7 +28,7 @@ MAX_AUTHOR_CHARS = 256
 MAX_SOURCE_BYTES = 2048
 
 _EXCLUDED_DIRS = {"__pycache__", ".git"}
-_EXCLUDED_FILES = {".DS_Store", "Thumbs.db"}
+_EXCLUDED_FILES = {".DS_Store", "Thumbs.db", ".git"}  # ".git" as a file: a gitfile
 _DRAFTS = "_drafts"
 _MB = 1024 * 1024
 
@@ -122,16 +123,25 @@ def _members(item: LocalItem) -> list[tuple[str, Path]]:
 
 
 def build_bundle(item: LocalItem, dest_dir: Path) -> Bundle:
-    """Zip ``item`` into ``dest_dir`` and describe the result (hash, sizes, file list)."""
+    """Zip ``item`` into a new file in ``dest_dir`` and describe it (hash, sizes, file list).
+
+    Each build is its own uniquely named file, so an earlier bundle is never overwritten;
+    the caller deletes the files it no longer needs. Entries carry a fixed timestamp and
+    mode, so building unchanged content again gives the same sha256.
+    """
     dest_dir.mkdir(parents=True, exist_ok=True)
     members = _members(item)
-    zip_path = dest_dir / f"{item.type}-{item.name}.zip"
+    fd, name = tempfile.mkstemp(dir=dest_dir, prefix=f"{item.type}-{item.name}-", suffix=".zip")
+    zip_path = Path(name)
     uncompressed = 0
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+    with os.fdopen(fd, "wb") as fh, zipfile.ZipFile(fh, "w") as zf:
         for arcname, src in members:
             data = src.read_bytes()
             uncompressed += len(data)
-            zf.writestr(arcname, data)
+            info = zipfile.ZipInfo(arcname, date_time=(1980, 1, 1, 0, 0, 0))
+            info.external_attr = 0o644 << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, data)
     raw = zip_path.read_bytes()
     return Bundle(
         path=zip_path,
