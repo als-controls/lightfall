@@ -53,6 +53,7 @@ from lightfall.devices.backend_types.session import (
     is_exclusive,
 )
 from lightfall.plugins.settings_plugin import SettingsPlugin
+from lightfall.ui.preferences.device_rows import _device_backend_plugin_names
 from lightfall.ui.preferences.manager import PreferencesManager
 from lightfall.utils.logging import logger
 
@@ -778,18 +779,6 @@ def _layer_value(prefs: object, key: str, scope: str) -> object:
     if callable(layer):
         return layer(key, scope)
     return prefs.get(key, None) if scope == "local" else None  # type: ignore[attr-defined]
-
-
-def _device_backend_plugin_names() -> list[str]:
-    """Names of the loaded device-backend plugins (kept off in an exclusive session)."""
-    try:
-        from lightfall.core import LFApplication
-        from lightfall.plugins.registry import PluginRegistry
-
-        registry = LFApplication.get_instance().services.get(PluginRegistry)
-        return [info.name for info in registry.get_by_type("device_backend")]
-    except Exception:
-        return []
 
 
 def _plan_active() -> bool:
