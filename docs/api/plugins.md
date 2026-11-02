@@ -247,23 +247,40 @@ plans today.
 `lightfall.plugins.settings_plugin.SettingsPlugin` — provides a page in the
 Preferences dialog.
 
-Lifecycle: instantiate → `on_loaded()` (before the main window for
-`preload=True` entries) → on dialog open: `create_widget()` (once, cached)
-then `load_settings()` → on user edits: `apply_preview()` → on OK/Apply:
-`validate()` then `save_settings()` → on Cancel: `revert_preview()`.
+A page is a **form page** (override `sections()`; the dialog builds the
+controls, edits them at the scope chosen in the page header and writes only the
+changed fields there) or a **custom page** (`scope_aware = False` and
+`create_widget()`; the page applies its own changes immediately). A plugin that
+is neither, such as one still on the removed `load_settings()` /
+`save_settings()` API, is shown as an "uses an older settings API" placeholder.
+See [SettingsPlugin](../developer-guide/plugins/plugin-types/settings.md) for
+the form schema (`Section`, `SettingField`, editors including `Path` and
+`NumberList`, `Action`, `Info`, `Embed`).
+
+Lifecycle: instantiate (registers `specs()` and `console_keys()`) →
+`on_loaded()` (before the main window for `preload=True` entries) → on dialog
+open: the form is built from `sections()` (custom page: `create_widget()`) →
+on edits: `preview(values)` → on OK/Apply: field validators and
+`validate_values(values)`, changed values written, then
+`after_save(scope, changed)` and `restart_reason(scope, changed)` → on Cancel:
+`revert_preview()`.
 
 | Member | Kind | Description |
 |--------|------|-------------|
 | `name` | abstract property | **Required.** Unique settings-page identifier. |
-| `create_widget(parent)` | abstract method | **Required.** Build the settings widget (called once, cached). |
-| `load_settings()` | abstract method | **Required.** Populate the widget from `PreferencesManager`. |
-| `save_settings()` | abstract method | **Required.** Persist widget values to `PreferencesManager`. |
+| `sections()` | method | Form page schema: a list of `Section`s. Empty (default) for custom pages. |
+| `specs()` | method | `SettingSpec`s for keys nothing else declares (type, default, allowed scopes). |
+| `console_keys()` | method | Keys kept only at This console, never written to a server scope. |
+| `validate_values(values)` | method | Cross-field validation; return error messages (non-empty blocks save). |
+| `preview(values)` / `revert_preview()` | methods | Optional live preview while editing, and its undo on Cancel. |
+| `after_save(scope, changed)` | method | Apply the values just saved at `scope`. |
+| `restart_reason(scope, changed)` | method | Non-empty text makes the dialog offer a restart. |
+| `scope_aware` | ClassVar | `False` for a custom page. Default `True`. |
+| `create_widget(parent)` | method | Custom pages only: build the page's widget. |
 | `display_name` | property | Sidebar label. Defaults to title-cased `name`. |
 | `icon` | property | Optional `QIcon` for the sidebar. Default `None`. |
 | `category` | property | Sidebar grouping (`general`, `appearance`, `advanced`, `plugins`). Default `"general"`. |
 | `priority` | property | Sort order within category (lower = first). Default `100`. |
-| `validate()` | method | Return a list of error messages; non-empty blocks save. |
-| `apply_preview()` / `revert_preview()` | methods | Optional live preview (e.g. theme changes) and its undo. |
 | `on_loaded()` | method | Apply settings at startup (preload plugins run before the main window). |
 
 ```{eval-rst}

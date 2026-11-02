@@ -8,7 +8,7 @@ uploaded (spec section 1: the scoped store never holds secrets).
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from lightfall_settings import (
@@ -49,6 +49,9 @@ def is_secret_key(key: str) -> bool:
 # Keys settings plugins declare console-only (SettingsPlugin.console_keys()): this
 # console's devices, paths and daemons. Treated exactly like LOCAL_ONLY_KEYS.
 _CONSOLE_KEYS: set[str] = set()
+# Called with each registration's keys (ScopedBackend moves values an old page stored in
+# the user layer to this console, also for pages registered after login).
+_CONSOLE_KEY_LISTENERS: list[Callable[[frozenset[str]], None]] = []
 
 
 def register_console_keys(keys: Iterable[str]) -> None:
@@ -56,7 +59,30 @@ def register_console_keys(keys: Iterable[str]) -> None:
 
     Idempotent; called from ``SettingsPlugin.register_specs()``.
     """
-    _CONSOLE_KEYS.update(keys)
+    new = frozenset(keys)
+    _CONSOLE_KEYS.update(new)
+    if not new:
+        return
+    for listener in list(_CONSOLE_KEY_LISTENERS):
+        try:
+            listener(new)
+        except Exception as e:
+            logger.warning("Console key listener failed: {}", e)
+
+
+def registered_console_keys() -> frozenset[str]:
+    """Keys settings plugins declared console-only so far."""
+    return frozenset(_CONSOLE_KEYS)
+
+
+def add_console_key_listener(listener: Callable[[frozenset[str]], None]) -> None:
+    if listener not in _CONSOLE_KEY_LISTENERS:
+        _CONSOLE_KEY_LISTENERS.append(listener)
+
+
+def remove_console_key_listener(listener: Callable[[frozenset[str]], None]) -> None:
+    if listener in _CONSOLE_KEY_LISTENERS:
+        _CONSOLE_KEY_LISTENERS.remove(listener)
 
 
 def is_local_only(key: str) -> bool:

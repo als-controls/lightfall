@@ -124,26 +124,18 @@ manifest = PluginManifest(
 
 ```python
 # src/my_beamline/settings/beamline.py
-"""Beamline configuration settings."""
+"""Beamline configuration settings (a form page)."""
 
-from PySide6.QtWidgets import (
-    QFormLayout,
-    QGroupBox,
-    QLineEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from lightfall_settings import SettingSpec
 
 from lightfall.plugins.settings_plugin import SettingsPlugin
-from lightfall.ui.preferences.manager import PreferencesManager
+from lightfall.ui.preferences.form.schema import Section, SettingField, Text
+
+_BEAMLINE_SCOPES = {"beamline", "branch"}  # set by beamline staff, not per user
 
 
 class BeamlineConfigPlugin(SettingsPlugin):
     """Settings plugin for beamline-specific configuration."""
-
-    def __init__(self) -> None:
-        self._name_edit: QLineEdit | None = None
-        self._pv_prefix_edit: QLineEdit | None = None
 
     @property
     def name(self) -> str:
@@ -161,37 +153,20 @@ class BeamlineConfigPlugin(SettingsPlugin):
     def priority(self) -> int:
         return 10  # High priority within beamline category
 
-    def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        widget = QWidget(parent)
-        layout = QVBoxLayout(widget)
+    def specs(self):
+        return (
+            SettingSpec(key="bl_name", type=str, default="7.0.1.1", scopes=_BEAMLINE_SCOPES),
+            SettingSpec(key="bl_pv_prefix", type=str, default="BL701:", scopes=_BEAMLINE_SCOPES),
+        )
 
-        group = QGroupBox("Beamline Configuration")
-        form = QFormLayout(group)
-
-        self._name_edit = QLineEdit()
-        form.addRow("Beamline Name:", self._name_edit)
-
-        self._pv_prefix_edit = QLineEdit()
-        self._pv_prefix_edit.setPlaceholderText("e.g., BL701:")
-        form.addRow("PV Prefix:", self._pv_prefix_edit)
-
-        layout.addWidget(group)
-        layout.addStretch()
-        return widget
-
-    def load_settings(self) -> None:
-        prefs = PreferencesManager.get_instance()
-        if self._name_edit:
-            self._name_edit.setText(prefs.get("bl_name", "7.0.1.1"))
-        if self._pv_prefix_edit:
-            self._pv_prefix_edit.setText(prefs.get("bl_pv_prefix", "BL701:"))
-
-    def save_settings(self) -> None:
-        prefs = PreferencesManager.get_instance()
-        if self._name_edit:
-            prefs.set("bl_name", self._name_edit.text())
-        if self._pv_prefix_edit:
-            prefs.set("bl_pv_prefix", self._pv_prefix_edit.text())
+    def sections(self):
+        return [
+            Section("Beamline Configuration", [
+                SettingField("bl_name", Text(blank_is_unset=True), label="Beamline name"),
+                SettingField("bl_pv_prefix", Text(blank_is_unset=True), label="PV prefix",
+                             placeholder="e.g., BL701:"),
+            ]),
+        ]
 ```
 
 ### Plan Plugin
