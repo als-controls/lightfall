@@ -386,20 +386,21 @@ class ScopesClient:
     def retracted_content(self, scope: str) -> list[ContentItem] | None:
         """``scope``'s retracted items, each at its last revision.
 
-        None when the server doesn't list retracted items (an older server ignores
-        ``include_retracted`` and its items carry no ``retracted`` field).
+        None when the server doesn't list retracted items: an older server ignores
+        ``include_retracted`` and its reply lacks the top-level ``include_retracted: true``
+        (without that marker an empty list can't mean "nothing retracted").
         """
         what = f"Retracted content for {scope}"
         r = self._get(f"/logbook/scopes/{scope}/content/", params={"include_retracted": "1"})
         self._raise_for(r, what)
         try:
-            raw_items = r.json().get("items") or []
-            raws = [raw for raw in raw_items if isinstance(raw, dict)]
+            body = r.json()
+            if body.get("include_retracted") is not True:
+                return None
+            raws = [raw for raw in body.get("items") or [] if isinstance(raw, dict)]
         except (ValueError, AttributeError, TypeError) as e:
             raise ScopesError(f"{what}: malformed response ({e})",
                               code=MALFORMED_RESPONSE) from e
-        if raws and not any("retracted" in raw for raw in raws):
-            return None
         items = []
         for raw in raws:
             if raw.get("retracted") is not True:

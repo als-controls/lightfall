@@ -142,15 +142,25 @@ def _rec(name, revision, **extra):
 
 def test_retracted_content_parses_and_old_server_is_none(httpx_mock):
     httpx_mock.add_response(method="GET", url=LISTING, json={
-        "scope": BR, "etag": "e1",
+        "scope": BR, "etag": "e1", "include_retracted": True,
         "items": [_rec("live", 4, retracted=False), _rec("gone", 2, retracted=True)]})
     items = _client().retracted_content(BR)
     assert [(i.name, i.revision, i.file_count) for i in items] == [("gone", 2, 1)]
     assert items[0].published_by == "ann"
 
-    # An old server ignores include_retracted: items without a "retracted" key.
+    # A server that honours the flag says so, even with nothing at the scope.
+    httpx_mock.add_response(method="GET", url=LISTING,
+                            json={"scope": BR, "etag": "e2", "include_retracted": True,
+                                  "items": []})
+    assert _client().retracted_content(BR) == []
+
+    # An old server ignores include_retracted: no marker, with or without items
+    # (everything retracted there looks like an empty listing).
     httpx_mock.add_response(method="GET", url=LISTING,
                             json={"scope": BR, "etag": "e0", "items": [_rec("live", 4)]})
+    assert _client().retracted_content(BR) is None
+    httpx_mock.add_response(method="GET", url=LISTING,
+                            json={"scope": BR, "etag": "e0", "items": []})
     assert _client().retracted_content(BR) is None
 
     httpx_mock.add_response(method="GET", url=LISTING, status_code=403,

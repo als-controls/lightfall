@@ -42,6 +42,7 @@ class ContentHistoryDialog(LFDialog):
         self._run: Runner = run or thread_runner
         self._can_write = actions._role_at_least(roles.get(row.source), actions.PUBLISH_ROLE)
         self._records: list[dict[str, Any]] = []
+        self._notice = ""  # message to keep showing when the next reload lands
         self._alive = True
         self._busy = False
 
@@ -132,7 +133,8 @@ class ContentHistoryDialog(LFDialog):
 
     def _on_loaded(self, records: list[dict[str, Any]]) -> None:
         if self._alive:
-            self._show_error("")
+            self._show_error(self._notice)  # kept across a reload after a 412
+            self._notice = ""
             self._fill(records)
 
     def _on_failed(self, exc: Exception) -> None:
@@ -146,6 +148,12 @@ class ContentHistoryDialog(LFDialog):
             text = error_text(exc, self._row.source)
         self._show_error(text)
         self._refresh()
+        self._notice = ""
+        if isinstance(exc, ScopesError) and exc.status == 412:
+            # Someone changed it after we read the history: show what is current now,
+            # so the next Restore/Retract expects that revision.
+            self._notice = text
+            self._reload()
 
     def _confirm(self, title: str, text: str) -> bool:
         answer = QMessageBox.question(self, title, text)
@@ -187,6 +195,7 @@ class ContentHistoryDialog(LFDialog):
 
     def _start(self, work, done_title: str, done_text: str) -> None:
         self._busy = True
+        self._notice = ""
         self._show_error("")
         self._refresh()
 

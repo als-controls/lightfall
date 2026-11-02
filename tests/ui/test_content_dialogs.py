@@ -241,16 +241,44 @@ def test_history_restore_sends_expected_revision(qtbot, monkeypatch):
     assert client.expected == ["none"]
 
 
-def test_history_412_is_shown_in_the_dialog(qtbot, monkeypatch):
+def test_history_412_is_shown_and_the_history_reloads(qtbot, monkeypatch):
     class Moved(FakeClient):
-        def restore_content(self, *a, **k):
-            raise ScopesError("changed since you looked: current revision is 5", status=412)
+        """Someone published revision 5 after the dialog read the history."""
+
+        def __init__(self):
+            super().__init__(history=history_records())
+            self.reads = 0
+
+        def content_history(self, scope, type_, name):
+            self.reads += 1
+            if self.reads == 1:
+                return history_records()
+            return [{"revision": 5, "current": True},
+                    *[{**r, "current": False} for r in history_records()]]
+
+        def restore_content(self, scope, type_, name, revision, *, agent=False,
+                            expected_revision=None):
+            if expected_revision != 5:
+                raise ScopesError("changed since you looked: current revision is 5",
+                                  status=412)
+            return super().restore_content(scope, type_, name, revision,
+                                           expected_revision=expected_revision)
 
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
-    d = history_dialog(qtbot, Moved(history=history_records()))
-    d._table.selectRow(1)
+    client = Moved()
+    d = history_dialog(qtbot, client)
+    d._table.selectRow(1)  # revision 2
     d._restore_btn.click()
     assert d._error_label.text() == "Someone changed it while you were deciding — look again."
+    assert not d._error_label.isHidden()
+    # The history was read again: revision 5 is now shown as current.
+    assert client.reads == 2
+    assert d._table.rowCount() == 3 and d._table.item(0, 6).text() == "current"
+    assert d._shown_current() == 5
+    d._table.selectRow(2)  # revision 2 again
+    d._restore_btn.click()
+    assert client.calls == [("restore", BRANCH, "plugin", "tools", 2)]
+    assert client.expected == [5]
 
 
 def test_history_read_only_for_non_maintainers(qtbot):

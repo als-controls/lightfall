@@ -131,8 +131,9 @@ the History window says so.
 revision the History window showed as current (or that it showed the item as
 retracted). If someone published, restored or retracted the item after the
 window read its history, the server refuses and the window says *Someone changed
-it while you were deciding — look again.* Nothing was changed; close and reopen
-History to see what changed before you retry.
+it while you were deciding — look again.* Nothing was changed, and the window
+reloads the history so it shows what is current now; look at it before you try
+again.
 
 ### Retracted items
 
@@ -150,7 +151,8 @@ and **Copy to mine** are not offered on a retracted row.
 The list is fetched from the logbook server when you tick the box, change the
 scope, or the table refreshes. A server too old to list retracted items shows
 *This server doesn't list retracted items.* below the table, and no rows are
-added. If you have your own copy of the item, you can still reach its History
+added (even if everything at that scope is retracted, an older server can't say
+so). If you have your own copy of the item, you can still reach its History
 from your row, as described above.
 
 ### Copy to mine

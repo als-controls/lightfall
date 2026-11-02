@@ -305,12 +305,11 @@ def test_retract_wording(panel, monkeypatch):
 class RetractedClient(FakeClient):
     """Branch 7.0.1.1 has plan 'xafs' retracted (last revision 4); nobody has it locally."""
 
-    retracted = True
-    old_server = False
-
-    def __init__(self):
+    def __init__(self, *, retracted=True, old_server=False):
         super().__init__()
         self.listed = []
+        self.retracted = retracted
+        self.old_server = old_server
 
     def retracted_content(self, scope):
         from lightfall.scopes.client import ContentItem
@@ -318,25 +317,24 @@ class RetractedClient(FakeClient):
         self.listed.append(scope)
         if self.old_server:
             return None
-        if scope != BRANCH or not RetractedClient.retracted:
+        if scope != BRANCH or not self.retracted:
             return []
         return [ContentItem("plan", "xafs", 4, "ab" * 32, 10)]
 
     def content_history(self, scope, type_, name):
-        return [{"revision": 4, "current": not RetractedClient.retracted},
+        return [{"revision": 4, "current": not self.retracted},
                 {"revision": 3, "current": False}]
 
     def restore_content(self, scope, type_, name, revision, *, agent=False,
                         expected_revision=None):
         self.calls.append(("restore", scope, type_, name, revision, expected_revision))
-        RetractedClient.retracted = False
+        self.retracted = False
         return {"revision": revision}
 
 
 def test_retracted_view_lists_and_restores(qtbot, tmp_path, monkeypatch):
     import lightfall.ui.dialogs.content_history_dialog as hist
 
-    RetractedClient.retracted, RetractedClient.old_server = True, False
     monkeypatch.setattr(hist, "toast_success", lambda *a: None)
     monkeypatch.setattr(mod.actions, "refresh_sync", lambda: None)
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
@@ -389,7 +387,7 @@ def test_retracted_view_lists_and_restores(qtbot, tmp_path, monkeypatch):
     assert client.listed[-1] == "beamline:7.0.1"
 
     # Off again: the retracted rows go.
-    RetractedClient.retracted = True
+    client.retracted = True
     p.retracted_scope.setCurrentIndex(0)
     assert p.table.rowCount() == 6
     p.retracted_check.setChecked(False)
@@ -397,20 +395,16 @@ def test_retracted_view_lists_and_restores(qtbot, tmp_path, monkeypatch):
 
 
 def test_retracted_view_on_an_old_server_says_so(qtbot, tmp_path):
-    RetractedClient.old_server = True
-    try:
-        client = RetractedClient()
-        p = ContentPanel(rows=lambda: make_rows(tmp_path),
-                         scope_state=lambda: (("facility", BRANCH), {}, ContentPolicy()),
-                         local_items=lambda: [], client_factory=lambda: client, run=sync_run,
-                         refresh_signals=[])
-        qtbot.addWidget(p)
-        p.retracted_check.setChecked(True)
-        assert p.table.rowCount() == 4
-        assert p.retracted_note.text() == "This server doesn't list retracted items."
-        assert not p.retracted_note.isHidden()
-    finally:
-        RetractedClient.old_server = False
+    client = RetractedClient(old_server=True)
+    p = ContentPanel(rows=lambda: make_rows(tmp_path),
+                     scope_state=lambda: (("facility", BRANCH), {}, ContentPolicy()),
+                     local_items=lambda: [], client_factory=lambda: client, run=sync_run,
+                     refresh_signals=[])
+    qtbot.addWidget(p)
+    p.retracted_check.setChecked(True)
+    assert p.table.rowCount() == 4
+    assert p.retracted_note.text() == "This server doesn't list retracted items."
+    assert not p.retracted_note.isHidden()
 
 
 def test_retracted_result_after_the_panel_closed(qtbot, tmp_path):
