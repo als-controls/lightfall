@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.auth.session import AuthState, SessionManager
+from lightfall.ui.content_clashes import ClashNotifier
 from lightfall.ui.docking import DockingManager
 from lightfall.ui.panels.base import BasePanel
 from lightfall.ui.panels.registry import PanelRegistry
@@ -91,6 +92,7 @@ class LFMainWindow(QMainWindow):
         self._prefs_manager = PreferencesManager.get_instance()
         self._panel_registry = PanelRegistry.get_instance()
         self._content_sync = self._build_content_sync()
+        self._clash_notifier = ClashNotifier(self)
 
         # Setup UI
         self._setup_window()
@@ -734,6 +736,18 @@ class LFMainWindow(QMainWindow):
         if self._content_sync is not None and prefs.scope_info.mode == "server":
             self._content_sync.refresh()
 
+    def _on_content_synced(self, result: Any) -> None:
+        """Agents refresh live when a sync changed them."""
+        if "agent" not in result.changed_types:
+            return
+        try:
+            from lightfall.agents.registry import AgentSpecRegistry
+            from lightfall.content.sources import default_synced_items
+
+            AgentSpecRegistry.get_instance().set_synced(default_synced_items("agent"))
+        except Exception as e:
+            logger.warning("Could not refresh synced agents: {}", e)
+
     def _build_content_sync(self) -> Any:
         """This machine's copy of scoped content, kept current while scopes are live."""
         import os
@@ -749,6 +763,7 @@ class LFMainWindow(QMainWindow):
             sync = ContentSync(client=ScopesClient(), store=ContentStore(default_content_dir()),
                                bind=get_site_bind)
             self._prefs_manager.scopes_changed.connect(sync.follow)
+            sync.synced.connect(self._on_content_synced)
         except Exception as e:
             logger.warning("Scoped content sync unavailable: {}", e)
             return None
@@ -1097,6 +1112,10 @@ class LFMainWindow(QMainWindow):
         if self._layout_finalized:
             return
         self._layout_finalized = True
+
+        # Content clash warnings held since startup (login dialog, plugin wave) go
+        # out now, as one batch over the shown window.
+        self._clash_notifier.arm()
 
         if (
             not self._default_layout_applied

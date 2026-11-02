@@ -251,3 +251,45 @@ def _reset_qt_service_singletons():
         theater_manager._overlay = None
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _no_real_synced_skills(monkeypatch):
+    """Keep skill resolution off the developer's real content store unless a test opts in."""
+    try:
+        from lightfall.agents import skills_store
+    except Exception:
+        return
+    monkeypatch.setattr(skills_store, "default_synced_items", lambda type_: [])
+
+
+@pytest.fixture(autouse=True)
+def _no_real_synced_plans(monkeypatch):
+    """Keep plan loading off the developer's real content store unless a test opts in."""
+    try:
+        from lightfall.acquire.plans import user_plans
+    except Exception:
+        return
+    monkeypatch.setattr(user_plans, "default_synced_items", lambda type_: [])
+
+
+@pytest.fixture(autouse=True)
+def _no_real_synced_plugins(monkeypatch):
+    """Keep user plugin loading off the developer's real content store unless a test opts in."""
+    try:
+        from lightfall.plugins import user_plugins
+    except Exception:
+        return
+    monkeypatch.setattr(user_plugins, "default_synced_items", lambda type_: [], raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_synced_agents(monkeypatch):
+    """Keep agents (and anything else that looks up ``default_synced_items`` in
+    ``lightfall.content.sources`` at call time, e.g. main._setup_agent_specs and
+    mainwindow._on_content_synced) off the developer's real content store."""
+    try:
+        from lightfall.content import sources
+    except Exception:
+        return
+    monkeypatch.setattr(sources, "default_synced_items", lambda type_: [])

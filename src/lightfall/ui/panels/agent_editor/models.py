@@ -24,10 +24,19 @@ from lightfall.utils.logging import logger
 if TYPE_CHECKING:
     from lightfall.agents.registry import AgentSpecRegistry
 
-# Mirrors AgentSpecRegistry's precedence order (core < beamline < user); kept
-# local so this module never has to import registry.py (and its Qt deps) at
-# module load time.
-_SCOPE_ORDER: tuple[str, ...] = ("core", "beamline", "user")
+# Mirrors AgentSpecRegistry's precedence order; kept local so this module never
+# has to import registry.py (and its Qt deps) at module load time.
+_SCOPE_ORDER: tuple[str, ...] = ("core", "package", "facility", "beamline", "branch", "user")
+
+
+def scope_kind(scope: str) -> str:
+    """``"branch:7.0.1.1"`` -> ``"branch"``; plain scopes are returned unchanged."""
+    return scope.partition(":")[0]
+
+
+def _scope_rank(scope: str) -> int:
+    kind = scope_kind(scope)
+    return _SCOPE_ORDER.index(kind) if kind in _SCOPE_ORDER else len(_SCOPE_ORDER)
 
 
 class EditorError(ValueError):
@@ -53,6 +62,7 @@ class SkillRow:
     scope: str
     path: Path
     editable: bool
+    shadowed_scopes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -73,14 +83,15 @@ def agent_rows(registry: AgentSpecRegistry) -> list[AgentRow]:
     for spec in sorted(registry.specs(), key=lambda s: s.name):
         entries = all_files.get(spec.name, [])
         shadowed = tuple(
-            scope
-            for scope in _SCOPE_ORDER
-            if scope != spec.scope and any(s == scope for s, _ in entries)
+            sorted(
+                {scope for scope, _ in entries if scope != spec.scope},
+                key=_scope_rank,
+            )
         )
         rows.append(
             AgentRow(
                 name=spec.name,
-                scope=spec.scope,
+                scope=scope_kind(spec.scope),
                 description=spec.description,
                 editable=spec.scope == "user",
                 shadowed_scopes=shadowed,
@@ -113,27 +124,55 @@ def _scope_for_error_path(
     for entries in all_files.values():
         for scope, entry_path in entries:
             if entry_path == path:
-                return scope
+                return scope_kind(scope)
     return "unknown"
 
 
 def skill_rows() -> list[SkillRow]:
-    """Build one row per resolved skill, attributing it to a scope by root."""
+    """Build one row per resolved skill, taking its scope from the skill catalog."""
     resolved = skills_store.resolve_skills()
-    builtin_root = skills_store.builtin_skills_dir()
-    user_root = skills_store.user_skills_dir()
-
+    sources = skills_store.skill_sources()
     rows: list[SkillRow] = []
-    for name in sorted(resolved):
-        path = resolved[name]
-        if path.parent == builtin_root:
-            scope = "core"
-        elif path.parent == user_root:
-            scope = "user"
-        else:
-            scope = "beamline"
-        rows.append(SkillRow(name=name, scope=scope, path=path, editable=scope == "user"))
-    return rows
+    for info in skills_store.skill_catalog().values():
+        # Package skills are listed under namespaced ids too; keep only the winner.
+        if info.source == "package" and resolved.get(info.name) != info.path:
+            continue
+        scope = _skill_scope(info.source)
+        # Every source the winner shadows, in precedence order, without repeats.
+        shadowed = tuple(dict.fromkeys(
+            _skill_scope(s) for s in sources.get(info.name, [])[:-1]
+        ))
+        rows.append(SkillRow(
+            name=info.name, scope=scope, path=info.path, editable=scope == "user",
+            shadowed_scopes=tuple(s for s in shadowed if s != scope),
+        ))
+    return sorted(rows, key=lambda r: r.name)
+
+
+def _skill_scope(source: str) -> str:
+    return "core" if source == "builtin" else source
+
+
+def skill_label(row: SkillRow) -> str:
+    """List label for a skill row: its name, plus what it shadows if anything."""
+    if row.shadowed_scopes:
+        return f"{row.name}  (shadows {', '.join(row.shadowed_scopes)})"
+    return row.name
+
+
+def group_skill_rows(
+    rows: list[SkillRow], order: tuple[str, ...]
+) -> list[tuple[str, list[SkillRow]]]:
+    """Group skill rows by scope kind in ``order``; unlisted kinds fall under "unknown"."""
+    groups: list[tuple[str, list[SkillRow]]] = []
+    for kind in order:
+        members = [
+            r for r in rows
+            if (scope_kind(r.scope) if scope_kind(r.scope) in order else "unknown") == kind
+        ]
+        if members:
+            groups.append((kind, members))
+    return groups
 
 
 def draft_rows() -> list[DraftRow]:

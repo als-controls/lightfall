@@ -135,6 +135,7 @@ class ToastManager(QObject):
         text: str = "",
         preset: ToastPreset = ToastPreset.INFORMATION,
         duration: int | None = None,
+        parent: QWidget | None = None,
     ) -> Toast:
         """Show a toast notification.
 
@@ -143,11 +144,14 @@ class ToastManager(QObject):
             text: Optional detail text.
             preset: Toast preset for styling.
             duration: Display duration in ms (None for default).
+            parent: Widget to parent the toast to (default: the manager's parent
+                widget, else the active window).
 
         Returns:
             The Toast instance.
         """
-        parent = self._get_parent()
+        if parent is None:
+            parent = self._get_parent()
         toast = Toast(parent)
 
         toast.setTitle(title)
@@ -201,18 +205,25 @@ class ToastManager(QObject):
         """
         return self.show(title, text, ToastPreset.ERROR, duration)
 
-    def warning(self, title: str, text: str = "", duration: int | None = None) -> Toast:
+    def warning(
+        self,
+        title: str,
+        text: str = "",
+        duration: int | None = None,
+        parent: QWidget | None = None,
+    ) -> Toast:
         """Show a warning toast.
 
         Args:
             title: Warning message title.
             text: Optional detail text.
             duration: Display duration in ms.
+            parent: Widget to parent the toast to (see :meth:`show`).
 
         Returns:
             The Toast instance.
         """
-        return self.show(title, text, ToastPreset.WARNING, duration)
+        return self.show(title, text, ToastPreset.WARNING, duration, parent)
 
     def info(self, title: str, text: str = "", duration: int | None = None) -> Toast:
         """Show an info toast.

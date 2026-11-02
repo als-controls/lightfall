@@ -80,37 +80,44 @@ class TestAgentRows:
         assert "frontmatter" in error_rows[0].error
 
 
-class TestSkillRows:
-    def test_scope_attribution(self, tmp_path, monkeypatch):
-        builtin, bl, user = tmp_path / "builtin", tmp_path / "bl", tmp_path / "user"
-        _skill(builtin, "core-skill")
-        _skill(bl, "bl-skill")
-        _skill(user, "user-skill")
-        monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: builtin)
-        monkeypatch.setattr(skills_store, "user_skills_dir", lambda: user)
-        monkeypatch.setattr(
-            skills_store, "resolve_skills", lambda extra_dirs=None: _real_resolve(builtin, bl, user)
-        )
+class TestSyncedRows:
+    def test_synced_rows_are_grouped_by_kind_and_read_only(self, registry, tmp_path):
+        from lightfall.content.sources import SourceItem
 
-        rows = {r.name: r for r in models.skill_rows()}
+        _agent(tmp_path / "core", "observer")
+        fac = _agent(tmp_path / "fac", "lightfall", body="facility prompt")
+        br = _agent(tmp_path / "br", "extra")
+        registry.register_scope_dir("core", tmp_path / "core")
+        registry.set_synced([
+            SourceItem("agent", "lightfall", "beamline:7.0.1", fac),
+            SourceItem("agent", "extra", "branch:7.0.1.1", br),
+        ])
 
-        assert rows["core-skill"].scope == "core"
-        assert rows["core-skill"].editable is False
-        assert rows["bl-skill"].scope == "beamline"
-        assert rows["bl-skill"].editable is False
-        assert rows["user-skill"].scope == "user"
-        assert rows["user-skill"].editable is True
+        rows = {r.name: r for r in models.agent_rows(registry)}
 
+        assert rows["lightfall"].scope == "beamline"
+        assert rows["extra"].scope == "branch"
+        assert rows["lightfall"].editable is False
+        assert rows["extra"].editable is False
 
-def _real_resolve(builtin: Path, bl: Path, user: Path) -> dict[str, Path]:
-    resolved: dict[str, Path] = {}
-    for root in (builtin, bl, user):
-        if not root.is_dir():
-            continue
-        for child in sorted(root.iterdir()):
-            if (child / "SKILL.md").is_file():
-                resolved[child.name] = child
-    return resolved
+    def test_synced_shadow_lists_shadowed_scopes_and_copy_to_mine_works(
+        self, registry, tmp_path, monkeypatch
+    ):
+        from lightfall.agents import registry as registry_mod
+        from lightfall.content.sources import SourceItem
+
+        monkeypatch.setattr(registry_mod, "user_agents_dir", lambda: tmp_path / "user")
+        (tmp_path / "user").mkdir()
+        _agent(tmp_path / "core", "lightfall")
+        br = _agent(tmp_path / "br", "lightfall", body="branch prompt")
+        registry.register_scope_dir("core", tmp_path / "core")
+        registry.set_synced([SourceItem("agent", "lightfall", "branch:7.0.1.1", br)])
+
+        row = {r.name: r for r in models.agent_rows(registry)}["lightfall"]
+        assert row.shadowed_scopes == ("core",)
+
+        dest = models.copy_to_user("lightfall", registry)
+        assert "branch prompt" in dest.read_text(encoding="utf-8")
 
 
 class TestDraftRows:
@@ -312,3 +319,75 @@ class TestNewAgentFile:
         models.new_agent_file("dup")
         with pytest.raises(models.EditorError):
             models.new_agent_file("dup")
+
+
+class TestSkillRows:
+    def test_skill_rows_use_catalog_source(self, tmp_path, monkeypatch):
+        from lightfall.content.sources import SourceItem
+
+        builtin, user = tmp_path / "builtin", tmp_path / "user"
+        builtin.mkdir()
+        user.mkdir()
+        _skill(builtin, "core-skill")
+        _skill(user, "user-skill")
+        synced = _skill(tmp_path / "s", "fit@3")
+        item = SourceItem("skill", "fit", "beamline:7.0.1", synced)
+        monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: builtin)
+        monkeypatch.setattr(skills_store, "user_skills_dir", lambda: user)
+        monkeypatch.setattr(skills_store, "plugin_skill_dirs", lambda: {})
+        monkeypatch.setattr(skills_store, "_entry_point_winners", lambda: {})
+        monkeypatch.setattr(
+            skills_store, "default_synced_items", lambda type_: [item]
+        )
+
+        rows = {r.name: r for r in models.skill_rows()}
+
+        assert rows["core-skill"].scope == "core"
+        assert rows["user-skill"].scope == "user"
+        assert rows["user-skill"].editable is True
+        assert rows["fit"].scope == "beamline:7.0.1"
+        assert rows["fit"].editable is False
+        assert rows["fit"].path == synced
+
+    def test_skill_rows_show_what_a_skill_shadows(self, tmp_path, monkeypatch):
+        from lightfall.content.sources import SourceItem
+
+        builtin, user = tmp_path / "builtin", tmp_path / "user"
+        builtin.mkdir()
+        user.mkdir()
+        _skill(builtin, "fit")
+        _skill(builtin, "plain")
+        _skill(user, "fit")
+        synced = _skill(tmp_path / "s", "fit@3")
+        item = SourceItem("skill", "fit", "branch:7.0.1.1", synced)
+        monkeypatch.setattr(skills_store, "builtin_skills_dir", lambda: builtin)
+        monkeypatch.setattr(skills_store, "user_skills_dir", lambda: user)
+        monkeypatch.setattr(skills_store, "plugin_skill_dirs", lambda: {})
+        monkeypatch.setattr(skills_store, "_entry_point_winners", lambda: {})
+        monkeypatch.setattr(
+            skills_store, "default_synced_items", lambda type_: [item]
+        )
+
+        rows = {r.name: r for r in models.skill_rows()}
+
+        assert rows["fit"].scope == "user"
+        assert rows["fit"].shadowed_scopes == ("core", "branch:7.0.1.1")
+        assert rows["plain"].shadowed_scopes == ()
+        assert models.skill_label(rows["fit"]) == "fit  (shadows core, branch:7.0.1.1)"
+        assert models.skill_label(rows["plain"]) == "plain"
+
+
+def test_group_skill_rows_shows_synced_and_plugin_skills():
+    from lightfall.ui.panels.agent_editor import panel
+
+    def row(name, scope):
+        return models.SkillRow(name=name, scope=scope, path=Path(name), editable=False)
+
+    rows = [row("a", "branch:7.0.1.1"), row("b", "plugin"), row("c", "beamline:7.0.1"),
+            row("d", "core"), row("e", "weird")]
+    groups = dict(models.group_skill_rows(rows, panel._SCOPE_ORDER))
+    assert [r.name for r in groups["branch"]] == ["a"]
+    assert [r.name for r in groups["plugin"]] == ["b"]
+    assert [r.name for r in groups["beamline"]] == ["c"]
+    assert [r.name for r in groups["unknown"]] == ["e"]
+    assert "plugin" in panel._SCOPE_LABEL

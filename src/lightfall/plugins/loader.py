@@ -561,6 +561,45 @@ class PluginLoader(QObject):
         finally:
             self._initializing.discard(unique_id)
 
+    @staticmethod
+    def _displace_user_plugin(registry_type: str, key: str, owner: object) -> None:
+        """Package plugins win: unload the user plugin that registered ``key``.
+
+        The whole user plugin goes (its other tools and panels too) and the
+        clash is reported, so the package's registration that follows is the
+        only one. ``owner`` is the incoming tool instance or panel class (its
+        module tells a core plugin from a package one in the clash report).
+        """
+        from pathlib import Path
+
+        from lightfall.plugins.user_plugins import UserPluginService
+
+        # No service yet means no user plugins are loaded; don't create one.
+        service = UserPluginService._instance
+        if service is None:
+            return
+        owner_path = service.owner_of(registry_type, key)
+        if owner_path is None:
+            return
+        old = service.refuse_plugin(
+            Path(owner_path), f"{registry_type} '{key}' now belongs to a package plugin"
+        )
+        source = old.source if old is not None else "local"
+        plugin = old.plugin_name if old is not None else Path(owner_path).stem
+        from lightfall.content.clashes import Clash, ClashLog, code_source, plugin_clash_name
+
+        logger.warning(
+            "Package {} '{}' displaces user plugin {} ({})",
+            registry_type, key, owner_path, source,
+        )
+        ClashLog.get_instance().report([Clash(
+            "plugin",
+            plugin_clash_name(plugin, registry_type, key),
+            code_source(owner),
+            source,
+            True,  # the user plugin had loaded and run before it was unloaded
+        )])
+
     def _register_with_type_registry(self, plugin_info: PluginInfo) -> None:
         """Register plugin with type-specific registry.
 
@@ -579,22 +618,27 @@ class PluginLoader(QObject):
 
                 if hasattr(plan_plugin, "get_plan_info"):
                     plan_info = plan_plugin.get_plan_info()
-                    try:
-                        plan_registry.register(
-                            plan_info.name,
-                            plan_info.func,
-                            plan_info.category,
-                        )
+                    clash = plan_registry.register_ranked(
+                        plan_info.name,
+                        plan_info.func,
+                        plan_info.category,
+                        source="package",
+                    )
+                    if clash is None:
                         logger.debug(
                             "Registered plan '{}' with PlanRegistry",
                             plan_info.name,
                         )
-                    except ValueError:
-                        # Already registered
+                    else:
+                        from lightfall.content.clashes import ClashLog
+
                         logger.warning(
-                            "Plan '{}' already in PlanRegistry",
+                            "Plan '{}' clashes: {} kept, {} not used",
                             plan_info.name,
+                            clash.winner,
+                            clash.loser,
                         )
+                        ClashLog.get_instance().report([clash])
             except ImportError:
                 logger.debug("PlanRegistry not available, skipping plan registration")
 
@@ -652,6 +696,7 @@ class PluginLoader(QObject):
                         plugin_info.name, type(instance).__name__,
                     )
                 else:
+                    self._displace_user_plugin("tool", instance.name, instance)
                     ToolRegistry.get_instance().register(instance)
                     logger.debug("Registered agent plugin '{}' with ToolRegistry", instance.name)
             except ImportError:
@@ -682,6 +727,9 @@ class PluginLoader(QObject):
                 panel_plugin = plugin_info.instance
                 panel_class = panel_plugin.get_panel_class()
 
+                self._displace_user_plugin(
+                    "panel", panel_class.panel_metadata.id, panel_class
+                )
                 panel_registry.register(panel_class, replace=True)
                 logger.debug(
                     "Registered panel '{}' with PanelRegistry",
