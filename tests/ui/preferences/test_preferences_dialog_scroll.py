@@ -17,6 +17,7 @@ class _FakePlugin:
     category = "A"
     priority = 0
     icon = None
+    scope_aware = False  # a declared custom page
 
     def __init__(self):
         self.widget = None
@@ -25,9 +26,6 @@ class _FakePlugin:
         self.widget = QWidget()
         self.widget.setMinimumHeight(2000)  # taller than the dialog
         return self.widget
-
-    def load_settings(self):
-        pass
 
 
 @pytest.fixture

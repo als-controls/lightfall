@@ -268,8 +268,8 @@ class ClaudePanel(BasePanel):
 
         # Claude-settings hot-reload state.
         #   _settings_reload_pending: a debounced reload is already scheduled,
-        #     so a burst of pref writes (one Preferences-dialog OK calls
-        #     save_settings() on every plugin, touching several keys) coalesces
+        #     so a burst of pref writes (one Preferences-dialog OK writes
+        #     every changed key, often several) coalesces
         #     into a single rebuild.
         #   _active_agent_config: the resolved settings the live agent was built
         #     with. A pref change only rebuilds when the *effective* config
@@ -1003,8 +1003,8 @@ class ClaudePanel(BasePanel):
     def _on_claude_pref_changed(self, value: object) -> None:
         """A watched Claude preference changed -> schedule one debounced reload.
 
-        Coalesces a burst of writes (one Preferences-dialog OK calls
-        save_settings() on every plugin) into a single rebuild via a 0-delay
+        Coalesces a burst of writes (one Preferences-dialog OK writes every
+        changed key) into a single rebuild via a 0-delay
         timer. Whether the rebuild actually happens is decided in
         ``_do_claude_settings_reload`` by comparing the effective config -- so
         a no-op save is cheap and harmless.

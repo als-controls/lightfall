@@ -8,7 +8,6 @@ from qtpy.QtWidgets import QComboBox, QHBoxLayout, QLabel, QWidget
 from lightfall.ui.preferences.form.row import set_muted
 from lightfall.ui.preferences.scope_api import ScopeChoice
 
-LEGACY_TEXT = "This page saves to your user settings only"
 CUSTOM_TEXT = "Changes on this page apply immediately"
 APPROVAL_SCOPE_TEXT = "Saving here asks a facility admin to approve these settings"
 DIRTY_MARK = " •"
@@ -101,7 +100,7 @@ class ScopeHeader(QWidget):
         # A single choice (scopes off) leaves nothing to pick.
         self._combo.setEnabled(self._aware and len(self._choices) > 1)
         if not self._aware:
-            text = CUSTOM_TEXT if self._custom else LEGACY_TEXT
+            text = CUSTOM_TEXT if self._custom else ""
         else:
             choice = next((c for c in self._choices if c.scope == self.selected()), None)
             text = choice.read_only_reason if choice is not None else ""

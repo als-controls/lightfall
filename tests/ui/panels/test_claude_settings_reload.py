@@ -10,10 +10,9 @@ running conversation is never torn out from under the user).
 
 Two subtleties drive the design and these tests:
 
-* The Preferences dialog calls ``save_settings()`` on *every* plugin on OK, and
-  the preference backend emits ``changed`` unconditionally -- so a change to an
-  unrelated setting (e.g. the theme) re-writes the Claude prefs to identical
-  values. The reload must be gated on the effective config actually differing,
+* The preference backend emits ``changed`` unconditionally -- so a write of
+  identical values (e.g. a Preferences OK that touches the Claude prefs without
+  changing them) still fires. The reload must be gated on the effective config actually differing,
   not merely on a write happening.
 * The in-panel model picker applies the model live (no rebuild) and updates the
   tracked config, so its own write does not trigger a redundant reload.
