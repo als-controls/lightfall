@@ -131,7 +131,8 @@ class PreferencesDialog(QDialog):
         self._page_names: list[str] = []  # sidebar / stack order
         self._form_pages: dict[str, _FormPage] = {}
         self._key_owner: dict[str, str] = {}  # form key -> plugin name
-        self._fields: dict[str, SettingField] = {}
+        self._fields: dict[str, SettingField] = {}  # form key or companion key -> owning field
+        self._restart_reasons: list[str] = []  # from plugins' restart_reason() in the last _apply
         self._subscriptions: list[tuple[str, Callable[[Any], None]]] = []
         self._initial_page = initial_page
 
@@ -277,8 +278,9 @@ class PreferencesDialog(QDialog):
         self._form_pages[plugin.name] = page
         for section in plugin.sections():
             for field in section_fields(section):
-                self._key_owner[field.key] = plugin.name
-                self._fields[field.key] = field
+                for key in (field.key, *field.companions):
+                    self._key_owner[key] = plugin.name
+                    self._fields[key] = field
         return page
 
     # Live updates -----------------------------------------------------------
@@ -540,6 +542,16 @@ class PreferencesDialog(QDialog):
                 plugin.after_save(scope, values)
             except Exception as e:
                 logger.error("after_save failed for '{}' at {}: {}", name, scope, e)
+            restart_reason = getattr(plugin, "restart_reason", None)
+            if restart_reason is None:
+                continue
+            try:
+                reason = restart_reason(scope, values)
+            except Exception as e:
+                logger.error("restart_reason failed for '{}' at {}: {}", name, scope, e)
+                continue
+            if reason and reason not in self._restart_reasons:
+                self._restart_reasons.append(reason)
 
     def _needs_restart(self, written: list[tuple[str, str, Any]]) -> bool:
         return any(
@@ -550,7 +562,10 @@ class PreferencesDialog(QDialog):
     def _prompt_restart(self) -> None:
         box = QMessageBox(self)
         box.setWindowTitle("Restart required")
-        box.setText("Some of the changed settings take effect after Lightfall restarts.")
+        text = "Some of the changed settings take effect after Lightfall restarts."
+        if self._restart_reasons:
+            text += "\n\n" + "\n".join(self._restart_reasons)
+        box.setText(text)
         restart = box.addButton("Restart now", QMessageBox.ButtonRole.AcceptRole)
         box.addButton("Later", QMessageBox.ButtonRole.RejectRole)
         box.exec()
@@ -565,6 +580,7 @@ class PreferencesDialog(QDialog):
         Returns:
             True if settings were applied successfully.
         """
+        self._restart_reasons = []
         errors = self._validation_errors()
         if errors:
             QMessageBox.warning(
@@ -602,7 +618,7 @@ class PreferencesDialog(QDialog):
                 )
                 return False
 
-        if self._needs_restart(written):
+        if self._needs_restart(written) or self._restart_reasons:
             self._prompt_restart()
         return True
 

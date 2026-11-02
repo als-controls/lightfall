@@ -6,9 +6,17 @@ from qtpy.QtCore import QPoint
 from qtpy.QtGui import QContextMenuEvent
 from qtpy.QtWidgets import QApplication, QComboBox, QGroupBox, QLineEdit, QMenu, QToolButton
 
+from lightfall.ui.preferences.form.editors import FieldEditor
 from lightfall.ui.preferences.form.model import FormModel
 from lightfall.ui.preferences.form.row import SettingRow
-from lightfall.ui.preferences.form.schema import Integer, Section, SettingField, Text, Toggle
+from lightfall.ui.preferences.form.schema import (
+    Custom,
+    Integer,
+    Section,
+    SettingField,
+    Text,
+    Toggle,
+)
 from lightfall.ui.preferences.form.view import SettingsForm
 from lightfall.ui.preferences.scope_api import LockInfo, ScopeChoice
 
@@ -18,7 +26,10 @@ FLAG = "test.flag"        # user-only toggle
 COUNT = "test.count"      # beamline-capable integer (0..60)
 CONSOLE = "test.console"  # console-only text
 
-ALLOWED = {FLAG: {USER}, COUNT: {USER, BEAMLINE}, CONSOLE: {LOCAL}}
+ROWS = "test.rows"        # user-only, custom editor owning COMPANION
+COMPANION = "test.rows_extra"
+
+ALLOWED = {FLAG: {USER}, COUNT: {USER, BEAMLINE}, CONSOLE: {LOCAL}, ROWS: {USER}, COMPANION: {USER}}
 
 
 class FakePrefs:
@@ -541,3 +552,102 @@ def test_field_info_lines_up_with_the_field_labels(qtbot):
     assert text_x(field_info) == label_x
     assert text_x(plain_info) < label_x
     assert field_info.margin() > 0  # spaced from the section description
+
+
+# Custom editors and companion keys ---------------------------------------------------
+
+
+class PairEditor(FieldEditor):
+    """Test-only editor owning its field's value and one companion value."""
+
+    def __init__(self, field):
+        super().__init__()
+        self.field = field
+        self._value = None
+        self._companion = None
+        self.read_only = False
+
+    def value(self):
+        return self._value
+
+    def set_value(self, value):
+        self._value = value
+
+    def set_read_only(self, read_only):
+        self.read_only = read_only
+
+    def companion_values(self):
+        return {COMPANION: self._companion}
+
+    def set_companion_values(self, values):
+        self._companion = values.get(COMPANION)
+
+    def user_edit(self, value, companion):
+        self._value, self._companion = value, companion
+        self.changed.emit()
+
+
+def custom_sections():
+    return [Section("Rows", [SettingField(ROWS, Custom(PairEditor), label="Rows", companions=(COMPANION,))])]
+
+
+def test_custom_editor_is_built_by_its_factory(qtbot):
+    form, _, _ = make_form(qtbot, sections=custom_sections())
+    editor = rows(form)[ROWS].editor
+    assert isinstance(editor, PairEditor)
+    assert editor.field.key == ROWS
+
+
+def test_companion_loaded_with_field(qtbot):
+    prefs = FakePrefs(layers={(USER, ROWS): "a", (USER, COMPANION): ["x"]})
+    form, _, _ = make_form(qtbot, prefs, sections=custom_sections())
+    editor = rows(form)[ROWS].editor
+    assert editor.value() == "a"
+    assert editor._companion == ["x"]
+    assert set(rows(form)) == {ROWS}  # the companion is not a row of its own
+
+
+def test_editor_change_edits_companion_at_scope(qtbot):
+    form, model, prefs = make_form(qtbot, sections=custom_sections())
+    rows(form)[ROWS].editor.user_edit("b", ["y"])
+    ops = {(op.scope, op.key): op.value for op in model.ops(prefs.writable_at)}
+    assert ops == {(USER, ROWS): "b", (USER, COMPANION): ["y"]}
+    assert rows(form)[ROWS].is_marked_dirty()
+
+
+def test_companion_edit_alone_marks_row_dirty(qtbot):
+    prefs = FakePrefs(layers={(USER, ROWS): "a"})
+    form, model, _ = make_form(qtbot, prefs, sections=custom_sections())
+    rows(form)[ROWS].editor.user_edit("a", ["y"])
+    assert not model.is_dirty(USER, ROWS)
+    assert rows(form)[ROWS].is_marked_dirty()
+
+
+def test_clear_clears_companion(qtbot):
+    prefs = FakePrefs(layers={(USER, ROWS): "a", (USER, COMPANION): ["x"]})
+    form, model, _ = make_form(qtbot, prefs, sections=custom_sections())
+    form._on_clear(ROWS)
+    assert model.pending(USER, ROWS) is None
+    assert model.pending(USER, COMPANION) is None
+    assert model.is_dirty(USER, COMPANION)
+
+
+def test_refresh_keeps_dirty_companion(qtbot):
+    prefs = FakePrefs(layers={(USER, ROWS): "a", (USER, COMPANION): ["x"]})
+    form, model, _ = make_form(qtbot, prefs, sections=custom_sections())
+    editor = rows(form)[ROWS].editor
+    editor.user_edit("a", ["y"])  # only the companion is dirty
+    prefs.layers[(USER, ROWS)] = "remote"
+    prefs.layers[(USER, COMPANION)] = ["remote"]
+    form.refresh_from_store()
+    assert editor.value() == "a"
+    assert editor._companion == ["y"]
+    assert model.pending(USER, COMPANION) == ["y"]
+
+
+def test_refresh_reloads_clean_companion(qtbot):
+    prefs = FakePrefs(layers={(USER, ROWS): "a", (USER, COMPANION): ["x"]})
+    form, _, _ = make_form(qtbot, prefs, sections=custom_sections())
+    prefs.layers[(USER, COMPANION)] = ["remote"]
+    form.refresh_from_store()
+    assert rows(form)[ROWS].editor._companion == ["remote"]

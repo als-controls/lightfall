@@ -11,6 +11,8 @@ from lightfall_settings import SettingSpec
 if TYPE_CHECKING:
     from qtpy.QtWidgets import QWidget
 
+    from lightfall.ui.preferences.form.editors import FieldEditor
+
 
 class FormValues(Protocol):
     """Pending values of a form, as seen by predicates and validators."""
@@ -52,7 +54,8 @@ class CatalogItem:
 class EditorSpec:
     """Which editor widget to build for a field, and its parameters."""
 
-    kind: str  # "toggle" | "choice" | "integer" | "number" | "text" | "url" | "secret" | "catalog" | "mapping"
+    # "toggle" | "choice" | "integer" | "number" | "text" | "url" | "secret" | "catalog" | "mapping" | "custom"
+    kind: str
     options: Sequence[tuple[Any, str]] | Callable[[], Sequence[tuple[Any, str]]] = ()
     minimum: float | None = None
     maximum: float | None = None
@@ -62,6 +65,7 @@ class EditorSpec:
     items: Callable[[], Sequence[CatalogItem]] | None = None  # catalog only
     columns: tuple[str, ...] = ()  # catalog/mapping only: headers of the items' extra text columns
     value: EditorSpec | None = None  # mapping only: the editor of each item's value
+    factory: Callable[[SettingField], FieldEditor] | None = None  # custom only: builds the editor
 
 
 def Toggle() -> EditorSpec:  # noqa: N802
@@ -108,6 +112,11 @@ def Mapping(  # noqa: N802
     return EditorSpec("mapping", items=items, columns=tuple(columns), value=value)
 
 
+def Custom(factory: Callable[[SettingField], FieldEditor]) -> EditorSpec:  # noqa: N802
+    """An editor built by ``factory(field)``, for settings no stock editor fits."""
+    return EditorSpec("custom", factory=factory)
+
+
 @dataclass(frozen=True)
 class SettingField:
     """One setting shown on a form page."""
@@ -122,6 +131,10 @@ class SettingField:
     visible_when: Predicate | None = None
     enabled_when: Predicate | None = None
     validate: Callable[[Any, FormValues], str | None] | None = None
+    # Extra keys whose values this field's editor owns at the same scope. Its editor then
+    # implements companion_values() -> {key: value or None} and set_companion_values(values)
+    # (no ``changed``). Companions are written, reported and cleared with the field but get no row.
+    companions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

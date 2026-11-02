@@ -10,9 +10,11 @@ from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QComboBox, QLabel, QMessageBox, QPushButton, QWidget
 
 from lightfall.ui.preferences.dialog import PreferencesDialog
+from lightfall.ui.preferences.form.editors import FieldEditor
 from lightfall.ui.preferences.form.header import APPROVAL_SCOPE_TEXT, LEGACY_TEXT, ScopeHeader
 from lightfall.ui.preferences.form.row import SettingRow
 from lightfall.ui.preferences.form.schema import (
+    Custom,
     Info,
     Integer,
     Secret,
@@ -116,6 +118,12 @@ class FormPlugin:
         self.after_save_calls: list[tuple[str, dict]] = []
         self.reverted = 0
         self.cross_errors: list[str] = []
+        self.reason = ""  # restart_reason() result
+        self.reason_calls: list[tuple[str, dict]] = []
+
+    def restart_reason(self, scope, changed):
+        self.reason_calls.append((scope, dict(changed)))
+        return self.reason
 
     def sections(self):
         return self._sections
@@ -690,3 +698,99 @@ def test_header_has_no_approval_text_when_only_some_fields_need_it(qtbot, env):
     assert header(dialog)._state.text() == ""
     assert row(dialog, "main", COUNT).approval_note_shown()
     assert not row(dialog, "main", FLAG).approval_note_shown()
+
+
+# Custom editors, companion keys and restart reasons ----------------------------------
+
+ROWS = "dlg.rows"
+COMPANION = "dlg.rows_extra"
+
+
+class PairEditor(FieldEditor):
+    """Test-only editor owning its field's value and one companion value."""
+
+    def __init__(self, _field):
+        super().__init__()
+        self._value = None
+        self._companion = None
+
+    def value(self):
+        return self._value
+
+    def set_value(self, value):
+        self._value = value
+
+    def set_read_only(self, read_only): ...
+
+    def companion_values(self):
+        return {COMPANION: self._companion}
+
+    def set_companion_values(self, values):
+        self._companion = values.get(COMPANION)
+
+    def user_edit(self, value, companion):
+        self._value, self._companion = value, companion
+        self.changed.emit()
+
+
+def test_companion_written_and_reported_to_after_save(qtbot, env):
+    env.prefs.allowed.update({ROWS: {USER}, COMPANION: {USER}})
+    env.main._sections = [
+        Section("Rows", [SettingField(ROWS, Custom(PairEditor), label="Rows", companions=(COMPANION,))])
+    ]
+    dialog = make_dialog(qtbot, env)
+    dialog._prompt_restart = lambda: pytest.fail("no restart expected")
+    row(dialog, "main", ROWS).editor.user_edit("a", ["x"])
+    assert dialog._apply() is True
+    assert ("set", ROWS, "a", USER) in env.prefs.calls
+    assert ("set", COMPANION, ["x"], USER) in env.prefs.calls
+    assert env.main.after_save_calls == [(USER, {ROWS: "a", COMPANION: ["x"]})]
+    assert env.main.reason_calls == [(USER, {ROWS: "a", COMPANION: ["x"]})]
+    assert dialog._label(COMPANION) == "Rows"
+
+
+def test_restart_reason_prompts_once_with_reasons(qtbot, env):
+    reason = "Device backends changed."
+    env.main.reason = reason
+    dialog = make_dialog(qtbot, env)
+    prompts: list[list[str]] = []
+    dialog._prompt_restart = lambda: prompts.append(list(dialog._restart_reasons))
+    click_toggle(qtbot, row(dialog, "main", FLAG), "On")
+    dialog.select_scope(BEAMLINE)
+    click_toggle(qtbot, row(dialog, "main", FLAG), "Off")
+    assert dialog._apply() is True
+    assert sorted(scope for scope, _ in env.main.reason_calls) == sorted([USER, BEAMLINE])
+    assert prompts == [[reason]]
+    assert dialog._restart_reasons == [reason]
+
+
+def test_no_reason_no_restart_field_no_prompt(qtbot, env):
+    dialog = make_dialog(qtbot, env)
+    prompts: list[int] = []
+    dialog._prompt_restart = lambda: prompts.append(1)
+    click_toggle(qtbot, row(dialog, "main", FLAG), "On")
+    assert dialog._apply() is True
+    assert env.main.reason_calls == [(USER, {FLAG: True})]
+    assert prompts == []
+    assert dialog._restart_reasons == []
+
+
+def test_restart_reasons_reset_on_each_apply(qtbot, env):
+    env.main.reason = "Backends changed."
+    dialog = make_dialog(qtbot, env)
+    dialog._prompt_restart = lambda: None
+    click_toggle(qtbot, row(dialog, "main", FLAG), "On")
+    dialog._apply()
+    env.main.reason = ""
+    click_toggle(qtbot, row(dialog, "main", FLAG), "Off")
+    dialog._apply()
+    assert dialog._restart_reasons == []
+
+
+def test_restart_prompt_lists_reasons_under_its_sentence(qtbot, env):
+    dialog = make_dialog(qtbot, env)
+    dialog._restart_reasons = ["First reason.", "Second reason."]
+    dialog._prompt_restart()
+    text = env.boxes[-1][1]
+    assert text.startswith("Some of the changed settings take effect after Lightfall restarts.")
+    assert text.endswith("First reason.\nSecond reason.")
