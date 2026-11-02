@@ -764,6 +764,10 @@ class LFMainWindow(QMainWindow):
                                bind=get_site_bind)
             self._prefs_manager.scopes_changed.connect(sync.follow)
             sync.synced.connect(self._on_content_synced)
+            from lightfall.core.services import ServiceRegistry
+
+            # Publish/retract/restore (lightfall.content.actions) refresh it after a write.
+            ServiceRegistry.get_instance().register_instance(ContentSync, sync, replace=True)
         except Exception as e:
             logger.warning("Scoped content sync unavailable: {}", e)
             return None

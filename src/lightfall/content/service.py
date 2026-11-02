@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, QTimer, Signal, Slot
 
 from lightfall.content.store import ContentStore
 from lightfall.content.sync import SyncResult, sync_chain
@@ -100,6 +100,7 @@ class ContentSync(QObject):
         self._poll.stop()
         self._unsubscribe()
 
+    @Slot()  # by name: lightfall.content.actions.refresh_sync queues it from workers
     def refresh(self) -> None:
         if not self._started:
             return
