@@ -46,6 +46,16 @@ def _is_form_page(plugin: Any) -> bool:
     return bool(check()) if callable(check) else False
 
 
+def _is_custom_page(plugin: Any) -> bool:
+    """A declared custom page: not scope aware, builds its own widget, applies changes immediately."""
+    if _is_form_page(plugin) or getattr(plugin, "scope_aware", True) is not False:
+        return False
+    from lightfall.plugins.settings_plugin import SettingsPlugin
+
+    build = getattr(type(plugin), "create_widget", None)
+    return build is not None and build is not SettingsPlugin.create_widget
+
+
 class _FormPage(QWidget):
     """A form page's stack content: the form, or a note when nothing applies at the scope."""
 
@@ -227,6 +237,8 @@ class PreferencesDialog(QDialog):
             try:
                 if _is_form_page(plugin):
                     widget = self._build_form_page(plugin)
+                elif _is_custom_page(plugin):
+                    widget = plugin.create_widget(self)
                 else:
                     logger.warning(
                         "Settings page '{}' is hand-built (deprecated); convert it to sections()",
@@ -411,7 +423,7 @@ class PreferencesDialog(QDialog):
         if 0 <= row < len(self._page_names):
             plugin = self._plugins[self._page_names[row]]
             aware = _is_form_page(plugin) and getattr(plugin, "scope_aware", True)
-            self._header.set_page_scope_aware(bool(aware))
+            self._header.set_page_scope_aware(bool(aware), custom=_is_custom_page(plugin))
         self._refresh_header_approval()
 
     def _refresh_header_approval(self) -> None:
@@ -443,6 +455,8 @@ class PreferencesDialog(QDialog):
         for plugin in self._plugins.values():
             if _is_form_page(plugin):
                 errors.extend(self._form_errors(plugin))
+                continue
+            if _is_custom_page(plugin):
                 continue
             try:
                 for err in plugin.validate() or []:
@@ -604,7 +618,7 @@ class PreferencesDialog(QDialog):
 
         # Save hand-built (legacy) pages
         for plugin in self._plugins.values():
-            if _is_form_page(plugin):
+            if _is_form_page(plugin) or _is_custom_page(plugin):
                 continue
             try:
                 plugin.save_settings()

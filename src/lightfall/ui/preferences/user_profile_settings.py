@@ -9,7 +9,7 @@ on Cancel would be ugly.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
@@ -43,7 +43,9 @@ _MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 
 class UserProfileSettingsPlugin(SettingsPlugin):
-    """Profile picture + identity preview."""
+    """Profile picture + identity preview (a custom page: changes apply immediately)."""
+
+    scope_aware: ClassVar[bool] = False
 
     def __init__(self) -> None:
         self._widget: QWidget | None = None
@@ -122,11 +124,12 @@ class UserProfileSettingsPlugin(SettingsPlugin):
         outer.addStretch()
 
         self._widget = widget
+        self._attach_live()
         return widget
 
     # ── Lifecycle (noop bodies for now; later tasks fill in) ─────────────
 
-    def load_settings(self) -> None:
+    def _attach_live(self) -> None:
         """Render the current avatar from PreferencesManager's cache;
         subscribe for live updates so a change elsewhere re-renders this dialog."""
         from lightfall.ui.preferences.manager import PreferencesManager
@@ -181,13 +184,6 @@ class UserProfileSettingsPlugin(SettingsPlugin):
         logger.warning("Failed to load profile image: {}", exc)
         self._set_placeholder_avatar()
         self._loaded_image_id = None
-
-    def save_settings(self) -> None:
-        # Commit-on-action design: nothing to do here.
-        return None
-
-    def validate(self) -> list[str]:
-        return []
 
     # ── Stubs the later tasks replace ────────────────────────────────────
 

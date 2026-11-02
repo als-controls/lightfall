@@ -142,7 +142,6 @@ def test_load_settings_no_image_keeps_placeholder(qtbot, stub_session):
     p = UserProfileSettingsPlugin()
     w = p.create_widget()
     qtbot.addWidget(w)
-    p.load_settings()
     qtbot.wait(100)
     assert p._avatar_label is not None
     assert not p._avatar_label.pixmap().isNull()
@@ -168,7 +167,6 @@ def test_load_settings_with_image_fetches_bytes(
     p = UserProfileSettingsPlugin()
     w = p.create_widget()
     qtbot.addWidget(w)
-    p.load_settings()
 
     qtbot.waitUntil(
         lambda: p._loaded_image_id == "img-1",
@@ -211,7 +209,6 @@ def test_load_settings_download_failure_is_not_logged_as_error(
         p = UserProfileSettingsPlugin()
         w = p.create_widget()
         qtbot.addWidget(w)
-        p.load_settings()
         qtbot.waitUntil(
             lambda: any("Failed to load profile image" in msg for _, msg in records),
             timeout=5000,
@@ -255,7 +252,6 @@ def test_choose_image_happy_path(
     p = UserProfileSettingsPlugin()
     w = p.create_widget()
     qtbot.addWidget(w)
-    p.load_settings()  # subscribe so the prefs change triggers re-render
     p._on_choose_clicked()
 
     # The full chain: upload → PreferencesManager.set → UserPortableBackend
@@ -339,7 +335,6 @@ def test_remove_image_clears_setting(qtbot, stub_session):
     p = UserProfileSettingsPlugin()
     w = p.create_widget()
     qtbot.addWidget(w)
-    p.load_settings()  # subscribe; _on_image_id_changed("old") → starts fetch
     # Skip waiting for the image fetch; just force the loaded state directly
     p._loaded_image_id = "old"
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 import shiboken6
 from PySide6.QtWidgets import (
@@ -91,6 +91,8 @@ def _default_actions() -> Any:
 class SettingKeysSettingsPlugin(SettingsPlugin):
     """Review page for proposed and approved setting keys."""
 
+    scope_aware: ClassVar[bool] = False
+
     def __init__(self) -> None:
         self.loader: Callable[[], KeysState] = _default_loader
         self.actions: Callable[[], Any] = _default_actions
@@ -127,12 +129,6 @@ class SettingKeysSettingsPlugin(SettingsPlugin):
     @property
     def priority(self) -> int:
         return 91
-
-    def load_settings(self) -> None:
-        pass
-
-    def save_settings(self) -> None:
-        pass
 
     # ── widget ──────────────────────────────────────────────────────────
 

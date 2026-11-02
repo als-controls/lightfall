@@ -11,7 +11,12 @@ from PySide6.QtWidgets import QComboBox, QLabel, QMessageBox, QPushButton, QWidg
 
 from lightfall.ui.preferences.dialog import PreferencesDialog
 from lightfall.ui.preferences.form.editors import FieldEditor
-from lightfall.ui.preferences.form.header import APPROVAL_SCOPE_TEXT, LEGACY_TEXT, ScopeHeader
+from lightfall.ui.preferences.form.header import (
+    APPROVAL_SCOPE_TEXT,
+    CUSTOM_TEXT,
+    LEGACY_TEXT,
+    ScopeHeader,
+)
 from lightfall.ui.preferences.form.row import SettingRow
 from lightfall.ui.preferences.form.schema import (
     Custom,
@@ -177,6 +182,40 @@ class LegacyPlugin:
         self.reverted += 1
 
 
+class CustomPlugin:
+    """A declared custom page: not scope aware, builds its own widget, never loaded or saved."""
+
+    name = "custom"
+    display_name = "Custom"
+    category = "C"
+    priority = 0
+    icon = None
+    scope_aware = False
+
+    def __init__(self):
+        self.widget = None
+        self.reverted = 0
+
+    def is_form_page(self):
+        return False
+
+    def create_widget(self, parent):
+        self.widget = QWidget()
+        return self.widget
+
+    def load_settings(self):  # pragma: no cover - must never be called
+        raise AssertionError("load_settings called on a custom page")
+
+    def save_settings(self):  # pragma: no cover - must never be called
+        raise AssertionError("save_settings called on a custom page")
+
+    def validate(self):  # pragma: no cover - must never be called
+        raise AssertionError("validate called on a custom page")
+
+    def revert_preview(self):
+        self.reverted += 1
+
+
 def _main_sections():
     return [
         Section("General", [
@@ -193,7 +232,8 @@ def env(monkeypatch):
     main = FormPlugin("main", _main_sections(), priority=0)
     console = FormPlugin("console", [Section("Console", [SettingField(CONSOLE, Text(), label="Console")])], 1)
     legacy = LegacyPlugin()
-    infos = [SimpleNamespace(instance=p) for p in (main, console, legacy)]
+    custom = CustomPlugin()
+    infos = [SimpleNamespace(instance=p) for p in (main, console, legacy, custom)]
     registry = SimpleNamespace(get_ready_by_type=lambda _t: list(infos))
     services = SimpleNamespace(get=lambda _cls: registry)
     monkeypatch.setattr(
@@ -216,7 +256,7 @@ def env(monkeypatch):
     monkeypatch.setattr(QMessageBox, "warning", record("warning"))
     monkeypatch.setattr(QMessageBox, "critical", record("critical"))
     ns = SimpleNamespace(
-        prefs=prefs, main=main, console=console, legacy=legacy, restarts=restarts, boxes=boxes, box_choice=None,
+        prefs=prefs, main=main, console=console, legacy=legacy, custom=custom, restarts=restarts, boxes=boxes, box_choice=None,
         default_buttons=[],
     )
 
@@ -794,3 +834,38 @@ def test_restart_prompt_lists_reasons_under_its_sentence(qtbot, env):
     text = env.boxes[-1][1]
     assert text.startswith("Some of the changed settings take effect after Lightfall restarts.")
     assert text.endswith("First reason.\nSecond reason.")
+
+
+def test_custom_page_header_text_and_no_load_save(qtbot, env):
+    dialog = make_dialog(qtbot, env)  # would raise if load_settings were called
+    page = dialog._stack.widget(page_index(dialog, "custom"))
+    assert page.widget() is env.custom.widget
+    dialog._sidebar.setCurrentRow(page_index(dialog, "custom"))
+    h = header(dialog)
+    assert not h._combo.isEnabled()
+    assert h._state.text() == CUSTOM_TEXT == "Changes on this page apply immediately"
+    dialog.accept()  # would raise if validate or save_settings were called
+    assert env.prefs.calls == []
+
+
+def test_custom_page_logs_no_deprecation_warning(qtbot, env, monkeypatch):
+    names: list[str] = []
+    monkeypatch.setattr(
+        "lightfall.ui.preferences.dialog.logger.warning", lambda msg, *a, **k: names.append(str(a[0]) if a else msg)
+    )
+    make_dialog(qtbot, env)
+    assert names == ["legacy"]  # only the legacy page is deprecated; its name is the first argument
+
+
+def test_scopes_setting_keys_profile_are_custom_pages():
+    from lightfall.plugins.settings_plugin import SettingsPlugin
+    from lightfall.ui.preferences.dialog import _is_custom_page
+    from lightfall.ui.preferences.scopes_settings import ScopesSettingsPlugin
+    from lightfall.ui.preferences.setting_keys_settings import SettingKeysSettingsPlugin
+    from lightfall.ui.preferences.user_profile_settings import UserProfileSettingsPlugin
+
+    for cls in (ScopesSettingsPlugin, SettingKeysSettingsPlugin, UserProfileSettingsPlugin):
+        assert cls.scope_aware is False
+        assert cls.create_widget is not SettingsPlugin.create_widget
+        assert "load_settings" not in vars(cls) and "save_settings" not in vars(cls)
+        assert _is_custom_page(cls())
