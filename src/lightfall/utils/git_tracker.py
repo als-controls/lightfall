@@ -206,6 +206,33 @@ class GitTracker:
             logger.warning("git commit (removal) failed for {}: {}", rel_paths, e)
             return False
 
+    def head_commit(self, path: Path) -> str | None:
+        """The last commit touching ``path``, or None.
+
+        None when the path is outside the repo, not tracked, has uncommitted changes
+        (modified, staged or untracked files under it), or git fails. Never raises.
+        """
+        try:
+            rel = self._validate_paths([path])
+            if not rel or not (self.repo_root / ".git").exists():
+                return None
+            status = subprocess.run(
+                ["git", "status", "--porcelain", "--", rel[0]],
+                cwd=self.repo_root, capture_output=True, text=True, timeout=30,
+            )
+            if status.returncode != 0 or status.stdout.strip():
+                return None
+            log = subprocess.run(
+                ["git", "log", "-1", "--format=%H", "--", rel[0]],
+                cwd=self.repo_root, capture_output=True, text=True, timeout=30,
+            )
+            if log.returncode != 0:
+                return None
+            return log.stdout.strip() or None
+        except Exception as e:
+            logger.warning("git head_commit failed for {}: {}", path, e)
+            return None
+
     def _validate_paths(self, paths: list[Path]) -> list[str]:
         """Return repo-relative path strings, dropping any outside the root."""
         out: list[str] = []

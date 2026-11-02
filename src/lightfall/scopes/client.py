@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 
+from lightfall.content.labels import describe_source
 from lightfall.utils.logging import logger
 
 try:
@@ -465,21 +466,10 @@ class ScopesClient:
         return [rec for rec in body if isinstance(rec, dict)]
 
 
-def _scope_label(scope: str) -> str:
-    kind, _, rest = scope.partition(":")
-    if kind == "branch" and rest:
-        return f"Branch {rest}"
-    if kind == "beamline" and rest:
-        return f"Beamline {rest}"
-    if kind == "facility":
-        return "Facility"
-    return scope or "this scope"
-
-
 def describe_error(exc: ScopesError, *, scope: str = "") -> str:
     """A plain-language reason for a failed content write."""
     if exc.status == 403:
-        return f"You're not a maintainer of {_scope_label(scope)}."
+        return f"You're not a maintainer of {describe_source(scope)}."
     if exc.status == 409:
         return "Someone changed it at the same time — try again."
     if exc.status == 413:
