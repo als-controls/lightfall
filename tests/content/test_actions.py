@@ -416,3 +416,18 @@ def test_content_rows_without_running_services(home, clean, tmp_path):
     assert UserPlanService._instance is None and UserPluginService._instance is None
     assert {r.type for r in rows} <= {"plan", "agent", "skill"}
     assert not (home / "lightfall" / "plans").exists()
+
+
+def test_synced_revision_falls_back_to_the_index(home, clean, tmp_path):
+    """A synced path outside a ``<name>@<rev>`` folder takes its revision from the index."""
+    store = ContentStore(tmp_path / "content")
+    item = ContentItem(type="agent", name="scout", revision=6, sha256="0" * 64, size=1)
+    store.save_listing(ContentListing(scope=BRANCH, items=(item,)))
+    elsewhere = tmp_path / "elsewhere" / "scout.md"
+    elsewhere.parent.mkdir(parents=True)
+    elsewhere.write_text(_agent("scout"), encoding="utf-8")
+    AgentSpecRegistry.get_instance().set_synced(
+        [SourceItem("agent", "scout", BRANCH, elsewhere, None)])
+
+    row = _row(actions.content_rows(store=store), "agent", "scout")
+    assert (row.source, row.revision, row.path) == (BRANCH, 6, elsewhere)

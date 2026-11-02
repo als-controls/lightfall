@@ -47,7 +47,11 @@ def _remove(path: Path) -> None:
 
 
 def _place(src: Path, dest: Path) -> None:
-    """Copy ``src`` beside ``dest`` first, then swap it in, so a failed copy changes nothing."""
+    """Copy ``src`` beside ``dest`` first, then swap it in, so a failed copy changes nothing.
+
+    An existing ``dest`` is moved aside (not deleted) before the swap and moved back if
+    the swap fails (a sharing violation, an antivirus lock); it is deleted only after.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     staged = Path(tempfile.mkdtemp(dir=dest.parent, prefix=f".copy-{dest.name}-"))
     try:
@@ -56,9 +60,16 @@ def _place(src: Path, dest: Path) -> None:
             shutil.copytree(src, new, ignore=_IGNORE)
         else:
             shutil.copy2(src, new)
-        if dest.exists():
-            _remove(dest)
-        os.replace(new, dest)
+        aside = staged / "previous"
+        had_old = dest.exists() or dest.is_symlink()
+        if had_old:
+            os.rename(dest, aside)
+        try:
+            os.replace(new, dest)
+        except BaseException:
+            if had_old:
+                os.rename(aside, dest)
+            raise
     finally:
         shutil.rmtree(staged, ignore_errors=True)
 
@@ -78,8 +89,9 @@ def _load(row: ContentRow, dest: Path, replaced: list[Path]) -> None:
             return
         service = UserPluginService.get_instance()
         for old in replaced:  # a removed local plugin of the other form (file vs folder)
-            if getattr(service, "get_plugin_info", lambda p: None)(old) is not None:
+            if service.get_plugin_info(old) is not None:
                 service.unload_plugin(old)
+            service._commit_removal(old, msg)
         service._displace_synced(row.name)  # the local copy wins over the synced one
         service.load_plugin_from_file(dest, commit_msg=msg)
     elif row.type == "agent":

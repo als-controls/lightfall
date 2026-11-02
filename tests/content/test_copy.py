@@ -149,3 +149,68 @@ def test_copy_loads_plans_and_plugins_through_running_services(tmp_path, monkeyp
         ("displace", "tool"),
         ("plugin", root / "plugins" / "tool.py", f"copied from {BRANCH}"),
     ]
+
+
+def test_failed_swap_leaves_the_local_item_and_no_leftovers(tmp_path, monkeypatch):
+    from lightfall.content import copy as copy_mod
+
+    synced, root = tmp_path / "synced", tmp_path / "mine"
+    plan = _write(synced / "xafs@3" / "xafs.py", "NEW = 1\n")
+    mine = _write(root / "plans" / "xafs.py", "MINE = 1\n")
+    skill = synced / "fitting@9"
+    _write(skill / "SKILL.md", "new\n")
+    own = _write(root / "skills" / "fitting" / "SKILL.md", "mine\n")
+
+    def locked(src, dst):
+        raise PermissionError("sharing violation")
+
+    monkeypatch.setattr(copy_mod.os, "replace", locked)
+    with pytest.raises(PermissionError):
+        copy_to_mine(_row("plan", "xafs", plan), root=root, overwrite=True)
+    with pytest.raises(PermissionError):
+        copy_to_mine(_row("skill", "fitting", skill), root=root, overwrite=True)
+    assert mine.read_text(encoding="utf-8") == "MINE = 1\n"
+    assert own.read_text(encoding="utf-8") == "mine\n"
+    assert sorted(p.name for p in (root / "plans").iterdir()) == ["xafs.py"]
+    assert sorted(p.name for p in (root / "skills").iterdir()) == ["fitting"]
+
+
+def test_replacing_the_other_plugin_form_commits_its_removal(tmp_path, monkeypatch):
+    calls = []
+
+    class FakePlugins:
+        def deleteLater(self):
+            pass
+
+        def _cleanup_temp_dir(self):
+            pass
+
+        def get_plugin_info(self, path):
+            return object() if path.name == "tools.py" else None
+
+        def unload_plugin(self, path):
+            calls.append(("unload", path))
+
+        def _commit_removal(self, path, msg):
+            calls.append(("commit_removal", path, msg, path.exists()))
+
+        def _displace_synced(self, name):
+            calls.append(("displace", name))
+
+        def load_plugin_from_file(self, path, commit_msg=None):
+            calls.append(("load", path, commit_msg))
+
+    monkeypatch.setattr(UserPluginService, "_instance", FakePlugins())
+    synced, root = tmp_path / "synced", tmp_path / "mine"
+    pkg = synced / "tools@7"
+    _write(pkg / "__init__.py", "X = 1\n")
+    old = _write(root / "plugins" / "tools.py", "MINE = 1\n")
+
+    dest = copy_to_mine(_row("plugin", "tools", pkg), root=root, overwrite=True)
+    msg = f"copied from {BRANCH}"
+    assert calls == [
+        ("unload", old),
+        ("commit_removal", old, msg, False),  # committed after the file is gone
+        ("displace", "tools"),
+        ("load", dest, msg),
+    ]
