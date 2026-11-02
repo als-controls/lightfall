@@ -532,3 +532,19 @@ def test_test_connection_action_uses_effective_values(env, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "envkey")
     cs._test_connection_action(_frozen(claude_endpoint="custom", claude_custom_url="https://x.org/"))
     assert got[-1][:2] == ("https://x.org", "envkey")
+
+
+@pytest.mark.parametrize("stored", [None, "proj-1"])
+def test_cleared_text_field_is_not_set_never_empty(qtbot, env, stored):
+    env.prefs.layers[(USER, "agent_backend")] = "agy"
+    if stored is not None:
+        env.prefs.layers[(USER, "agy_gcp_project")] = stored
+    dialog = _dialog(qtbot)
+    _type(dialog, "agy_gcp_project", "typed-project")
+    _type(dialog, "agy_gcp_project", "  ")
+    _type(dialog, "agy_gcp_location", "")
+    assert dialog._apply() is True
+    assert all(value != "" for _key, value, _scope in env.prefs.calls)
+    expected = [] if stored is None else [("agy_gcp_project", None, USER)]  # a stored value is removed
+    assert env.prefs.calls == expected
+    _wait_idle(qtbot, dialog)

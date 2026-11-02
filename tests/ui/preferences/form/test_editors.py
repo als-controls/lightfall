@@ -488,3 +488,29 @@ def test_text_editor_shows_the_start_of_a_long_value(qtbot):
     qtbot.addWidget(editor)
     editor.set_value("http://logbook.example.org:9000/a/rather/long/path/that/does/not/fit")
     assert editor.findChild(QLineEdit).cursorPosition() == 0
+
+
+@pytest.mark.parametrize("spec", [Text(blank_is_unset=True), Url(blank_is_unset=True)], ids=["text", "url"])
+@pytest.mark.parametrize("typed", ["", "  "])
+def test_blank_is_unset_gives_not_set(qtbot, spec, typed):
+    editor = make_spec(qtbot, spec)
+    editor.show()
+    line = editor.findChild(QLineEdit)
+    editor.set_value("abc")
+    line.setText(typed)
+    line.textEdited.emit(typed)
+    assert editor.value() is None
+    assert not editor.empty_hint.isVisible()
+    assert editor.is_valid()
+    editor.set_value("")  # a stored "" shows as Not set too
+    assert editor.value() is None and not editor.empty_hint.isVisible()
+
+
+@pytest.mark.parametrize("spec", [Text(), Url()], ids=["text", "url"])
+def test_blank_is_a_value_by_default(qtbot, spec):
+    editor = make_spec(qtbot, spec)
+    line = editor.findChild(QLineEdit)
+    editor.set_value("abc")
+    line.setText("")
+    line.textEdited.emit("")
+    assert editor.value() == ""

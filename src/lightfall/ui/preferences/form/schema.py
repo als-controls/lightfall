@@ -62,6 +62,8 @@ class EditorSpec:
     step: float | None = None
     schemes: tuple[str, ...] = ("http", "https")  # url only
     require_host: bool = True  # url only
+    # text/url only: a blank (whitespace-only) entry means Not set (None) instead of the value "".
+    blank_is_unset: bool = False
     items: Callable[[], Sequence[CatalogItem]] | None = None  # catalog only
     columns: tuple[str, ...] = ()  # catalog/mapping only: headers of the items' extra text columns
     value: EditorSpec | None = None  # mapping only: the editor of each item's value
@@ -84,12 +86,14 @@ def Number(minimum: float | None = None, maximum: float | None = None, step: flo
     return EditorSpec("number", minimum=minimum, maximum=maximum, step=step)
 
 
-def Text() -> EditorSpec:  # noqa: N802
-    return EditorSpec("text")
+def Text(blank_is_unset: bool = False) -> EditorSpec:  # noqa: N802
+    return EditorSpec("text", blank_is_unset=blank_is_unset)
 
 
-def Url(schemes: tuple[str, ...] = ("http", "https"), require_host: bool = True) -> EditorSpec:  # noqa: N802
-    return EditorSpec("url", schemes=tuple(schemes), require_host=require_host)
+def Url(  # noqa: N802
+    schemes: tuple[str, ...] = ("http", "https"), require_host: bool = True, blank_is_unset: bool = False
+) -> EditorSpec:
+    return EditorSpec("url", schemes=tuple(schemes), require_host=require_host, blank_is_unset=blank_is_unset)
 
 
 def Secret() -> EditorSpec:  # noqa: N802

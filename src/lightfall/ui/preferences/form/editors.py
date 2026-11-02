@@ -397,6 +397,9 @@ class NumberEditor(FieldEditor):
 class TextEditor(FieldEditor):
     """Line edit; ``""`` is a value, shown with an "(empty)" hint.
 
+    With ``blank_is_unset`` a blank (whitespace-only) entry, typed or stored, is
+    Not set (``None``) instead, and the "(empty)" hint never shows.
+
     Subclasses may override ``_problem`` to reject text: the hint label and
     tooltip then show the reason, the text turns the theme error colour and
     ``is_valid()`` is False.
@@ -404,9 +407,10 @@ class TextEditor(FieldEditor):
 
     fills_row = True
 
-    def __init__(self, placeholder: str = "", parent: QWidget | None = None) -> None:
+    def __init__(self, placeholder: str = "", parent: QWidget | None = None, *, blank_is_unset: bool = False) -> None:
         super().__init__(parent)
         self._placeholder = placeholder or NOT_SET
+        self._blank_is_unset = blank_is_unset
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self._edit = QLineEdit(self)
@@ -444,8 +448,11 @@ class TextEditor(FieldEditor):
         self._edit.setPlaceholderText("" if is_empty_value else self._placeholder)
         self.empty_hint.setVisible(is_empty_value)
 
+    def _unset_if_blank(self, value: str | None) -> str | None:
+        return None if self._blank_is_unset and value is not None and not value.strip() else value
+
     def _on_edited(self, text: str) -> None:
-        self._value = text
+        self._value = self._unset_if_blank(text)
         self._set_valid(self._problem(text))
         self._refresh()
         self.changed.emit()
@@ -457,7 +464,7 @@ class TextEditor(FieldEditor):
         return self._valid
 
     def set_value(self, value: Any) -> None:
-        self._value = None if value is None else str(value)
+        self._value = self._unset_if_blank(None if value is None else str(value))
         self._edit.setText(self._value or "")
         self._edit.setCursorPosition(0)  # show the start (a URL's scheme and host), not the tail
         self._set_valid("")
@@ -473,7 +480,7 @@ class UrlEditor(TextEditor):
     def __init__(self, spec: EditorSpec, placeholder: str = "", parent: QWidget | None = None) -> None:
         self._schemes = tuple(spec.schemes)
         self._require_host = spec.require_host
-        super().__init__(placeholder, parent)
+        super().__init__(placeholder, parent, blank_is_unset=spec.blank_is_unset)
 
     def _on_edited(self, text: str) -> None:
         super()._on_edited(text.strip())  # the value is what was validated
@@ -522,7 +529,7 @@ def create_editor(spec: EditorSpec, field: SettingField, parent: QWidget | None 
     elif spec.kind in ("integer", "number"):
         editor = NumberEditor(spec, field.unit, placeholder=field.placeholder)
     elif spec.kind == "text":
-        editor = TextEditor(field.placeholder)
+        editor = TextEditor(field.placeholder, blank_is_unset=spec.blank_is_unset)
     elif spec.kind == "url":
         editor = UrlEditor(spec, field.placeholder)
     elif spec.kind == "secret":

@@ -707,7 +707,7 @@ class ClaudeSettingsPlugin(SettingsPlugin):
                     label="API endpoint", visible_when=_is_claude,
                 ),
                 SettingField(
-                    "claude_custom_url", Url(), label="Custom URL", placeholder="https://your-api-server.com",
+                    "claude_custom_url", Url(blank_is_unset=True), label="Custom URL", placeholder="https://your-api-server.com",
                     visible_when=_is_claude, enabled_when=_is_custom_endpoint,
                 ),
                 SettingField(
@@ -729,15 +729,15 @@ class ClaudeSettingsPlugin(SettingsPlugin):
             ]),
             Section("Gemini (agy)", [
                 SettingField(
-                    "agy_path", Text(), label="agy executable",
+                    "agy_path", Text(blank_is_unset=True), label="agy executable",
                     placeholder="auto (PATH or %LOCALAPPDATA%\\agy\\bin)", visible_when=_is_agy,
                 ),
                 SettingField(
-                    "agy_gcp_project", Text(), label="GCP project",
+                    "agy_gcp_project", Text(blank_is_unset=True), label="GCP project",
                     placeholder="lbl-gemini-enterprise-access", visible_when=_is_agy,
                 ),
                 SettingField(
-                    "agy_gcp_location", Text(), label="GCP location", placeholder="global", visible_when=_is_agy,
+                    "agy_gcp_location", Text(blank_is_unset=True), label="GCP location", placeholder="global", visible_when=_is_agy,
                 ),
                 SettingField(
                     "agy_model", Custom(_agy_model_editor), label="Model", companions=("agy_effort",),
