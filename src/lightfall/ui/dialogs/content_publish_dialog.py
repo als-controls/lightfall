@@ -49,6 +49,17 @@ def error_text(exc: Exception, scope: str = "") -> str:
     return describe_error(exc, scope=scope) if isinstance(exc, ScopesError) else str(exc)
 
 
+_LISTED_FILES = 50
+
+
+def _file_list(files: Sequence[str]) -> str:
+    """The bundle's files, one per line, capped at 50 with "and N more"."""
+    lines = ["Files in the bundle:", *files[:_LISTED_FILES]]
+    if len(files) > _LISTED_FILES:
+        lines.append(f"and {len(files) - _LISTED_FILES:,} more")
+    return "\n".join(lines)
+
+
 def toast_success(title: str, text: str) -> None:
     try:
         from lightfall.ui.toast import ToastManager
@@ -80,7 +91,10 @@ class ContentPublishDialog(LFDialog):
         self._setup_ui(list(scopes))
         self.finished.connect(self._on_finished)
         self._refresh()
-        self._run(self._build, self._on_built, self._on_build_failed)
+        # Lambdas, not bound methods: Qt drops a signal to a deleted (WA_DeleteOnClose)
+        # dialog's slot, and the build result must still reach the cleanup.
+        self._run(self._build, lambda b: self._on_built(b),
+                  lambda exc: self._on_build_failed(exc))
 
     # -- UI ----------------------------------------------------------------------------
 
@@ -182,27 +196,42 @@ class ContentPublishDialog(LFDialog):
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
-        for w in (self._scope_combo, self._message_edit, self._other_check):
+        # An upload can't be called back: no Cancel (or Escape/close) until it answers.
+        for w in (self._scope_combo, self._message_edit, self._other_check, self._cancel_btn):
             w.setEnabled(not busy)
         self._refresh()
+
+    def reject(self) -> None:  # Escape and Cancel
+        if not self._busy:
+            super().reject()
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if self._busy:
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     # -- build -------------------------------------------------------------------------
 
     def _build(self) -> Bundle:
-        return build_bundle(self._item, self._tmp)
+        # make_dir=False: if the dialog closed (and removed the folder) first, fail
+        # rather than recreate a folder nobody will remove.
+        return build_bundle(self._item, self._tmp, make_dir=False)
 
     def _on_built(self, bundle: Bundle) -> None:
         if not self._alive:
-            Path(bundle.path).unlink(missing_ok=True)
+            shutil.rmtree(self._tmp, ignore_errors=True)
             return
         self._bundle = bundle
         self._facts_label.setText(
             f"{bundle.file_count:,} file(s), {_human(bundle.size)} compressed, "
             f"{_human(bundle.uncompressed_size)} uncompressed, sha256 {bundle.sha256[:12]}")
+        self._facts_label.setToolTip(_file_list(bundle.files))
         self._refresh()
 
     def _on_build_failed(self, exc: Exception) -> None:
         if not self._alive:
+            shutil.rmtree(self._tmp, ignore_errors=True)
             return
         self._facts_label.setText("Could not build the bundle.")
         self._show_error(error_text(exc))
@@ -227,12 +256,13 @@ class ContentPublishDialog(LFDialog):
 
     def _on_published(self, scope: str, record: dict[str, Any]) -> None:
         self._busy = False
+        rev = record.get("revision") if isinstance(record, dict) else None
+        # Reported even when the dialog is already gone: the upload happened.
+        toast_success("Published", f"Published {self._item.name} to {describe_source(scope)}"
+                      + (f" (revision {rev})" if rev is not None else ""))
         if not self._alive:
             shutil.rmtree(self._tmp, ignore_errors=True)
             return
-        rev = record.get("revision") if isinstance(record, dict) else None
-        toast_success("Published", f"Published {self._item.name} to {describe_source(scope)}"
-                      + (f" (revision {rev})" if rev is not None else ""))
         self.accept()
 
     def _on_failed(self, scope: str, exc: Exception) -> None:

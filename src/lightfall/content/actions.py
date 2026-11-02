@@ -87,7 +87,8 @@ def publish(client: Any, item: LocalItem, bundle: Bundle, scope: str, *, message
             author: str | None, agent: bool = False) -> dict[str, Any]:
     """Upload ``bundle`` (already built, hashed and shown) as ``item`` at ``scope``.
 
-    Runs git (for the manifest) and the network: worker thread only.
+    The manifest's ``local_commit`` is the bundle's (read when it was built), so an edit
+    committed since doesn't relabel the old bytes. Network: worker thread only.
     """
     manifest = make_manifest(item, bundle, message=message, author=author, agent=agent)
     record = client.publish_content(scope, item.type, item.name, manifest, bundle.path,

@@ -190,10 +190,12 @@ def test_refresh_sync_from_a_worker_thread_runs_on_the_sync_thread(qapp, qtbot):
         ServiceRegistry.get_instance().unregister(ContentSync)
 
 
-def test_mainwindow_registers_its_content_sync(qapp, monkeypatch):
+def test_mainwindow_registers_its_content_sync(qapp, monkeypatch, tmp_path):
     from lightfall.ui.mainwindow import LFMainWindow
 
     monkeypatch.delenv("LIGHTFALL_SCOPES_DISABLED", raising=False)
+    monkeypatch.setattr("lightfall.content.store.default_content_dir",
+                        lambda: tmp_path / "content")
     PreferencesManager.reset()  # a manager of our own: the sync follows its scopes_changed
 
     class Window:
@@ -206,6 +208,8 @@ def test_mainwindow_registers_its_content_sync(qapp, monkeypatch):
         sync = LFMainWindow._build_content_sync(Window())
         assert isinstance(sync, ContentSync)
         assert ServiceRegistry.get_instance().get(ContentSync, None) is sync
+        # Never the real %LOCALAPPDATA% content store.
+        assert sync.store.root.is_relative_to(tmp_path)
     finally:
         ServiceRegistry.get_instance().unregister(ContentSync)
         PreferencesManager.reset()

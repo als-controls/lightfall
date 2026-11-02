@@ -194,14 +194,40 @@ def test_manifest_fields_and_local_commit_only_when_clean(tmp_path, monkeypatch)
 
     tracker.commit([f], "add scan")
     head = _git(root, "rev-parse", "HEAD")
+    b = build_bundle(item, tmp_path / "out")
+    assert b.local_commit == head
     m = make_manifest(item, b, message="m", author="Ron", agent=True)
     assert m["source"]["local_commit"] == head
     assert m["author"] == "Ron" and m["agent"] is True
     assert all(isinstance(v, str) for v in m["source"].values())
 
     f.write_bytes(b"x = 2\n")  # dirty
+    b = build_bundle(item, tmp_path / "out")
+    assert b.local_commit is None
     m = make_manifest(item, b, message="m", author=None, agent=False)
     assert "local_commit" not in m["source"]
+
+
+def test_local_commit_is_the_one_the_bundle_was_built_from(tmp_path):
+    # Edited and committed between build and Publish: the bytes are the old commit's,
+    # so the manifest must name the old commit.
+    root = tmp_path / "lightfall"
+    (root / "plans").mkdir(parents=True)
+    f = root / "plans" / "scan.py"
+    f.write_bytes(b"x = 1\n")
+    tracker = GitTracker(repo_root=root)
+    GitTracker._instance = tracker
+    tracker.ensure_repo()
+    tracker.commit([f], "add scan")
+    built_from = _git(root, "rev-parse", "HEAD")
+    item = LocalItem("plan", "scan", f)
+    b = build_bundle(item, tmp_path / "out")
+
+    f.write_bytes(b"x = 2\n")
+    tracker.commit([f], "edit scan")
+    assert _git(root, "rev-parse", "HEAD") != built_from
+    m = make_manifest(item, b, message="m", author=None, agent=False)
+    assert m["source"]["local_commit"] == built_from
 
 
 def test_manifest_limits(tmp_path):

@@ -48,6 +48,9 @@ class Bundle:
     file_count: int
     uncompressed_size: int
     files: tuple[str, ...]
+    # The ~/lightfall commit the bytes came from (read when the zip was built), or None
+    # when the item wasn't committed and clean then.
+    local_commit: str | None = None
 
 
 def default_root() -> Path:
@@ -122,14 +125,17 @@ def _members(item: LocalItem) -> list[tuple[str, Path]]:
     raise ValueError(f"cannot bundle {item.type} {item.name!r} from {item.path}")
 
 
-def build_bundle(item: LocalItem, dest_dir: Path) -> Bundle:
+def build_bundle(item: LocalItem, dest_dir: Path, *, make_dir: bool = True) -> Bundle:
     """Zip ``item`` into a new file in ``dest_dir`` and describe it (hash, sizes, file list).
 
     Each build is its own uniquely named file, so an earlier bundle is never overwritten;
     the caller deletes the files it no longer needs. Entries carry a fixed timestamp and
-    mode, so building unchanged content again gives the same sha256.
+    mode, so building unchanged content again gives the same sha256. With
+    ``make_dir=False`` a missing ``dest_dir`` raises (FileNotFoundError) instead of being
+    created, so a folder the caller already removed isn't brought back.
     """
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    if make_dir:
+        dest_dir.mkdir(parents=True, exist_ok=True)
     members = _members(item)
     fd, name = tempfile.mkstemp(dir=dest_dir, prefix=f"{item.type}-{item.name}-", suffix=".zip")
     zip_path = Path(name)
@@ -143,6 +149,8 @@ def build_bundle(item: LocalItem, dest_dir: Path) -> Bundle:
             info.compress_type = zipfile.ZIP_DEFLATED
             zf.writestr(info, data)
     raw = zip_path.read_bytes()
+    # Read after zipping: an edit made while zipping leaves the item dirty (no commit).
+    commit = GitTracker.get_instance().head_commit(item.path)
     return Bundle(
         path=zip_path,
         sha256=hashlib.sha256(raw).hexdigest(),
@@ -150,6 +158,7 @@ def build_bundle(item: LocalItem, dest_dir: Path) -> Bundle:
         file_count=len(members),
         uncompressed_size=uncompressed,
         files=tuple(a for a, _ in members),
+        local_commit=commit,
     )
 
 
@@ -203,7 +212,8 @@ def make_manifest(item: LocalItem, bundle: Bundle, *, message: str, author: str 
 
     Raises ValueError for a message over 1000 or an author over 256 characters. A source
     path that would push the source JSON over 2048 bytes is shortened from the left
-    (``...tail``). ``local_commit`` is set only when ``item.path`` is committed and clean.
+    (``...tail``). ``local_commit`` is the bundle's: set only when ``item.path`` was
+    committed and clean when the bundle was built, so it names the commit of the bytes.
     """
     if len(message) > MAX_MESSAGE_CHARS:
         raise ValueError(f"The message is too long ({len(message)} characters; "
@@ -212,9 +222,8 @@ def make_manifest(item: LocalItem, bundle: Bundle, *, message: str, author: str 
         raise ValueError(f"The author is too long ({len(author)} characters; "
                          f"the limit is {MAX_AUTHOR_CHARS}).")
     source = {"machine": socket.gethostname(), "path": str(item.path)}
-    commit = GitTracker.get_instance().head_commit(item.path)
-    if commit:
-        source["local_commit"] = commit
+    if bundle.local_commit:
+        source["local_commit"] = bundle.local_commit
     manifest: dict[str, Any] = {
         "type": item.type,
         "name": item.name,

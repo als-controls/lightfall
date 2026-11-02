@@ -145,19 +145,22 @@ def test_publish_error_shown_in_dialog(qtbot, item, toasts):
     assert d._publish_btn.isEnabled()  # can retry
 
 
-def test_publish_result_after_close_is_ignored(qtbot, item, toasts):
+def test_publish_failure_after_close_is_ignored(qtbot, item, toasts):
+    # (A success after close is still reported: test_success_is_reported_even_if_...)
     pending = []
     d = ContentPublishDialog(item, [BRANCH], {BRANCH: "maintainer"}, ContentPolicy(),
-                             client=FakeClient(), run=lambda fn, ok, err: pending.append((fn, ok)))
+                             client=FakeClient(), run=lambda fn, ok, err: pending.append((fn, ok, err)))
     qtbot.addWidget(d)
-    fn, ok = pending.pop()
+    fn, ok, _ = pending.pop()
     ok(fn())  # build finishes
     d._message_edit.setText("x")
     d._publish_btn.click()
-    d.reject()
-    fn, ok = pending.pop()
-    ok(fn())  # upload finishes after the dialog closed
+    tmp = d._tmp
+    d.done(0)
+    _, _, err = pending.pop()
+    err(ScopesError("unreachable"))  # upload fails after the dialog closed
     assert toasts == []
+    assert not tmp.exists()
 
 
 def history_records():
@@ -216,3 +219,121 @@ def test_history_read_only_for_non_maintainers(qtbot):
     d = history_dialog(qtbot, FakeClient(history=history_records()), role="operator")
     d._table.selectRow(1)
     assert not d._restore_btn.isEnabled() and not d._retract_btn.isEnabled()
+
+
+# -- upload in flight, file list, closing mid-build --------------------------------------
+
+def pending_dialog(qtbot, item, client=None):
+    pending = []
+    d = ContentPublishDialog(item, [BRANCH], {BRANCH: "maintainer"}, ContentPolicy(),
+                             client=client or FakeClient(),
+                             run=lambda fn, ok, err: pending.append((fn, ok, err)))
+    qtbot.addWidget(d)
+    return d, pending
+
+
+def test_cancel_and_escape_do_nothing_while_uploading(qtbot, item, toasts):
+    from PySide6.QtCore import Qt
+
+    d, pending = pending_dialog(qtbot, item)
+    fn, ok, _ = pending.pop()
+    ok(fn())
+    d.show()
+    assert d._cancel_btn.isEnabled()
+    d._message_edit.setText("x")
+    d._publish_btn.click()
+    assert not d._cancel_btn.isEnabled()
+    qtbot.keyClick(d, Qt.Key.Key_Escape)
+    d.reject()
+    d.close()
+    assert d.isVisible()
+    fn, ok, _ = pending.pop()
+    ok(fn())
+    assert not d.isVisible()
+    assert toasts == [("Published", "Published tools to Branch 7.0.1.1 (revision 7)")]
+
+
+def test_cancel_comes_back_after_a_failed_upload(qtbot, item):
+    d, pending = pending_dialog(qtbot, item, FakeClient(error=ScopesError("nope", status=409)))
+    fn, ok, _ = pending.pop()
+    ok(fn())
+    d._message_edit.setText("x")
+    d._publish_btn.click()
+    fn, _, err = pending.pop()
+    try:
+        fn()
+    except ScopesError as e:
+        err(e)
+    assert d._cancel_btn.isEnabled()
+
+
+def test_success_is_reported_even_if_the_dialog_is_gone(qtbot, item, toasts):
+    d, pending = pending_dialog(qtbot, item)
+    fn, ok, _ = pending.pop()
+    ok(fn())
+    d._message_edit.setText("x")
+    d._publish_btn.click()
+    tmp = d._tmp
+    d.done(0)  # torn down anyway (its parent closed)
+    fn, ok, _ = pending.pop()
+    ok(fn())
+    assert toasts == [("Published", "Published tools to Branch 7.0.1.1 (revision 7)")]
+    assert not tmp.exists()
+
+
+def test_publish_dialog_lists_the_bundled_files(qtbot, tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    for i in range(60):
+        (pkg / f"m{i:02d}.py").write_text("x = 1\n")
+    d = dialog(qtbot, LocalItem("plugin", "pkg", pkg), FakeClient())
+    tip = d._facts_label.toolTip()
+    assert "__init__.py" in tip and "m00.py" in tip
+    assert "and 11 more" in tip  # 61 files, 50 shown
+    assert "m59.py" not in tip
+
+
+def test_closing_mid_build_leaves_no_temp_folder(qtbot, item):
+    d, pending = pending_dialog(qtbot, item)
+    tmp = d._tmp
+    d.reject()  # closed before the build ran
+    fn, ok, err = pending.pop()
+    try:
+        result = fn()
+    except Exception as e:  # noqa: BLE001
+        err(e)
+    else:
+        ok(result)
+    assert not tmp.exists()
+
+
+def test_build_finishing_after_close_removes_its_temp_folder(qtbot, item, monkeypatch):
+    # With the real runner: the result reaches a callback even though the dialog
+    # (WA_DeleteOnClose) is deleted, and that callback removes the temp folder.
+    import threading
+
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    import lightfall.content.publish as publish_mod
+
+    gate, done = threading.Event(), threading.Event()
+    real = publish_mod.build_bundle
+
+    def slow_build(it, dest, **kw):
+        gate.wait(5)
+        try:
+            return real(it, dest, **kw)
+        finally:
+            done.set()
+
+    monkeypatch.setattr(pub_mod, "build_bundle", slow_build)
+    d = ContentPublishDialog(item, [BRANCH], {BRANCH: "maintainer"}, ContentPolicy(),
+                             client=FakeClient(), run=pub_mod.thread_runner)
+    tmp = d._tmp
+    d.open()  # as the panel does
+    d.close()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    gate.set()
+    assert done.wait(5)
+    qtbot.waitUntil(lambda: not tmp.exists(), timeout=3000)
