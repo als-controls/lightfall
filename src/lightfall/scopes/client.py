@@ -19,6 +19,7 @@ except ImportError:  # pragma: no cover
 
 _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (httpx.HTTPError, _SOCKSError)
 _TIMEOUT = 10.0
+_UPLOAD_TIMEOUT = 120.0
 
 
 class ScopesError(Exception):
@@ -68,6 +69,30 @@ class TreeEntry:
 
 
 @dataclass(frozen=True)
+class ContentPolicy:
+    """The server's limits on a published bundle (defaults match today's server)."""
+
+    max_bundle_bytes: int = 52428800
+    max_uncompressed_bytes: int = 209715200
+    max_files: int = 2000
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any] | None) -> ContentPolicy:
+        base = cls()
+        if not isinstance(d, dict):
+            return base
+
+        def pick(key: str) -> int:
+            try:
+                v = int(d[key])
+            except (KeyError, TypeError, ValueError):
+                return getattr(base, key)
+            return v if v > 0 else getattr(base, key)
+
+        return cls(pick("max_bundle_bytes"), pick("max_uncompressed_bytes"), pick("max_files"))
+
+
+@dataclass(frozen=True)
 class ChainInfo:
     chain: tuple[str, ...]
     roles: dict[str, str | None]
@@ -75,6 +100,7 @@ class ChainInfo:
     facility_label: str
     tree: tuple[TreeEntry, ...] = ()  # empty from servers before the binding picker
     specs: tuple[dict[str, Any], ...] = ()  # the server's approved (non-core) specs
+    content_policy: ContentPolicy = ContentPolicy()  # defaults from servers without one
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -95,6 +121,7 @@ class ChainInfo:
                 for e in d.get("tree") or () if isinstance(e, dict) and e.get("scope")
             ),
             specs=tuple(s for s in d.get("specs") or () if isinstance(s, dict) and s.get("key")),
+            content_policy=ContentPolicy.from_dict(d.get("content_policy")),
         )
 
 
@@ -201,13 +228,13 @@ class ScopesClient:
 
         return get_logbook_base_url().rstrip("/")
 
-    def _client(self) -> httpx.Client:
+    def _client(self, timeout: float = _TIMEOUT) -> httpx.Client:
         auth = self._auth
         if auth is None:
             from lightfall.auth.service_key_auth import ServiceKeyAuth
 
             auth = ServiceKeyAuth("logbook")
-        kwargs: dict[str, Any] = {"base_url": self.base_url, "timeout": _TIMEOUT, "auth": auth}
+        kwargs: dict[str, Any] = {"base_url": self.base_url, "timeout": timeout, "auth": auth}
         try:
             from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
 
@@ -378,3 +405,87 @@ class ScopesClient:
             logger.debug("Content download {} failed: {}", path, e)
             raise ScopesError(f"Logbook server unreachable: {e}") from e
         return digest.hexdigest()
+
+    # -- scoped content (write side) -------------------------------------------------
+
+    def _content_path(self, scope: str, type_: str, name: str) -> str:
+        return f"/logbook/scopes/{scope}/content/{type_}/{name}"
+
+    @staticmethod
+    def _agent_headers(agent: bool) -> dict[str, str] | None:
+        return {"X-Lightfall-Agent": "1"} if agent else None
+
+    def _record(self, r: httpx.Response, what: str) -> dict[str, Any]:
+        self._raise_for(r, what)
+        try:
+            body = r.json()
+        except ValueError as e:
+            raise ScopesError(f"{what}: malformed response ({e})") from e
+        if not isinstance(body, dict):
+            raise ScopesError(f"{what}: malformed response")
+        return body
+
+    def publish_content(self, scope: str, type_: str, name: str, manifest: dict[str, Any],
+                        bundle: Path, *, agent: bool = False) -> dict[str, Any]:
+        """Upload ``bundle`` (a zip) as a new revision; returns the server's record."""
+        what = f"Publish {type_} {name} to {scope}"
+        path = self._content_path(scope, type_, name)
+        try:
+            with open(bundle, "rb") as f, self._client(_UPLOAD_TIMEOUT) as c:
+                r = c.post(path, data={"manifest": json.dumps(manifest)},
+                           files={"bundle": (f"{name}.zip", f, "application/zip")},
+                           headers=self._agent_headers(agent))
+        except _TRANSPORT_ERRORS as e:
+            logger.debug("Content publish {} failed: {}", path, e)
+            raise ScopesError(f"Logbook server unreachable: {e}") from e
+        return self._record(r, what)
+
+    def retract_content(self, scope: str, type_: str, name: str, *,
+                        agent: bool = False) -> dict[str, Any]:
+        r = self._send("POST", f"{self._content_path(scope, type_, name)}/retract",
+                       headers=self._agent_headers(agent))
+        return self._record(r, f"Retract {type_} {name} at {scope}")
+
+    def restore_content(self, scope: str, type_: str, name: str, revision: int, *,
+                        agent: bool = False) -> dict[str, Any]:
+        r = self._send("POST", f"{self._content_path(scope, type_, name)}/restore",
+                       json_body={"revision": revision}, headers=self._agent_headers(agent))
+        return self._record(r, f"Restore {type_} {name} at {scope}")
+
+    def content_history(self, scope: str, type_: str, name: str) -> list[dict[str, Any]]:
+        what = f"History of {type_} {name} at {scope}"
+        r = self._get(f"{self._content_path(scope, type_, name)}/history")
+        self._raise_for(r, what)
+        try:
+            body = r.json()
+        except ValueError as e:
+            raise ScopesError(f"{what}: malformed response ({e})") from e
+        if not isinstance(body, list):
+            raise ScopesError(f"{what}: malformed response")
+        return [rec for rec in body if isinstance(rec, dict)]
+
+
+def _scope_label(scope: str) -> str:
+    kind, _, rest = scope.partition(":")
+    if kind == "branch" and rest:
+        return f"Branch {rest}"
+    if kind == "beamline" and rest:
+        return f"Beamline {rest}"
+    if kind == "facility":
+        return "Facility"
+    return scope or "this scope"
+
+
+def describe_error(exc: ScopesError, *, scope: str = "") -> str:
+    """A plain-language reason for a failed content write."""
+    if exc.status == 403:
+        return f"You're not a maintainer of {_scope_label(scope)}."
+    if exc.status == 409:
+        return "Someone changed it at the same time — try again."
+    if exc.status == 413:
+        return str(exc)
+    if exc.status == 422:
+        return f"The server refused it: {exc}"
+    if exc.status is None:
+        return "The logbook server is unreachable."
+    return str(exc)
