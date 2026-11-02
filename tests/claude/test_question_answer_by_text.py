@@ -97,3 +97,22 @@ def test_typed_other_appended_to_checked_multiselect(qtbot):
     with qtbot.waitSignal(w.submitted) as blocker:
         w.submit_btn.click()
     assert blocker.args[1] == {"C?": "Red,purple"}
+
+
+def test_allow_needs_the_whole_word():
+    # A misheard fragment must never answer Allow on a publish/retract/restore card.
+    labels = ["Allow", "Deny"]
+    for heard in ("a", "low", "allo", "al", "allowed"):
+        assert match_options(heard, labels) == [], heard
+    assert match_options("allow", labels) == ["Allow"]
+    assert match_options("Allow.", labels) == ["Allow"]
+    assert match_options("ALLOW!", labels) == ["Allow"]
+    # Other labels keep partial matching.
+    assert match_options("den", labels) == ["Deny"]
+
+
+def test_allow_fragment_on_a_card_goes_to_other(qtbot):
+    w = _make(qtbot, [_q("Publish xafs?", ["Allow", "Deny"])])
+    with qtbot.waitSignal(w.submitted) as blocker:
+        w.answer_by_text("low")
+    assert blocker.args[1] == {"Publish xafs?": "low"}
