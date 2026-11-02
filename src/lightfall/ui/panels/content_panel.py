@@ -1,7 +1,7 @@
 """Shared content panel: every plan, plugin, agent and skill with where it comes from.
 
-Actions on the selected row: Publish (mine), History and Retract (synced), Copy to mine,
-Open folder. Network work goes through the dialogs or the injected ``run``; the lists
+Actions on the selected row: Publish (mine), History (synced, or mine: pick a shared
+scope of the chain), Retract (synced), Copy to mine, Open folder. Network work goes through the dialogs or the injected ``run``; the lists
 come from ``actions.content_rows()``, which only reads registries and small index files.
 Every collaborator (rows, scope state, client, runner, refresh signals) can be injected
 so tests never reach the network or the real registries.
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QWidget,
 )
+from shiboken6 import isValid
 
 from lightfall.content import actions
 from lightfall.content.actions import ContentRow
@@ -39,6 +41,7 @@ from lightfall.ui.dialogs.content_publish_dialog import (
     ContentPublishDialog,
     Runner,
     error_text,
+    retract_question,
     thread_runner,
     toast_success,
 )
@@ -221,7 +224,12 @@ class ContentPanel(BasePanel):
         self.publish_btn.setEnabled(can_publish)
         self.publish_btn.setToolTip(tip)
 
-        self.history_btn.setEnabled(synced)
+        # Your own copy hides the shared one it replaces (and a retracted one is gone
+        # from the list), so History is offered on Mine rows too: you pick the scope.
+        can_history = synced or (is_local and bool(self._shared_scopes(chain)))
+        self.history_btn.setEnabled(can_history)
+        self.history_btn.setToolTip(
+            "Scoped settings are off" if is_local and not can_history else "")
         can_retract = synced and actions._role_at_least(roles.get(row.source),
                                                          actions.PUBLISH_ROLE)
         self.retract_btn.setEnabled(can_retract)
@@ -263,11 +271,36 @@ class ContentPanel(BasePanel):
         dlg.finished.connect(lambda *_: self.refresh())
         self._keep(dlg)
 
+    @staticmethod
+    def _shared_scopes(chain: Sequence[str]) -> list[str]:
+        """Shared scopes of ``chain``, most specific first."""
+        return [s for s in reversed(tuple(chain)) if _is_shared_scope(s)]
+
+    def _pick_scope(self, row: ContentRow, chain: Sequence[str]) -> str | None:
+        """Ask which shared scope's history to show for a Mine row (None: cancelled)."""
+        scopes = self._shared_scopes(chain)
+        if len(scopes) <= 1:
+            return scopes[0] if scopes else None
+        # Preselect the scope this copy replaces ("Replaces …"), most specific first.
+        current = next((i for i, s in enumerate(scopes) if s in row.shadows), 0)
+        labels = [describe_source(s) for s in scopes]
+        label, ok = QInputDialog.getItem(
+            self, "History", f"History of {row.type} '{row.name}' at:", labels, current,
+            False)
+        if not ok or label not in labels:
+            return None
+        return scopes[labels.index(label)]
+
     def _on_history(self) -> None:
         row = self._selected()
         if row is None:
             return
-        _, roles, _ = self._scope_state()
+        chain, roles, _ = self._scope_state()
+        if not _is_shared_scope(row.source):
+            scope = self._pick_scope(row, chain)
+            if scope is None:
+                return
+            row = ContentRow(row.type, row.name, scope, None, None, (), None)
         dlg = ContentHistoryDialog(row, roles, client=self._client_factory(), run=self._run,
                                    parent=self)
         dlg.finished.connect(lambda *_: self.refresh())
@@ -278,9 +311,8 @@ class ContentPanel(BasePanel):
         if row is None:
             return
         where = describe_source(row.source)
-        answer = QMessageBox.question(
-            self, "Retract", f"Retract {row.type} '{row.name}' from {where}?\n"
-                             "Everyone there stops receiving it; history keeps it.")
+        answer = QMessageBox.question(self, "Retract",
+                                      retract_question(row.type, row.name, row.source))
         if answer != QMessageBox.StandardButton.Yes:
             return
         client = self._client_factory()
@@ -289,14 +321,20 @@ class ContentPanel(BasePanel):
         def work() -> Any:
             return actions.retract(client, row.source, row.type, row.name)
 
+        # The panel may be closed (deleted) by the time the answer comes back.
         def ok(_: Any) -> None:
-            self.status_label.setText("")
             toast_success("Retracted", f"{row.type} {row.name} retracted from {where}.")
-            self.refresh()
+            if isValid(self) and isValid(self.status_label):
+                self.status_label.setText("")
+                self.refresh()
 
         def err(exc: Exception) -> None:
+            text = error_text(exc, row.source)
+            if not (isValid(self) and isValid(self.status_label)):
+                logger.warning("Retract of {} {} failed: {}", row.type, row.name, text)
+                return
             self.status_label.setText("")
-            QMessageBox.warning(self, "Retract failed", error_text(exc, row.source))
+            QMessageBox.warning(self, "Retract failed", text)
 
         self._run(work, ok, err)
 

@@ -112,7 +112,8 @@ def test_type_filter_and_search(panel):
 def test_buttons_follow_row_kind_and_role(panel, state):
     select(panel, "mine")
     assert panel.publish_btn.isEnabled()
-    assert not panel.history_btn.isEnabled() and not panel.retract_btn.isEnabled()
+    assert panel.history_btn.isEnabled()  # the chain has shared scopes to look at
+    assert not panel.retract_btn.isEnabled()
     assert not panel.copy_btn.isEnabled() and panel.open_btn.isEnabled()
 
     select(panel, "shared")
@@ -138,6 +139,7 @@ def test_buttons_follow_row_kind_and_role(panel, state):
     panel.refresh()
     select(panel, "mine")
     assert "Scoped settings are off" in panel.publish_btn.toolTip()
+    assert not panel.history_btn.isEnabled()
 
 
 def test_publish_passes_publishable_scopes_not_the_chain(panel, monkeypatch, state):
@@ -223,3 +225,113 @@ def test_refreshes_on_sync(panel, tmp_path):
     panel._holder["rows"] = panel._holder["rows"][:2]
     panel._src.synced.emit(None)
     assert panel.table.rowCount() == 2
+
+
+# -- History from your own copy, retract wording and a closed panel ------------------------
+
+class HistoryDlg(QObject):
+    finished = Signal(int)
+    seen: dict = {}
+
+    def __init__(self, row, roles, *, client, run=None, parent=None):
+        super().__init__()
+        HistoryDlg.seen = {"row": row, "roles": roles}
+
+    def open(self):
+        HistoryDlg.seen["opened"] = True
+
+
+def test_history_from_mine_asks_which_scope(panel, monkeypatch, state, tmp_path):
+    from PySide6.QtWidgets import QInputDialog
+
+    state["chain"] = ("facility", "beamline:7.0.1", BRANCH, "user:u1")
+    state["roles"] = {"beamline:7.0.1": "maintainer"}
+    mine = tmp_path / "xafs.py"
+    mine.write_text("x")
+    # Published from Mine to Beamline 7.0.1: only the Mine row shows, "Replaces Beamline".
+    panel._holder["rows"] = [
+        ContentRow("plan", "xafs", "local", None, mine, ("beamline:7.0.1",), None)]
+    panel.refresh()
+    monkeypatch.setattr(mod, "ContentHistoryDialog", HistoryDlg)
+    asked = []
+
+    def get_item(parent, title, label, items, current=0, editable=True, *a, **k):
+        asked.append((list(items), current, editable))
+        return items[2], True
+
+    monkeypatch.setattr(QInputDialog, "getItem", get_item)
+    select(panel, "xafs")
+    assert panel.history_btn.isEnabled()
+    panel.history_btn.click()
+    # Shared scopes of the chain, most specific first; the shadowed one preselected.
+    assert asked == [(["Branch 7.0.1.1", "Beamline 7.0.1", "Facility"], 1, False)]
+    assert HistoryDlg.seen["row"] == ContentRow("plan", "xafs", "facility", None, None, (),
+                                                None)
+    assert HistoryDlg.seen["roles"] == state["roles"] and HistoryDlg.seen["opened"]
+
+    HistoryDlg.seen = {}
+    monkeypatch.setattr(QInputDialog, "getItem", lambda *a, **k: ("", False))
+    panel.history_btn.click()
+    assert HistoryDlg.seen == {}  # cancelled: no dialog
+
+
+def test_history_from_mine_with_one_shared_scope_opens_it(panel, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+
+    monkeypatch.setattr(mod, "ContentHistoryDialog", HistoryDlg)
+    monkeypatch.setattr(QInputDialog, "getItem",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("asked")))
+    panel._scope_state = lambda: ((BRANCH, "user:u1"), {}, ContentPolicy())
+    select(panel, "mine")
+    panel.history_btn.click()
+    assert HistoryDlg.seen["row"].source == BRANCH
+
+
+def test_retract_wording(panel, monkeypatch):
+    asked = []
+    monkeypatch.setattr(mod.actions, "retract", lambda *a, **k: {})
+
+    def question(parent, title, text, *a, **k):
+        asked.append(text)
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(QMessageBox, "question", question)
+    select(panel, "shared")
+    panel.retract_btn.click()
+    assert asked == ["Retract agent 'shared' from Branch 7.0.1.1?\n"
+                     "Everyone there stops receiving it; history keeps it."]
+
+
+def test_retract_result_after_the_panel_closed(qtbot, tmp_path, monkeypatch):
+    import shiboken6
+
+    toasts = []
+    monkeypatch.setattr(mod, "toast_success", lambda t, x: toasts.append((t, x)))
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a))
+    pending = []
+    rows = make_rows(tmp_path)
+
+    def build():
+        p = ContentPanel(rows=lambda: list(rows),
+                         scope_state=lambda: (("facility", BRANCH), {BRANCH: "maintainer"},
+                                              ContentPolicy()),
+                         local_items=lambda: [], client_factory=FakeClient,
+                         run=lambda fn, ok, err: pending.append((fn, ok, err)),
+                         refresh_signals=[])
+        select(p, "shared")
+        p.retract_btn.click()
+        return p
+
+    p = build()
+    shiboken6.delete(p)
+    fn, ok, _ = pending.pop()
+    ok(fn())  # must not touch the deleted status label
+    assert toasts == [("Retracted", "agent shared retracted from Branch 7.0.1.1.")]
+
+    p = build()
+    shiboken6.delete(p)
+    _, _, err = pending.pop()
+    err(RuntimeError("boom"))
+    assert warned == []

@@ -107,3 +107,33 @@ def test_describe_error_messages():
         "The server refused it: Publish: bad name"
     assert d(ScopesError("Logbook server unreachable: x")) == "The logbook server is unreachable."
     assert d(ScopesError("boom", status=500)) == "boom"
+
+
+def test_malformed_write_reply_is_not_called_unreachable(httpx_mock, tmp_path):
+    # The server may have accepted the write: say so, don't blame the network.
+    unreadable = "The server's reply couldn't be read; check History before retrying."
+    httpx_mock.add_response(method="POST", url=URL, status_code=200, text="<html>")
+    httpx_mock.add_response(method="POST", url=f"{URL}/retract", status_code=200, json=[1])
+    httpx_mock.add_response(method="GET", url=f"{URL}/history", status_code=200, text="?")
+    c = _client()
+    calls = (lambda: c.publish_content(BR, "plan", "scan", MANIFEST, _bundle(tmp_path)),
+             lambda: c.retract_content(BR, "plan", "scan"),
+             lambda: c.content_history(BR, "plan", "scan"))
+    for call in calls:
+        try:
+            call()
+        except ScopesError as e:
+            assert e.status is None
+            assert describe_error(e, scope=BR) == unreadable
+        else:
+            raise AssertionError("expected ScopesError")
+
+
+def test_transport_failure_is_unreachable(httpx_mock):
+    httpx_mock.add_exception(httpx.ConnectError("refused"), method="POST", url=f"{URL}/retract")
+    try:
+        _client().retract_content(BR, "plan", "scan")
+    except ScopesError as e:
+        assert describe_error(e, scope=BR) == "The logbook server is unreachable."
+    else:
+        raise AssertionError("expected ScopesError")

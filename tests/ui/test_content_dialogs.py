@@ -337,3 +337,38 @@ def test_build_finishing_after_close_removes_its_temp_folder(qtbot, item, monkey
     gate.set()
     assert done.wait(5)
     qtbot.waitUntil(lambda: not tmp.exists(), timeout=3000)
+
+
+def test_history_of_an_unpublished_item_says_so(qtbot, monkeypatch):
+    class Missing(FakeClient):
+        def content_history(self, scope, type_, name):
+            raise ScopesError("History of plan xafs at facility: not found", status=404)
+
+    boxes = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: boxes.append(a))
+    monkeypatch.setattr(QMessageBox, "critical", lambda *a, **k: boxes.append(a))
+    d = ContentHistoryDialog(ContentRow("plan", "xafs", "facility", None, None, (), None),
+                             {"facility": "maintainer"}, client=Missing(), run=sync_run)
+    qtbot.addWidget(d)
+    assert d._error_label.text() == "xafs isn't published at Facility."
+    assert not d._error_label.isHidden()
+    assert boxes == []
+    assert not d._retract_btn.isEnabled() and not d._restore_btn.isEnabled()
+
+
+def test_history_retract_wording_and_toast_titles(qtbot, monkeypatch, toasts):
+    client = FakeClient(history=history_records())
+    d = history_dialog(qtbot, client)
+    asked = []
+
+    def yes(parent, title, text, *a, **k):
+        asked.append(text)
+        return QMessageBox.StandardButton.Yes
+
+    monkeypatch.setattr(QMessageBox, "question", yes)
+    d._table.selectRow(1)
+    d._restore_btn.click()
+    d._retract_btn.click()
+    assert asked[1] == ("Retract plugin 'tools' from Branch 7.0.1.1?\n"
+                        "Everyone there stops receiving it; history keeps it.")
+    assert [t for t, _ in toasts] == ["Restored", "Retracted"]

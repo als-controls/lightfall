@@ -36,6 +36,11 @@ class ScopesError(Exception):
         self.key_status = key_status
 
 
+# ``ScopesError.code`` for a reply that arrived but couldn't be read (status None too):
+# unlike a transport failure, the server may have done the write.
+MALFORMED_RESPONSE = "malformed_response"
+
+
 # Statuses that say "try again later", not "this write is wrong": transport failures
 # (status None), auth not ready, timeouts, rate limits and server-side errors.
 _TRANSIENT = frozenset({401, 408, 429})
@@ -421,9 +426,10 @@ class ScopesClient:
         try:
             body = r.json()
         except ValueError as e:
-            raise ScopesError(f"{what}: malformed response ({e})") from e
+            raise ScopesError(f"{what}: malformed response ({e})",
+                              code=MALFORMED_RESPONSE) from e
         if not isinstance(body, dict):
-            raise ScopesError(f"{what}: malformed response")
+            raise ScopesError(f"{what}: malformed response", code=MALFORMED_RESPONSE)
         return body
 
     def publish_content(self, scope: str, type_: str, name: str, manifest: dict[str, Any],
@@ -460,9 +466,10 @@ class ScopesClient:
         try:
             body = r.json()
         except ValueError as e:
-            raise ScopesError(f"{what}: malformed response ({e})") from e
+            raise ScopesError(f"{what}: malformed response ({e})",
+                              code=MALFORMED_RESPONSE) from e
         if not isinstance(body, list):
-            raise ScopesError(f"{what}: malformed response")
+            raise ScopesError(f"{what}: malformed response", code=MALFORMED_RESPONSE)
         return [rec for rec in body if isinstance(rec, dict)]
 
 
@@ -476,6 +483,8 @@ def describe_error(exc: ScopesError, *, scope: str = "") -> str:
         return str(exc)
     if exc.status == 422:
         return f"The server refused it: {exc}"
+    if exc.status is None and exc.code == MALFORMED_RESPONSE:
+        return "The server's reply couldn't be read; check History before retrying."
     if exc.status is None:
         return "The logbook server is unreachable."
     return str(exc)

@@ -60,6 +60,12 @@ def _file_list(files: Sequence[str]) -> str:
     return "\n".join(lines)
 
 
+def retract_question(type_: str, name: str, scope: str) -> str:
+    """The one confirmation text for Retract (panel and History dialog)."""
+    return (f"Retract {type_} '{name}' from {describe_source(scope)}?\n"
+            "Everyone there stops receiving it; history keeps it.")
+
+
 def toast_success(title: str, text: str) -> None:
     try:
         from lightfall.ui.toast import ToastManager

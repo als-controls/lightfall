@@ -19,10 +19,12 @@ from PySide6.QtWidgets import (
 from lightfall.content import actions
 from lightfall.content.actions import ContentRow
 from lightfall.content.labels import describe_source
+from lightfall.scopes.client import ScopesError
 from lightfall.ui.dialogs.base import LFDialog
 from lightfall.ui.dialogs.content_publish_dialog import (
     Runner,
     error_text,
+    retract_question,
     thread_runner,
     toast_success,
 )
@@ -137,7 +139,12 @@ class ContentHistoryDialog(LFDialog):
         if not self._alive:
             return
         self._busy = False
-        self._show_error(error_text(exc, self._row.source))
+        if isinstance(exc, ScopesError) and exc.status == 404:
+            # Opened from your own copy for a scope where it was never published.
+            text = f"{self._row.name} isn't published at {describe_source(self._row.source)}."
+        else:
+            text = error_text(exc, self._row.source)
+        self._show_error(text)
         self._refresh()
 
     def _confirm(self, title: str, text: str) -> bool:
@@ -154,28 +161,25 @@ class ContentHistoryDialog(LFDialog):
                              f"Make revision {rev} of {row.name} current at {label}?"):
             return
         self._start(lambda: actions.restore(self._client, row.source, row.type, row.name, rev),
-                    f"Restored {row.name} at {label} to revision {rev}")
+                    "Restored", f"Restored {row.name} at {label} to revision {rev}")
 
     def _on_retract(self) -> None:
         row = self._row
         label = describe_source(row.source)
-        if not self._confirm("Retract",
-                             f"Take {row.name} down at {label}? Its revisions stay in the "
-                             f"history and can be restored."):
+        if not self._confirm("Retract", retract_question(row.type, row.name, row.source)):
             return
         self._start(lambda: actions.retract(self._client, row.source, row.type, row.name),
-                    f"Retracted {row.name} at {label}")
+                    "Retracted", f"Retracted {row.name} at {label}")
 
-    def _start(self, work, done_text: str) -> None:
+    def _start(self, work, done_title: str, done_text: str) -> None:
         self._busy = True
         self._show_error("")
         self._refresh()
 
         def ok(_record: Any) -> None:
             self._busy = False
-            if not self._alive:
-                return
-            toast_success("Shared content", done_text)
-            self._reload()
+            toast_success(done_title, done_text)  # even if the dialog is gone: it happened
+            if self._alive:
+                self._reload()
 
         self._run(work, ok, self._on_failed)
