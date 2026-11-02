@@ -72,6 +72,17 @@ class _FakeEngine:
         self._listeners.pop(token, None)
 
 
+_REAL_SYNC = et._tiled_stop_persisted_blocking
+
+
+@pytest.fixture(autouse=True)
+def _no_real_tiled_sync(monkeypatch):
+    """Default: skip the real TiledService wait (tests opt in to a fake)."""
+    monkeypatch.setattr(
+        et, "_tiled_stop_persisted_blocking", lambda uid, timeout: False, raising=True
+    )
+
+
 def _patch_engine(monkeypatch, engine):
     """Make ``from lightfall.acquire.engine import get_engine`` return ``engine``."""
     import lightfall.acquire.engine as engine_pkg
@@ -446,3 +457,119 @@ def test_wait_for_idle_description_is_backend_neutral():
     tool = next(t for t in tools if getattr(t, "name", None) == "lightfall_wait_for_idle")
     assert "Claude" not in tool.description and "ScheduleWakeup" not in tool.description
     assert "polling" in tool.description and "lightfall_get_run_status" in tool.description
+
+
+def test_tiled_synced_true_when_writer_confirms(monkeypatch):
+    seen = {}
+
+    def fake_sync(uid, timeout):
+        seen["args"] = (uid, timeout)
+        return True
+
+    monkeypatch.setattr(et, "_tiled_stop_persisted_blocking", fake_sync, raising=True)
+    _patch_engine(
+        monkeypatch,
+        _FakeEngine([EngineState.IDLE], docs=[("start", {"uid": "u9"})]),
+    )
+    _patch_last_run(monkeypatch, {"uid": "u9"})
+
+    result = asyncio.run(
+        et._wait_for_idle_payload(
+            timeout_seconds=5.0,
+            poll_interval_seconds=0.02,
+            tiled_sync_timeout_seconds=7.0,
+        )
+    )
+
+    assert result["status"] == "idle"
+    assert result["tiled_synced"] is True
+    assert seen["args"] == ("u9", 7.0)
+
+
+def test_tiled_synced_false_on_timeout_and_without_run(monkeypatch):
+    _patch_last_run(monkeypatch, None)
+    # Run attributed, writer never confirms -> False, status unchanged.
+    _patch_engine(
+        monkeypatch,
+        _FakeEngine([EngineState.IDLE], docs=[("start", {"uid": "u9"})]),
+    )
+    result = asyncio.run(et._wait_for_idle_payload(timeout_seconds=5.0))
+    assert result["status"] == "idle"
+    assert result["tiled_synced"] is False
+
+    # No attributable run -> no sync attempted, False.
+    def boom(uid, timeout):
+        raise AssertionError("must not wait without a run uid")
+
+    monkeypatch.setattr(et, "_tiled_stop_persisted_blocking", boom, raising=True)
+    _patch_engine(monkeypatch, _FakeEngine([EngineState.IDLE]))
+    result = asyncio.run(et._wait_for_idle_payload(timeout_seconds=5.0))
+    assert result["tiled_synced"] is False
+
+
+def test_tiled_synced_false_when_engine_never_idles(monkeypatch):
+    _patch_engine(monkeypatch, _FakeEngine([EngineState.RUNNING]))
+    _patch_last_run(monkeypatch, None)
+    result = asyncio.run(
+        et._wait_for_idle_payload(timeout_seconds=0.05, poll_interval_seconds=0.01)
+    )
+    assert result["status"] == "timeout"
+    assert result["tiled_synced"] is False
+
+
+def _fake_service(monkeypatch, svc):
+    import lightfall.services.tiled_service as ts
+
+    monkeypatch.setattr(
+        ts.TiledService, "get_instance", classmethod(lambda cls: svc), raising=True
+    )
+
+
+def test_blocking_sync_prefers_local_writer(monkeypatch):
+    class _Writer:
+        def wait_until_flushed(self, uid=None, timeout=0.0):
+            return (uid, timeout) == ("u1", 2.0)
+
+    class _Client:
+        def __getitem__(self, k):
+            raise AssertionError("must not poll Tiled when a writer is active")
+
+    class _Svc:
+        _writer = _Writer()
+        _client = _Client()
+        is_connected = True
+
+    _fake_service(monkeypatch, _Svc())
+    assert _REAL_SYNC("u1", 2.0) is True
+    assert _REAL_SYNC("other", 2.0) is False
+
+
+def test_blocking_sync_falls_back_to_tiled_without_writer(monkeypatch):
+    class _Entry:
+        def __init__(self, md):
+            self.metadata = md
+
+    class _Client:
+        def __getitem__(self, k):
+            if k == "done":
+                return _Entry({"stop": {"exit_status": "success"}})
+            return _Entry({"start": {}})
+
+    class _Svc:
+        _writer = None
+        _client = _Client()
+        is_connected = True
+
+    _fake_service(monkeypatch, _Svc())
+    assert _REAL_SYNC("done", 1.0) is True
+    assert _REAL_SYNC("running", 0.05) is False
+
+
+def test_blocking_sync_false_without_writer_or_tiled(monkeypatch):
+    class _Svc:
+        _writer = None
+        _client = None
+        is_connected = False
+
+    _fake_service(monkeypatch, _Svc())
+    assert _REAL_SYNC("u1", 1.0) is False

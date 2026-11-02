@@ -8,6 +8,7 @@ management and monitoring.
 
 from __future__ import annotations
 
+import collections
 import queue
 import threading
 import time
@@ -20,6 +21,9 @@ if TYPE_CHECKING:
     pass
 
 _STOP = object()
+
+# How many recently persisted run uids to remember for wait_until_flushed().
+_PERSISTED_UIDS_KEPT = 512
 
 
 class ThreadedTiledWriter:
@@ -66,6 +70,11 @@ class ThreadedTiledWriter:
         self._processed_count = 0
         self._dropped_count = 0
         self._lock = threading.Lock()
+        # Uids whose stop document the worker has written successfully.
+        self._persisted_cond = threading.Condition()
+        self._persisted_uids: collections.deque[str] = collections.deque(
+            maxlen=_PERSISTED_UIDS_KEPT
+        )
 
         self._thread = QThreadFuture(
             self._process_queue,
@@ -98,6 +107,8 @@ class ThreadedTiledWriter:
                 self._writer(name, doc)
                 with self._lock:
                     self._processed_count += 1
+                if name == "stop":
+                    self._note_stop_persisted(doc)
             except Exception as e:
                 with self._lock:
                     self._error_count += 1
@@ -124,6 +135,42 @@ class ThreadedTiledWriter:
             self._error_count,
             self._dropped_count,
         )
+
+    def _note_stop_persisted(self, doc: Any) -> None:
+        uid = doc.get("run_start") if isinstance(doc, dict) else None
+        if not isinstance(uid, str) or not uid:
+            return
+        with self._persisted_cond:
+            self._persisted_uids.append(uid)
+            self._persisted_cond.notify_all()
+
+    def wait_until_flushed(
+        self, uid: str | None = None, timeout: float = 30.0
+    ) -> bool:
+        """Wait until a run's documents are persisted (thread-safe).
+
+        Must not be called from the Qt GUI thread (it blocks).
+
+        Args:
+            uid: Run start uid. Waits until that run's ``stop`` document has
+                been written by the worker. If None, waits for the whole
+                queue to drain (same as :meth:`flush`).
+            timeout: Maximum seconds to wait.
+
+        Returns:
+            True once persisted, False on timeout (or if the worker stopped
+            first, or the stop document failed to write / was dropped).
+        """
+        if uid is None:
+            return self.flush(timeout=timeout)
+        deadline = time.monotonic() + max(0.0, timeout)
+        with self._persisted_cond:
+            while uid not in self._persisted_uids:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not self._thread.isRunning():
+                    return uid in self._persisted_uids
+                self._persisted_cond.wait(min(remaining, 0.5))
+        return True
 
     def __call__(self, name: str, doc: dict[str, Any]) -> None:
         """Handle a Bluesky document (non-blocking).

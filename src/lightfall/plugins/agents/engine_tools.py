@@ -33,6 +33,9 @@ _PLAN_START_GRACE_S = 0.05
 # engine flips back to IDLE — without this retry, a successful scan can
 # be returned with stale ``last_run`` metadata.
 _TILED_INDEX_RETRY_S = 0.5
+# Default bound on waiting for Lightfall's Tiled writer to persist the run's
+# stop document after the engine reports IDLE.
+_TILED_SYNC_TIMEOUT_S = 30.0
 
 
 # Candidate Tiled sort keys, in preference order (see _recent_runs).
@@ -306,11 +309,45 @@ def _detach_doc_listener(token: int) -> None:
         logger.exception("lightfall_wait_for_idle: unsubscribe failed")
 
 
+def _tiled_stop_persisted_blocking(uid: str, timeout: float) -> bool:
+    """Block (worker thread only) until ``uid``'s stop document is in Tiled.
+
+    Prefers the local ThreadedTiledWriter's signal; only when no writer is
+    active does it poll Tiled itself for the stop document. Never raises.
+    """
+    import time
+
+    try:
+        from lightfall.services.tiled_service import TiledService
+
+        service = TiledService.get_instance()
+        writer = getattr(service, "_writer", None)
+        if writer is not None:
+            return bool(writer.wait_until_flushed(uid=uid, timeout=timeout))
+        client = getattr(service, "_client", None)
+        if client is None or not service.is_connected:
+            return False
+        deadline = time.monotonic() + max(0.0, timeout)
+        while True:
+            try:
+                if client[uid].metadata.get("stop"):
+                    return True
+            except Exception:
+                pass
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+    except Exception:
+        logger.exception("lightfall_wait_for_idle: tiled sync wait failed")
+        return False
+
+
 async def _wait_for_idle_payload(
     *,
     timeout_seconds: float = 600.0,
     poll_interval_seconds: float = 0.5,
     include_last_run: bool = True,
+    tiled_sync_timeout_seconds: float = _TILED_SYNC_TIMEOUT_S,
 ) -> dict[str, Any]:
     """Block until the RunEngine reaches IDLE, the timeout elapses, or cancelled.
 
@@ -411,6 +448,17 @@ async def _wait_for_idle_payload(
     last_run: dict[str, Any] | None = None
     status = "idle" if reached_idle else "timeout"
 
+    # The engine is IDLE, but Lightfall's Tiled writer uploads documents on a
+    # background queue and may still be behind. Wait (off the GUI thread, via
+    # the default executor) for this run's stop doc to be persisted so the
+    # caller doesn't read partial data.
+    tiled_synced = False
+    if reached_idle and captured_uid:
+        sync_timeout = max(0.0, float(tiled_sync_timeout_seconds))
+        tiled_synced = await asyncio.get_running_loop().run_in_executor(
+            None, _tiled_stop_persisted_blocking, captured_uid, sync_timeout
+        )
+
     if reached_idle and include_last_run:
         # Any document observation means a run is associated with this wait.
         # `saw_start` covers "a new run opened while we watched"; `saw_stop`
@@ -449,6 +497,7 @@ async def _wait_for_idle_payload(
         "last_run": last_run,
         "status": status,
         "reason": "" if reached_idle else "timeout",
+        "tiled_synced": bool(tiled_synced),
     }
 
 
@@ -1004,6 +1053,12 @@ class EngineToolsAgent(ToolPlugin):
                 "                           logs; do NOT fit any data.\n"
                 "  - 'timeout'            : abandoned without reaching IDLE.\n"
                 "\n"
+                "`tiled_synced` (bool): after IDLE, the tool also waits (up to\n"
+                "`tiled_sync_timeout_seconds`, default 30) for Lightfall's Tiled writer\n"
+                "to persist the run's stop document. True = the run is fully in Tiled;\n"
+                "false = timed out, no attributable run, or no Tiled writer/connection\n"
+                "(data may be partial; re-check before fitting).\n"
+                "\n"
                 "Defaults: timeout_seconds=600 (max 3600), poll_interval=0.5s."
             ),
             input_schema={
@@ -1019,6 +1074,11 @@ class EngineToolsAgent(ToolPlugin):
                         "description": "How often to re-check engine state. Clamped to a minimum of 0.01s.",
                         "default": 0.5,
                     },
+                    "tiled_sync_timeout_seconds": {
+                        "type": "number",
+                        "description": "After IDLE, max seconds to wait for the run's documents to be persisted to Tiled (sets tiled_synced).",
+                        "default": 30.0,
+                    },
                     "include_last_run": {
                         "type": "boolean",
                         "description": "When idle, include the most recent run's metadata (uid, plan_name, exit_status, …) so you don't need a second lightfall_get_last_run call.",
@@ -1031,12 +1091,16 @@ class EngineToolsAgent(ToolPlugin):
             timeout_seconds = float(args.get("timeout_seconds", 600.0))
             poll_interval_seconds = float(args.get("poll_interval_seconds", 0.5))
             include_last_run = bool(args.get("include_last_run", True))
+            tiled_sync_timeout_seconds = float(
+                args.get("tiled_sync_timeout_seconds", _TILED_SYNC_TIMEOUT_S)
+            )
 
             try:
                 payload = await _wait_for_idle_payload(
                     timeout_seconds=timeout_seconds,
                     poll_interval_seconds=poll_interval_seconds,
                     include_last_run=include_last_run,
+                    tiled_sync_timeout_seconds=tiled_sync_timeout_seconds,
                 )
                 return mcp_result(payload)
             except asyncio.CancelledError:
