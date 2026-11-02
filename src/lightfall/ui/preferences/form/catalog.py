@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from qtpy.QtCore import QEvent, Qt
+from qtpy.QtCore import QEvent, QObject, Qt
 from qtpy.QtGui import QBrush
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -46,6 +46,9 @@ LINE_EDIT_KINDS = frozenset({"integer", "number", "text", "url", "secret"})
 # Beyond the text's advance, a fitted cell needs the theme's item padding (4 px a side) and
 # the view's own text margins; the header's size hint does not count the stylesheet padding.
 CELL_TEXT_ALLOWANCE = 20
+MIN_TEXT_COLUMN = 48  # how narrow an eliding text column may get when the table is short of room
+_FIT_TEXT = "text"  # pinned column sized to its widest text (plus the allowance)
+_FIT_HINT = "hint"  # pinned column sized to its cell widgets' size hint
 ON_OFF_OPTIONS: tuple[tuple[bool, str], ...] = ((True, "On"), (False, "Off"))
 
 
@@ -62,8 +65,14 @@ class TableEditor(FieldEditor):
 
     Subclasses fill the table and say which text a row is filtered by
     (``_row_filter_text``); muted cells are re-coloured on theme changes.
-    Columns fit their contents except ``stretch_column``, which takes the
-    remaining width (and is the one cut short when the page is narrow).
+
+    Column widths are laid out here, not by the header, so the total never exceeds the
+    table (``_layout_columns``, on every resize and content change). Pinned columns (the
+    "Here" editor and the "Inherited" text, listed in ``_pinned``) keep their fitted
+    width; the other text columns fit their contents, ``stretch_column`` takes any spare
+    width, and when room is short they elide (full text in the tooltips): the stretch
+    column first, then the others from right to left. Only if even that is not enough do
+    the pinned columns give way, right to left.
     """
 
     full_width = True
@@ -92,9 +101,13 @@ class TableEditor(FieldEditor):
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(stretch_column, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        header.setMinimumSectionSize(1)
+        self._stretch_column = stretch_column
+        self._pinned: dict[int, int | str] = {}
+        self.table.viewport().installEventFilter(self)
         layout.addWidget(self.table)
         self._muted_cells: list[QTableWidgetItem] = []
 
@@ -123,19 +136,58 @@ class TableEditor(FieldEditor):
             text = item.columns[offset] if offset < len(item.columns) else ""
             self._text_cell(row, 1 + offset, text, muted=muted)
 
-    def _fit_text_column(self, column: int) -> None:
-        """Size ``column`` to its widest text so the theme's padding never clips it."""
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(column, QHeaderView.ResizeMode.Fixed)
+    # Column layout ------------------------------------------------------
+    def _text_width(self, column: int) -> int:
         metrics = self.table.fontMetrics()
         texts = [self.table.item(r, column).text() for r in range(self.table.rowCount()) if self.table.item(r, column)]
-        widest = max((metrics.horizontalAdvance(t) for t in texts), default=0) + CELL_TEXT_ALLOWANCE
-        self.table.setColumnWidth(column, max(widest, header.sectionSizeHint(column)))
+        return max((metrics.horizontalAdvance(t) for t in texts), default=0) + CELL_TEXT_ALLOWANCE
+
+    def _wanted_width(self, column: int) -> int:
+        """The width ``column`` needs to show everything (the header label included)."""
+        header_hint = self.table.horizontalHeader().sectionSizeHint(column)
+        rule = self._pinned.get(column)
+        if isinstance(rule, int):
+            return rule
+        if rule == _FIT_TEXT:
+            return max(self._text_width(column), header_hint)
+        return max(self.table.sizeHintForColumn(column), header_hint)
+
+    def _layout_columns(self) -> None:
+        count = self.table.columnCount()
+        room = self.table.viewport().width()
+        widths = {c: self._wanted_width(c) for c in range(count)}
+        flexible = [c for c in range(count) if c not in self._pinned]
+        spare = room - sum(widths.values())
+        if spare >= 0:
+            if self._stretch_column in widths:
+                widths[self._stretch_column] += spare
+        else:
+            # Short of room: elide the stretch column, then the other text columns right to
+            # left, then (last resort) the pinned columns right to left.
+            order = [c for c in flexible if c == self._stretch_column]
+            order += [c for c in reversed(flexible) if c != self._stretch_column]
+            order += sorted(self._pinned, reverse=True)
+            overflow = -spare
+            for column in order:
+                cut = min(overflow, max(0, widths[column] - MIN_TEXT_COLUMN))
+                widths[column] -= cut
+                overflow -= cut
+                if overflow <= 0:
+                    break
+        for column, width in widths.items():
+            if self.table.columnWidth(column) != width:
+                self.table.setColumnWidth(column, width)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.Resize and obj is self.table.viewport():
+            self._layout_columns()
+        return super().eventFilter(obj, event)
 
     def _finish_rows(self) -> None:
-        """Call after filling the table: size rows to their widgets and fit the height."""
+        """Call after filling the table: size rows to their widgets, fit the height, lay out columns."""
         self.table.resizeRowsToContents()
         self._fit_height()
+        self._layout_columns()
 
     def _fit_height(self) -> None:
         rows = sum(self.table.rowHeight(r) for r in range(self.table.rowCount()) if not self.table.isRowHidden(r))
@@ -183,6 +235,7 @@ class CatalogEditor(TableEditor):
         self._loading = False
         self._here_column = 1 + len(self._columns)
         self._inherited_column = self._here_column + 1
+        self._pinned = {self._here_column: _FIT_HINT, self._inherited_column: _FIT_TEXT}
         self.table.setRowCount(len(self._items))
         for row, item in enumerate(self._items):
             self._item_cells(row, item, len(self._columns))
@@ -213,7 +266,7 @@ class CatalogEditor(TableEditor):
                 value, origin = self._inherited.get(item.id, (item.default_enabled, DEFAULT_ORIGIN))
                 text = f"{on_off_text(value)} ({origin})"
             self._text_cell(row, self._inherited_column, text, muted=True)
-        self._fit_text_column(self._inherited_column)
+        self._layout_columns()
 
     # Catalog API --------------------------------------------------------
     def item_combo(self, item_id: str) -> QComboBox:
@@ -279,6 +332,7 @@ class MappingEditor(TableEditor):
         self._loading = False
         self._here_column = 1 + len(self._columns)
         self._inherited_column = self._here_column + 1
+        self._pinned = {self._here_column: _FIT_HINT, self._inherited_column: _FIT_TEXT}
         self.table.setRowCount(len(self._items))
         field = SettingField("", spec.value)  # the unit is in the column header, not after each editor
         for row, item in enumerate(self._items):
@@ -289,8 +343,7 @@ class MappingEditor(TableEditor):
             self._editors[item.id] = editor
         if spec.value.kind in LINE_EDIT_KINDS:
             # A line edit would otherwise size its column to its (wide) hint.
-            self.table.horizontalHeader().setSectionResizeMode(self._here_column, QHeaderView.ResizeMode.Fixed)
-            self.table.setColumnWidth(self._here_column, VALUE_COLUMN_WIDTH)
+            self._pinned[self._here_column] = VALUE_COLUMN_WIDTH
         self._show_inherited()
         self._finish_rows()
 
@@ -319,7 +372,7 @@ class MappingEditor(TableEditor):
         for row, item in enumerate(self._items):
             value, origin = self._inherited.get(item.id, (item.default, DEFAULT_ORIGIN))
             self._text_cell(row, self._inherited_column, f"{self._format(value)} ({origin})", muted=True)
-        self._fit_text_column(self._inherited_column)
+        self._layout_columns()
 
     # Mapping API --------------------------------------------------------
     def item_editor(self, item_id: str) -> FieldEditor:

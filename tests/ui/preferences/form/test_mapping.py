@@ -159,6 +159,9 @@ def test_mapping_line_edit_kinds_get_a_fixed_here_width(qtbot):
 
     for spec in (Integer(1, None), Text(), Url(), Secret()):
         editor = make_editor(qtbot, value=spec)
+        editor.resize(900, 200)  # with room to spare
+        editor.show()
+        qtbot.waitExposed(editor)
         t = table(editor)
         here = t.columnCount() - 2
         assert t.horizontalHeader().sectionResizeMode(here) == t.horizontalHeader().ResizeMode.Fixed, spec.kind
@@ -182,3 +185,25 @@ def test_mapping_inherited_text_is_not_clipped(qtbot):
     editor.set_inherited({})  # shorter text: the column follows it
     assert t.item(0, last).text() == "30 s (default)"
     assert t.columnWidth(last) < wide
+
+
+def test_mapping_short_of_room_elides_text_columns_first(qtbot):
+    """Whatever the style: Here and Inherited keep their widths; Name and Source give way."""
+    items = (CatalogItem("a", "A rather long feed name " * 3, default=30, columns=("A long monitor name " * 3,)),)
+    editor = make_editor(qtbot, items=items, unit="s")
+    editor.set_inherited({"a": (90, "Beamline 7.0.1")})
+    editor.resize(2000, 200)
+    editor.show()
+    qtbot.waitExposed(editor)
+    t = table(editor)
+    here, inherited = t.columnCount() - 2, t.columnCount() - 1
+    roomy = (t.columnWidth(here), t.columnWidth(inherited))
+    narrow = roomy[0] + roomy[1] + 2 * 60  # room for the pinned columns and a little text
+    editor.resize(narrow + (editor.width() - t.viewport().width()), 200)
+    qtbot.wait(10)
+    assert (t.columnWidth(here), t.columnWidth(inherited)) == roomy
+    assert t.horizontalHeader().length() <= t.viewport().width()
+    assert t.columnWidth(1) < t.columnWidth(0) or t.columnWidth(1) == 48  # the stretch column (Source) went first
+    editor.resize(200, 200)  # far too narrow: nothing is pushed off the right edge
+    qtbot.wait(10)
+    assert t.horizontalHeader().length() <= t.viewport().width()
