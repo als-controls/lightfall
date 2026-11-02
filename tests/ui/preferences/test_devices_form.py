@@ -322,16 +322,29 @@ def test_no_live_apply_while_plan_runs_message_only(qtbot, env, monkeypatch):
     monkeypatch.setattr(device_settings, "_plan_active", lambda: True)
     a = _row("mock", "a", rid="a")
     sim = _row("excl", "sim", enabled=False, rid="sim", config={"addr": "127.0.0.1"})
-    env.prefs.layers[(BRANCH, DEVICE_BACKENDS_KEY)] = {"a": a.to_dict(), "sim": sim.to_dict()}
+    env.prefs.layers[(BRANCH, DEVICE_BACKENDS_KEY)] = {"a": a.to_dict()}
+    env.prefs.layers[(USER, DEVICE_BACKENDS_KEY)] = {"sim": sim.to_dict()}
     dialog = _dialog(qtbot)
     _rows_editor(dialog).set_checked("sim", True)  # would cross the mode boundary
     assert dialog._apply() is True
     assert env.applied == []
-    assert env.infos == [
-        "A plan is running, so the backend changes were saved but not applied. "
-        "Save again once it finishes (or restart)."
-    ]
-    assert dialog.prompts == []
+    assert env.infos == []  # no message box of its own: the restart prompt carries the reason
+    assert dialog.prompts == [[
+        "Device backends: changes were saved but not applied because a plan is running; "
+        "restart Lightfall to apply them."
+    ]]
+
+
+def test_plan_running_plain_row_edit_offers_restart(qtbot, env, monkeypatch):
+    monkeypatch.setattr(device_settings, "_plan_active", lambda: True)
+    a = _row("mock", "a", rid="a")
+    env.prefs.layers[(BRANCH, DEVICE_BACKENDS_KEY)] = {"a": a.to_dict()}
+    dialog = _dialog(qtbot)
+    _rows_editor(dialog).set_checked("a", False)
+    assert dialog._apply() is True
+    assert env.applied == []
+    assert env.infos == []
+    assert dialog.prompts == [[device_settings.PLAN_RUNNING_REASON]]
 
 
 def test_crossing_mode_boundary_prompts_once_without_live_apply(qtbot, env):
@@ -357,6 +370,26 @@ def test_validation_blocks_duplicate_names(qtbot, env):
     assert dialog._apply() is False
     assert env.prefs.calls == []
     assert any("Backend names must be unique: 'Same' is used twice" in b for b in env.boxes)
+
+
+def test_validation_blocks_name_used_by_inherited_row(qtbot, env):
+    bcs = _row("mock", "bcs", rid="bcs")
+    old = _row("mock", "old", rid="old")
+    mine = _row("mock", "mine", rid="mine")
+    env.prefs.layers[(BRANCH, DEVICE_BACKENDS_KEY)] = {"bcs": bcs.to_dict(), "old": old.to_dict()}
+    # "old" is overridden here under another name, so its inherited name is free
+    env.prefs.layers[(USER, DEVICE_BACKENDS_KEY)] = {
+        "old": {**old.to_dict(), "name": "renamed"}, "mine": mine.to_dict()}
+    dialog = _dialog(qtbot)
+    editor = _rows_editor(dialog)
+    editor.select("mine")
+    editor.name_edit.setText("OLD")
+    assert dialog._apply() is True
+    assert not env.boxes
+    editor.select("mine")
+    editor.name_edit.setText("BCS")
+    assert dialog._apply() is False
+    assert any("Backend names must be unique: 'BCS' is used twice" in b for b in env.boxes)
 
 
 def test_validate_values_messages(qapp, monkeypatch):

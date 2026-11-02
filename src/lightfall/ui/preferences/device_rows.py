@@ -199,7 +199,7 @@ class DeviceRowsEditor(TableEditor):
                     self.table.setItem(index, _CHECK, check)
                 if exclusive is not None and shown.row is not exclusive:
                     flags = Qt.ItemFlag.ItemIsSelectable  # while an exclusive row is on, nothing else can be
-                elif self._read_only:
+                elif self._read_only or self._locked_exclusive(shown):
                     flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
                 else:
                     flags = Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
@@ -227,6 +227,11 @@ class DeviceRowsEditor(TableEditor):
             self._show_detail()
         self._finish_rows()
 
+    @staticmethod
+    def _locked_exclusive(shown: ShownRow) -> bool:
+        """An exclusive row a broader scope gives (or this scope overrides): switched there only."""
+        return shown.origin is not None and is_exclusive(shown.row, _registry())
+
     def _update_hint(self, exclusive: BackendRow | None) -> None:
         if exclusive is None:
             self.exclusive_hint.hide()
@@ -237,6 +242,9 @@ class DeviceRowsEditor(TableEditor):
         plugins = _device_backend_plugin_names()
         if plugins:
             text += f" Also off: {', '.join(plugins)}."
+        found = self._find(exclusive.id)
+        if found is not None and found[1].origin is not None:
+            text += f" It is switched on at {found[1].origin}; switch it off there."
         self.exclusive_hint.setText(text)
         self.exclusive_hint.show()
 
@@ -338,9 +346,10 @@ class DeviceRowsEditor(TableEditor):
     def _on_item_changed(self, item: QTableWidgetItem) -> None:
         if self._loading or item.column() != _CHECK or not 0 <= item.row() < len(self._shown):
             return
-        row = self._shown[item.row()].row
+        shown = self._shown[item.row()]
+        row = shown.row
         checked = item.checkState() == Qt.CheckState.Checked
-        if self._read_only or checked == row.enabled:
+        if self._read_only or checked == row.enabled or self._locked_exclusive(shown):
             self._refresh()
             return
         backend_type = _registry().get(row.type)

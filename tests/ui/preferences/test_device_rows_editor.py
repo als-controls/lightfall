@@ -226,6 +226,50 @@ def test_other_rows_locked_while_exclusive_on(editor, monkeypatch):
     assert not editor.exclusive_hint.isHidden()
 
 
+def test_inherited_exclusive_row_cannot_be_toggled(editor):
+    a = _row("mock", "a", enabled=False, rid="a")
+    sim = _row("excl", "sim", config={"addr": "127.0.0.1"}, rid="sim")
+    _load(editor, inherited=_inherited(a, sim))
+    index = editor.row_ids().index("sim")
+    assert not editor.table.item(index, 0).flags() & Qt.ItemFlag.ItemIsUserCheckable
+    assert editor.exclusive_hint.text() == (
+        "Other device sources are off while Excl: 127.0.0.1 is on. "
+        f"It is switched on at {ORIGIN}; switch it off there."
+    )
+    editor.set_checked("sim", False)  # the toggle path refuses it too
+    assert editor.edits == []
+    assert editor.value() is None
+    assert _enabled(editor) == [False, True]
+    # Override here copies it for config edits but still cannot switch it off
+    editor.select("sim")
+    editor.override_button.click()
+    assert not editor.table.item(index, 0).flags() & Qt.ItemFlag.ItemIsUserCheckable
+    editor.set_checked("sim", False)
+    assert _enabled(editor) == [False, True]
+
+
+def test_inherited_exclusive_row_off_cannot_be_switched_on(editor, asked):
+    a = _row("mock", "a", rid="a")
+    sim = _row("excl", "sim", enabled=False, config={"addr": "127.0.0.1"}, rid="sim")
+    _load(editor, inherited=_inherited(a, sim))
+    index = editor.row_ids().index("sim")
+    assert not editor.table.item(index, 0).flags() & Qt.ItemFlag.ItemIsUserCheckable
+    editor.set_checked("sim", True)
+    assert asked == []
+    assert editor.edits == []
+    assert _enabled(editor) == [True, False]
+    assert editor.exclusive_hint.isHidden()
+
+
+def test_own_exclusive_row_still_toggles(editor):
+    _three_rows(editor)
+    index = editor.row_ids().index("sim")
+    assert editor.table.item(index, 0).flags() & Qt.ItemFlag.ItemIsUserCheckable
+    editor.set_checked("sim", True)
+    assert _enabled(editor) == [False, False, True]
+    assert editor.exclusive_hint.text() == "Other device sources are off while Excl: 127.0.0.1 is on."
+
+
 def test_unticking_exclusive_restores(editor):
     a = _row("mock", "a", rid="a")
     b = _row("mock", "b", enabled=False, rid="b")  # already off: stays off afterwards

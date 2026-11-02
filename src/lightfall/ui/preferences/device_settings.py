@@ -18,7 +18,6 @@ from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from lightfall_settings import SettingSpec
-from PySide6.QtWidgets import QMessageBox
 
 from lightfall.devices.backend_types.registry import BackendTypeRegistry
 from lightfall.devices.backend_types.rows import (
@@ -64,9 +63,9 @@ BACKENDS_DESCRIPTION = (
     "Backend changes apply when you save. Edited backends reconnect their devices; "
     "connection settings apply to backends built after that."
 )
-PLAN_RUNNING_TEXT = (
-    "A plan is running, so the backend changes were saved but not applied. "
-    "Save again once it finishes (or restart)."
+PLAN_RUNNING_REASON = (
+    "Device backends: changes were saved but not applied because a plan is running; "
+    "restart Lightfall to apply them."
 )
 
 
@@ -179,6 +178,19 @@ class DeviceSettingsPlugin(SettingsPlugin):
             backend_type = registry.get(row.type)
             if row.enabled and backend_type is not None:
                 errors.extend(f"{row.name}: {e}" for e in backend_type.validate(row.config))
+        # The catalog keys backends by name: an own row must not reuse an inherited row's
+        # name either (inherited rows this scope overrides carry the own row's name).
+        own_ids = set(raw) if isinstance(raw, dict) else set()
+        inherited_names = {
+            str(item.get("name", "")).lower()
+            for rid, (item, _origin) in _inherited_rows(values).items()
+            if rid not in own_ids and isinstance(item, dict)
+        }
+        for row in rows_from_value(raw):
+            item = raw.get(row.id) if isinstance(raw, dict) else None
+            name = item.get("name") if isinstance(item, dict) else row.name
+            if name and str(name).lower() in inherited_names:
+                errors.append(f"Backend names must be unique: '{name}' is used twice")
         return errors
 
     def after_save(self, scope: str, changed: Mapping[str, Any]) -> None:
@@ -186,9 +198,9 @@ class DeviceSettingsPlugin(SettingsPlugin):
         if not any(key in changed for key in _ROW_KEYS):
             return
         if _plan_active():
-            # Removing a backend drops its devices; never do that under a plan.
+            # Removing a backend drops its devices; never do that under a plan. The dialog's
+            # restart prompt says so (restart_reason).
             logger.warning("Device backend changes saved; not applied while a plan is running")
-            QMessageBox.information(None, "Device backends", PLAN_RUNNING_TEXT)
             return
         prefs = PreferencesManager.get_instance()
         rows = load_rows(prefs.get) or []
@@ -199,8 +211,10 @@ class DeviceSettingsPlugin(SettingsPlugin):
         startup.apply_backend_rows([deepcopy(row) for row in rows], build_context(prefs.get))
 
     def restart_reason(self, scope: str, changed: Mapping[str, Any]) -> str:
-        if not any(key in changed for key in _ROW_KEYS) or _plan_active():
+        if not any(key in changed for key in _ROW_KEYS):
             return ""
+        if _plan_active():
+            return PLAN_RUNNING_REASON  # after_save did not apply them
         registry = BackendTypeRegistry.get_instance()
         rows = load_rows(PreferencesManager.get_instance().get) or []
         if not crosses_mode_boundary(rows, registry):
@@ -213,6 +227,17 @@ class DeviceSettingsPlugin(SettingsPlugin):
         mode = current_session_mode()
         label = mode.label if mode else "this mode"
         return f"Device backends: Lightfall needs to restart to leave {label}."
+
+
+def _inherited_rows(values: FormValues) -> dict[str, tuple[Any, str]]:
+    """Rows broader scopes give the form's scope: row id -> (row dict, origin label)."""
+    scope = getattr(values, "scope", None)
+    if scope is None:
+        return {}
+    inherited_items = getattr(PreferencesManager.get_instance(), "inherited_items", None)
+    if inherited_items is None:
+        return {}
+    return {str(rid): entry for rid, entry in (inherited_items(DEVICE_BACKENDS_KEY, scope) or {}).items()}
 
 
 def _plan_active() -> bool:
