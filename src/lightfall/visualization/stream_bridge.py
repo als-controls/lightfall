@@ -12,6 +12,14 @@ from typing import Any
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
+# Largest websocket message the subscription accepts. Tiled pushes every array
+# append with its data inline (``array-data`` with ``payload``), so one
+# 2048x2048 uint16 frame is ~8 MB. Tiled's default (1 MB) makes websockets
+# close with 1009 on the first frame and the subscription then disconnects
+# permanently ("Message exceeds max_size ... disconnect permanently"), so live
+# image views stop updating. 256 MiB covers a 4096x4096 float64 frame.
+STREAM_MAX_MESSAGE_BYTES = 256 * 1024 * 1024
+
 
 class StreamBridge(QObject):
     update_received = Signal(object)  # emitted on the GUI thread (queued)
@@ -32,7 +40,7 @@ class StreamBridge(QObject):
             sub_new_data.add_callback(self._on_update)
         else:                                   # _FakeSub / alt style
             sub.add_callback(self._on_update)
-        sub.start_in_thread(start=1)
+        sub.start_in_thread(start=1, max_size=STREAM_MAX_MESSAGE_BYTES)
         self._sub = sub
 
     def _on_update(self, update: Any) -> None:

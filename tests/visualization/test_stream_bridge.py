@@ -91,3 +91,19 @@ def test_bridge_disconnect_is_idempotent(qtbot):
     bridge.disconnect()
     bridge.disconnect()  # second call must not raise
     assert sub.disconnected is True
+
+
+def test_bridge_accepts_full_frame_messages(qtbot):
+    """Tiled pushes array appends with the data inline; a 2048x2048 uint16
+    frame is ~8 MB, so the subscription must not keep Tiled's 1 MB default
+    (websockets closes with 1009 and the subscription never reconnects)."""
+    started = {}
+
+    class _RecordingSub(_FakeSub):
+        def start_in_thread(self, **kw):
+            started.update(kw)
+
+    bridge = StreamBridge()
+    bridge.connect_node(_FakeNode(_RecordingSub()))
+    assert started.get("start") == 1
+    assert started.get("max_size", 1_000_000) >= 2048 * 2048 * 2 * 4

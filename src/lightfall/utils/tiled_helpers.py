@@ -38,13 +38,13 @@ def read_events(stream: Any, variables: list[str] | None = None) -> Any | None:
 
     if variables is not None:
         try:
-            return stream.read(variables=list(variables))
+            return restore_event_order(stream, stream.read(variables=list(variables)))
         except Exception as e:
             # Older clients lack ``variables=``; fall back to a full read.
             logger.debug("read_events: read(variables=...) failed, reading all: {}", e)
 
     try:
-        return stream.read()
+        return restore_event_order(stream, stream.read())
     except Exception as e:
         modern_err = e
 
@@ -68,6 +68,81 @@ def read_events(stream: Any, variables: list[str] | None = None) -> Any | None:
         keys,
     )
     return None
+
+
+def restore_event_order(stream: Any, events: Any) -> Any:
+    """Put the event-table columns of ``events`` back into ``seq_num`` order.
+
+    Tiled's SQL table adapter reads an appendable table with
+    ``WHERE _dataset_id=… ORDER BY _partition_id`` (tiled/adapters/sql.py,
+    ``_read_full_table_or_partition``). Every row of a Bluesky event table is
+    in partition 0, so that ORDER BY is a no-op and PostgreSQL returns rows in
+    *heap* order. TiledWriter appends one row per request, and the server's
+    connection pool spreads those INSERTs over several backends, each filling
+    its own heap page — so once a page fills, rows come back interleaved
+    (e.g. evens then odds). The columns stay consistent with each other, but
+    array fields (zarr, written at explicit offsets) stay in acquisition
+    order, so image row *i* no longer matches scalar row *i*.
+
+    This reads the event table's columns that appear in ``events`` together
+    with ``seq_num`` in ONE query, sorts by ``seq_num`` and writes them back,
+    so every table column lines up with the array fields again. Non-V3
+    layouts, streams without an ``internal`` table and already-ordered
+    tables are returned unchanged.
+    """
+    from lightfall.utils.logging import logger
+
+    try:
+        table = stream.base["internal"]
+        table_cols = set(table.columns)
+    except Exception:
+        return events
+    if events is None or "seq_num" not in table_cols:
+        return events
+    names = [
+        str(n) for n in list(getattr(events, "variables", {}))
+        if str(n) in table_cols
+    ]
+    if not names:
+        return events
+    read_cols = names if "seq_num" in names else names + ["seq_num"]
+    try:
+        n = int(events[names[0]].shape[0])
+        df = table.read(read_cols)
+    except Exception as e:
+        logger.debug("restore_event_order: table re-read failed: {}", e)
+        return events
+    seq = df["seq_num"].to_numpy()
+    if len(seq) < n:
+        # Append-only table shrank? Not something we can reason about.
+        return events
+    order = np.argsort(seq, kind="stable")
+    if len(seq) == n and np.array_equal(order, np.arange(n)):
+        return events
+    # A live run may have appended rows since ``events`` was read; keep the
+    # first ``n`` events in seq_num order so lengths match the arrays read
+    # alongside them.
+    df = df.iloc[order[:n]]
+    if len(seq) == n:
+        logger.debug(
+            "Event table of stream {!r} came back out of seq_num order; "
+            "reordered {} rows to keep table columns aligned with arrays",
+            getattr(stream, "item", {}).get("id", "?"), n,
+        )
+    coords = {}
+    data = {}
+    for name in names:
+        var = events[name]
+        values = df[name].to_numpy()
+        if name in getattr(events, "coords", {}):
+            coords[name] = (var.dims, values, var.attrs)
+        else:
+            data[name] = (var.dims, values, var.attrs)
+    if data:
+        events = events.assign(data)
+    if coords:
+        events = events.assign_coords(coords)
+    return events
 
 
 def stream_data_keys(stream: Any) -> dict[str, Any]:
