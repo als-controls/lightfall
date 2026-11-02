@@ -65,7 +65,7 @@ and the search box to narrow the list. Select a row to enable the buttons:
 | Button | Enabled when |
 |--------|--------------|
 | **Publish…** | The row is yours (source *Mine*) and you are a maintainer or above on at least one scope. |
-| **History…** | The row is published content (facility, beamline or branch). |
+| **History…** | The row is published content (facility, beamline or branch), or it is yours (*Mine*) and scoped settings are on. |
 | **Retract** | The row is published and you are a maintainer or above on its scope. |
 | **Copy to mine** | The row is published content, or a built-in or package agent or skill. |
 | **Open folder** | The item has a file or folder on disk. |
@@ -84,14 +84,17 @@ your role too, so a stale screen can't bypass it.
 
 1. Select one of your own items and press **Publish…**.
 2. The dialog shows what will be sent: the file count, the size and the start of
-   the checksum. What you see is what is uploaded, even if you edit the item
-   while the dialog is open. Close and reopen it to pick up later edits.
+   the checksum; hover over that line for the list of files. What you see is
+   what is uploaded, even if you edit the item while the dialog is open. Close
+   and reopen it to pick up later edits.
 3. Choose the **scope**. Only scopes where you are a maintainer or above are
    offered.
 4. Write a **message** describing the change. It is required and appears in the
    history.
 5. If you are publishing someone else's work, fill in **author**.
-6. Press **Publish**.
+6. Press **Publish**. While the upload runs the dialog can't be cancelled (it
+   couldn't be undone halfway); you are told when it has been published, even if
+   the dialog has closed by then.
 
 Bundles leave out `__pycache__`, `*.pyc`, `.git`, `.DS_Store`, `Thumbs.db` and a
 skill's `_drafts` folder. A plan is one `.py` file, an agent is one `.md` file,
@@ -110,28 +113,43 @@ Plans and plugins load at their next start, while agents and skills refresh live
 
 **History…** lists the revisions of a published item with who made each one and
 the message. Select an older revision and press **Restore** to make it current
-again, which creates a new revision. **Retract** removes the item from the scope.
-Both need maintainer or above and ask you to confirm. Nothing is lost: a retracted
-item can be restored from its history.
+again; the revision itself is unchanged, it simply becomes the current one
+again. **Retract** removes the item from the scope. Both need maintainer or above
+and ask you to confirm. Nothing is lost: a retracted item can be restored from
+its history.
+
+Your own copy of an item wins over the published one, so after you publish from
+*Mine* the table shows only your row (with a note such as *Replaces Beamline
+7.0.1*). Select that row and press **History…**: Lightfall asks which shared
+scope to look at (the one your copy replaces is preselected) and opens that
+scope's history, where you can restore or retract as usual. This is also how you
+bring back an item you retracted while you have your own copy of it: a retracted
+item drops out of the table after the next sync, but your row stays. If the item was never published at the scope you picked,
+the History window says so.
 
 ### Copy to mine
 
 **Copy to mine** copies a published item (or a built-in or package agent or
 skill) into `~/lightfall/plans`, `plugins`, `agents` or `skills`, where you can
 edit it. If you already have an item with that name, Lightfall asks before
-replacing it, and Cancel leaves yours untouched. Because a local item wins over
-published ones, your copy takes over its name straight away.
+replacing it, and answering **No** leaves yours untouched. Because a local item
+wins over published ones, your copy takes over its name straight away.
 
 ### Using the assistant
 
 The Claude assistant can do the same through its content tools: list content,
 show history, and publish, retract or restore an item. Every publish, retract or
-restore **always asks you first**. The question names the scope and the item and
-gives the file count, the size and the checksum, and offers only Allow or Deny;
-there is no "always allow". If you deny, close the question or let it time out,
-nothing is sent and the assistant is told you declined. If the item changed while
-you were deciding, the request is refused and the assistant must ask again.
-Revisions made this way are marked as made by the agent in the history.
+restore **always asks you first**, offering only Allow or Deny; there is no
+"always allow". Answering by voice, only the whole word "Allow" allows (a
+fragment such as "low" counts as a refusal). Every question names the scope and
+the item. A publish question also gives the file count, the
+size and the start of the checksum of the bundle that will be sent; a retract or
+restore question gives the current revision (and, for restore, the revision that
+becomes current). If you deny, close the question or let it time out, nothing is
+sent and the assistant is told you declined. For a retract or restore, if the
+item's current revision changed while you were deciding, the request is refused
+and the assistant must ask again. Revisions made this way are marked as made by
+the agent in the history.
 
 ## When changes take effect
 
