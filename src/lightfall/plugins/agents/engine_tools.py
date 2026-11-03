@@ -539,6 +539,8 @@ class EngineToolsAgent(ToolPlugin):
         return SessionManager.get_instance()
 
     def _check_device_control_permission(self) -> tuple[bool, str | None]:
+        """Gate for resuming a plan. Pausing and aborting are never gated:
+        refusing to stop hardware is the unsafe failure (see auth.engine_guard)."""
         from lightfall.auth.policy import Permission
         session = self._get_session_manager()
         if not session.check_permission(Permission.DEVICE_CONTROL):
@@ -607,10 +609,6 @@ class EngineToolsAgent(ToolPlugin):
             defer = args.get("defer", True)
 
             def _pause():
-                has_perm, error = self._check_device_control_permission()
-                if not has_perm:
-                    return mcp_result({"success": False, "error": error}, is_error=True)
-
                 try:
                     from lightfall.acquire.engine import get_engine
                     engine = get_engine()
@@ -674,10 +672,6 @@ class EngineToolsAgent(ToolPlugin):
             reason = args.get("reason", "")
 
             def _abort():
-                has_perm, error = self._check_device_control_permission()
-                if not has_perm:
-                    return mcp_result({"success": False, "error": error}, is_error=True)
-
                 try:
                     payload, is_error = _abort_plan_payload(reason)
                     if is_error:

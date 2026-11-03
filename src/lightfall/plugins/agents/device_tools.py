@@ -22,7 +22,7 @@ class DeviceToolsAgent(ToolPlugin):
     - List and search devices in the catalog
     - Read device values and positions
     - Get device state and status information
-    - Control devices (requires DEVICE_CONTROL permission)
+    - Control devices (requires DEVICE_CONTROL permission; stopping is always allowed)
     """
 
     @property
@@ -766,7 +766,7 @@ class DeviceToolsAgent(ToolPlugin):
 
         @tool(
             name="lightfall_stop_device",
-            description="Stop a device (emergency stop). Requires DEVICE_CONTROL permission.",
+            description="Stop a device (emergency stop). Allowed in every session.",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -785,15 +785,8 @@ class DeviceToolsAgent(ToolPlugin):
             device_name = args["name"]
 
             def _stop():
-                # Check permission
-                has_perm, error = self._check_device_control_permission()
-                if not has_perm:
-                    return mcp_result({
-                        "success": False,
-                        "error": error,
-                        "device": device_name,
-                    })
-
+                # Never gated: refusing to stop hardware is the unsafe failure
+                # (see auth.engine_guard). Moves and sets stay gated.
                 catalog = self._get_catalog()
 
                 if not catalog.is_connected:
