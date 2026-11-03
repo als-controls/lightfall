@@ -410,6 +410,7 @@ class BlueskyEngine(BaseEngine):
             logger.error(f"[bluesky] Error during plan execution: {ex}")
             logger.exception(ex)
             error = ex
+            self._recover_stale_run_engine(ex)
             self.sigException.emit(ex)
         else:
             success = True
@@ -426,6 +427,39 @@ class BlueskyEngine(BaseEngine):
             self.sigProcedureFinished.emit(item.id, error)
             if on_complete is not None:
                 self._invoke_on_complete(on_complete, success)
+
+    def _recover_stale_run_engine(self, ex: BaseException) -> None:
+        """Return the RunEngine to "idle" after it raised out of ``RE(plan)``.
+
+        A non-``RunEngineInterrupted`` exception that escapes bluesky's own
+        ``_run`` cleanup (e.g. ``sys.stdout.flush()`` when the GUI was launched
+        without a console and ``sys.stdout`` is ``None``) skips the final
+        ``self._state = "idle"``. The RunEngine then reports "running" forever,
+        the engine maps that to ``EngineState.RUNNING`` and every later plan is
+        refused. Nothing is executing at this point — ``RE(plan)`` has
+        returned — so finish the cleanup bluesky skipped and force "idle".
+        """
+        run_engine = self._RE
+        if run_engine is None or run_engine.state in ("idle", "paused", "panicked"):
+            return
+        logger.warning(
+            "[bluesky] RunEngine still reports '{}' after plan raised {!r}; "
+            "resetting it to idle",
+            run_engine.state, ex,
+        )
+        try:
+            for plan in list(getattr(run_engine, "_plan_stack", ())):
+                try:
+                    plan.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            for attr in ("_plan_stack", "_response_stack", "_run_bundlers", "_staged"):
+                container = getattr(run_engine, attr, None)
+                if container is not None and hasattr(container, "clear"):
+                    container.clear()
+            run_engine._state = "idle"
+        except Exception:  # noqa: BLE001
+            logger.exception("[bluesky] Could not reset the RunEngine to idle")
 
     def _invoke_on_complete(
         self, callback: Callable[[bool], None], success: bool
