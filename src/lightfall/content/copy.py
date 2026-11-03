@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 from lightfall.content.actions import ContentRow
@@ -46,6 +47,37 @@ def _remove(path: Path) -> None:
         path.unlink()
 
 
+_STAGED_PREFIX = ".copy-"
+STALE_COPY_SECONDS = 600
+
+
+def _recover_leftovers(folder: Path) -> None:
+    """Clean up after a copy that was killed mid-way (power loss, kill -9) in ``folder``.
+
+    A staging folder older than ``STALE_COPY_SECONDS`` is removed. If it still holds the
+    user's previous item (``previous``) and nothing took that item's place, the item is
+    moved back first, so a crash between the two renames in ``_place`` loses nothing.
+    Younger folders are left alone: another Lightfall may be copying right now.
+    """
+    if not folder.is_dir():
+        return
+    cutoff = time.time() - STALE_COPY_SECONDS
+    for staged in folder.glob(f"{_STAGED_PREFIX}*"):
+        try:
+            if not staged.is_dir() or staged.stat().st_mtime >= cutoff:
+                continue
+            # mkdtemp names it ".copy-<dest name>-<random>"; the random part has no "-".
+            name = staged.name[len(_STAGED_PREFIX):].rpartition("-")[0]
+            previous, dest = staged / "previous", folder / name
+            if name and (previous.exists() or previous.is_symlink()) and not (
+                    dest.exists() or dest.is_symlink()):
+                os.rename(previous, dest)
+                logger.warning("Put back {} after an interrupted copy", dest)
+            shutil.rmtree(staged)
+        except OSError as e:
+            logger.debug("Could not clean up {}: {}", staged, e)
+
+
 def _place(src: Path, dest: Path) -> None:
     """Copy ``src`` beside ``dest`` first, then swap it in, so a failed copy changes nothing.
 
@@ -53,7 +85,7 @@ def _place(src: Path, dest: Path) -> None:
     the swap fails (a sharing violation, an antivirus lock); it is deleted only after.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    staged = Path(tempfile.mkdtemp(dir=dest.parent, prefix=f".copy-{dest.name}-"))
+    staged = Path(tempfile.mkdtemp(dir=dest.parent, prefix=f"{_STAGED_PREFIX}{dest.name}-"))
     try:
         new = staged / dest.name
         if src.is_dir():
@@ -115,6 +147,7 @@ def copy_to_mine(row: ContentRow, *, root: Path | None = None, overwrite: bool =
         raise ValueError(f"cannot copy {row.type} {row.name!r}: not a valid name")
     root = root if root is not None else default_root()
     dest, same = _targets(row, root)
+    _recover_leftovers(dest.parent)  # first, so a stranded item counts as taken
     taken = [p for p in same if p.exists() or p.is_symlink()]
     if taken and not overwrite:
         raise FileExistsError(f"You already have a {row.type} called {row.name!r} ({taken[0]})")

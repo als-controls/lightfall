@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -36,6 +37,8 @@ _UNSAFE = re.compile(r"[^A-Za-z0-9._@-]")
 # Older servers don't list the declared counts; these are the server's default policy.
 FALLBACK_MAX_FILES = 2000
 FALLBACK_MAX_BYTES = 200 * 1024**2
+# write_json_atomic's temp files (".tmp-*.json") older than this are crash leftovers.
+STALE_TEMP_SECONDS = 3600
 
 
 def valid_item(type_: str, name: str) -> bool:
@@ -129,7 +132,8 @@ class ContentStore:
                 shutil.rmtree(staged, ignore_errors=True)
 
     def prune(self) -> None:
-        """Delete revision folders no index names, and leftovers in ``.staging``.
+        """Delete revision folders no index names, leftovers in ``.staging``, and stale
+        ``.tmp-*.json`` files (from an index or chain write killed before its rename).
 
         Best effort (a folder in use stays until next time). A scope whose index can't
         be read is left alone: without it we can't tell what is current.
@@ -159,11 +163,21 @@ class ContentStore:
                     except OSError as e:
                         logger.debug("Content folder {} in use; pruned later: {}", folder, e)
                         continue
+        self._sweep_json_temps()
         for leftover in staging.iterdir():
             if leftover.is_dir():
                 shutil.rmtree(leftover, ignore_errors=True)
             else:
                 leftover.unlink(missing_ok=True)
+
+    def _sweep_json_temps(self) -> None:
+        cutoff = time.time() - STALE_TEMP_SECONDS
+        for tmp in [*self.root.glob(".tmp-*.json"), *self.root.glob("*/.tmp-*.json")]:
+            try:
+                if tmp.is_file() and tmp.stat().st_mtime < cutoff:
+                    tmp.unlink()
+            except OSError:
+                continue  # in use or gone; next prune tries again
 
     # -- chains (which scopes each binding reads) ------------------------------------
 

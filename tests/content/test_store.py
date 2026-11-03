@@ -131,3 +131,23 @@ def test_default_content_dir_uses_localappdata(monkeypatch, tmp_path):
 def test_default_content_dir_uses_xdg_data_home(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
     assert default_content_dir() == tmp_path / "xdg" / "lightfall" / "content"
+
+
+def test_prune_removes_stale_index_temp_files(tmp_path):
+    import time
+
+    store = ContentStore(tmp_path / "root")
+    new = _install(store, tmp_path, 1, {"__init__.py": b"v1"})
+    store.save_listing(ContentListing(BR, (new,), "e"))
+    stale_root = store.root / ".tmp-abc.json"
+    stale_scope = store.scope_dir(BR) / ".tmp-def.json"
+    fresh = store.scope_dir(BR) / ".tmp-now.json"
+    for p in (stale_root, stale_scope, fresh):
+        p.write_text("{", encoding="utf-8")
+    long_ago = time.time() - 2 * 3600
+    for p in (stale_root, stale_scope):
+        os.utime(p, (long_ago, long_ago))
+    store.prune()
+    assert not stale_root.exists() and not stale_scope.exists()
+    assert fresh.exists()  # a write that may still be in progress
+    assert store.listing(BR) is not None
