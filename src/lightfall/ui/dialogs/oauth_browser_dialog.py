@@ -11,6 +11,7 @@ behind firewalls.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
@@ -30,6 +31,9 @@ from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     pass
+
+# Keycloak's identity-brokering path: /realms/<realm>/broker/<alias>/...
+_BROKER_PATH = re.compile(r"/realms/[^/]+/broker/([^/?#]+)/")
 
 # Track whether WebEngine has been initialized (proxy must be set before first use)
 _webengine_initialized = False
@@ -102,8 +106,10 @@ class OAuthBrowserDialog(LFDialog):
                        the application. If WebEngine was already initialized without
                        proxy, this parameter will be ignored with a warning.
             cookie_origin: Base URL of the identity server (e.g. the Keycloak
-                server URL). Cookies for its host are captured and returned by
-                :meth:`captured_cookies`; ``restore_cookies`` are set for it.
+                server URL), used as the origin of restored cookies that carry
+                no domain. Every cookie the login sets -- Keycloak's and those
+                of any brokered sign-in service such as login.lbl.gov -- is
+                captured and returned by :meth:`captured_cookies`.
             restore_cookies: Raw ``Set-Cookie`` strings to put in the cookie
                 store before the login page loads ("Continue as <name>").
         """
@@ -115,12 +121,13 @@ class OAuthBrowserDialog(LFDialog):
         self._proxy_url = proxy_url
         self._completed = False
         self._cookie_origin = cookie_origin
-        self._cookie_host = (urlparse(cookie_origin).hostname or "") if cookie_origin else ""
         self._restore_cookies = list(restore_cookies)
         # (name, domain, path) -> raw Set-Cookie string, for the identity host.
         self._captured: dict[tuple[str, str, str], str] = {}
         self._cookie_store = None
         self._pending_code: tuple[str, str] | None = None
+        # Alias of the Keycloak identity provider the login went through.
+        self._broker_alias = ""
 
         self.setWindowTitle(title)
         self.setMinimumSize(800, 700)
@@ -214,6 +221,11 @@ class OAuthBrowserDialog(LFDialog):
         self._web_view.loadProgress.connect(self._on_load_progress)
         self._web_view.loadFinished.connect(self._on_load_finished)
         self._web_view.urlChanged.connect(self._on_url_changed)
+        # Keycloak's /broker/<alias>/ hops are server redirects, which
+        # urlChanged never reports; navigation requests include redirects.
+        page = self._web_view.page()
+        if hasattr(page, "navigationRequested"):
+            page.navigationRequested.connect(self._on_navigation_requested)
 
         layout.addWidget(self._web_view)
 
@@ -235,23 +247,36 @@ class OAuthBrowserDialog(LFDialog):
             store = QWebEngineProfile.defaultProfile().cookieStore()
         self._cookie_store = store
         store.deleteAllCookies()
-        if not self._cookie_host:
-            return
         store.cookieAdded.connect(self._on_cookie_added)
         store.cookieRemoved.connect(self._on_cookie_removed)
-        origin = QUrl(self._cookie_origin)
         restored = 0
         for raw in self._restore_cookies:
             for cookie in QNetworkCookie.parseCookies(QByteArray(raw.encode("utf-8"))):
-                store.setCookie(cookie, origin)
+                if self._is_expired(cookie):
+                    continue
+                store.setCookie(cookie, self._origin_for(cookie))
+                # Keep it even if the login never touches its site again (a
+                # Keycloak-only resume must not drop the LBL sign-in cookie).
+                self._captured[self._cookie_key(cookie)] = raw
                 restored += 1
         if restored:
             logger.debug("OAuth dialog: restored {} saved sign-in cookie(s)", restored)
 
-    def _is_identity_cookie(self, cookie) -> bool:
-        domain = cookie.domain().lstrip(".").lower()
-        host = self._cookie_host.lower()
-        return not domain or host == domain or host.endswith("." + domain)
+    @staticmethod
+    def _is_expired(cookie) -> bool:
+        from PySide6.QtCore import QDateTime
+
+        expires = cookie.expirationDate()
+        return expires.isValid() and expires < QDateTime.currentDateTimeUtc()
+
+    def _origin_for(self, cookie) -> QUrl:
+        domain = cookie.domain().lstrip(".")
+        if not domain:
+            return QUrl(self._cookie_origin or "")
+        scheme = "https" if cookie.isSecure() else (
+            urlparse(self._cookie_origin or "").scheme or "https"
+        )
+        return QUrl(f"{scheme}://{domain}/")
 
     @staticmethod
     def _cookie_key(cookie) -> tuple[str, str, str]:
@@ -262,24 +287,29 @@ class OAuthBrowserDialog(LFDialog):
         )
 
     def _on_cookie_added(self, cookie) -> None:
-        if not self._is_identity_cookie(cookie):
-            return
         from PySide6.QtNetwork import QNetworkCookie
 
         raw = bytes(cookie.toRawForm(QNetworkCookie.RawForm.Full).data())
         self._captured[self._cookie_key(cookie)] = raw.decode("utf-8", "replace")
 
     def _on_cookie_removed(self, cookie) -> None:
-        if self._is_identity_cookie(cookie):
-            self._captured.pop(self._cookie_key(cookie), None)
+        self._captured.pop(self._cookie_key(cookie), None)
 
     def captured_cookies(self) -> list[str]:
-        """Raw ``Set-Cookie`` strings currently held for the identity host."""
+        """Raw ``Set-Cookie`` strings for every cookie this login holds.
+
+        The jar starts empty for each dialog, so these all come from this
+        login (plus any restored for "Continue as").
+        """
         return list(self._captured.values())
+
+    def identity_provider(self) -> str:
+        """Alias of the Keycloak identity provider used (e.g. ``lbl-idp``), or ""."""
+        return self._broker_alias
 
     def _disconnect_cookie_store(self) -> None:
         store, self._cookie_store = self._cookie_store, None
-        if store is None or not self._cookie_host:
+        if store is None:
             return
         for sig, slot in (
             (store.cookieAdded, self._on_cookie_added),
@@ -353,6 +383,8 @@ class OAuthBrowserDialog(LFDialog):
         url_str = url.toString()
         parsed = urlparse(url_str)
 
+        self._note_broker(parsed.path)
+
         # Check if this is the callback URL
         if parsed.netloc == self._callback_host and parsed.path == self._callback_path:
             logger.debug("OAuth dialog: intercepted callback URL")
@@ -382,6 +414,15 @@ class OAuthBrowserDialog(LFDialog):
                 logger.warning("OAuth dialog: callback missing code parameter")
                 self.auth_error.emit("Invalid callback - missing authorization code")
                 self.reject()
+
+    def _note_broker(self, path: str) -> None:
+        broker = _BROKER_PATH.search(path)
+        if broker:
+            self._broker_alias = broker.group(1)
+
+    def _on_navigation_requested(self, request) -> None:
+        # Observe only; leaving the request untouched lets it proceed.
+        self._note_broker(request.url().path())
 
     def _finish_success(self) -> None:
         """Report the authorization code once the SSO cookies have settled."""

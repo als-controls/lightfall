@@ -1,13 +1,20 @@
 """Saved Keycloak sign-in cookies behind the login dialog's "Continue as <name>".
 
-The embedded login window runs on an in-memory browser profile, so Keycloak's
-single-sign-on cookies vanish when Lightfall exits and every launch asks for a
-password again. After a successful embedded login the provider saves those
-cookies here, together with the name of the person they belong to. The next
-login dialog then offers "Continue as <name>": choosing it puts the cookies
-back into the login window, and Keycloak finishes the login without a password
-for as long as its own SSO session is still alive (the realm's session
-timeouts decide that, not Lightfall).
+The embedded login window runs on an in-memory browser profile, so sign-in
+cookies vanish when Lightfall exits and every launch asks for a password
+again. After a successful embedded login the provider saves every cookie that
+login collected -- Keycloak's own SSO cookies and those of the brokered
+sign-in service behind it (login.lbl.gov for "LBL Login", or ORCID) -- with
+the name of the person and the alias of the identity provider they used. The
+next login dialog then offers "Continue as <name>": choosing it puts the
+cookies back into the login window and asks Keycloak to go straight to that
+identity provider (``kc_idp_hint``). While Keycloak's session lives it
+finishes at once; after that, the upstream service's longer-lived sign-in
+finishes it, still without a password.
+
+The upstream cookie is the person's sign-on for every site that service
+serves, not only Lightfall; the facility accepted that trade-off for shared
+beamline accounts.
 
 Resuming is always an explicit click; "Sign in as someone else" never loads
 these cookies. Logout deletes the file. Beamline machines usually share one OS
@@ -45,8 +52,10 @@ class SsoStash:
         username: Keycloak ``preferred_username`` of the person who signed in.
         display_name: Name shown on the "Continue as" button.
         cookies: Raw ``Set-Cookie`` strings
-            (``QNetworkCookie.toRawForm(Full)``) for the Keycloak host.
+            (``QNetworkCookie.toRawForm(Full)``) collected by the login.
         saved_at: Unix time the stash was written.
+        identity_provider: Keycloak identity-provider alias the person signed
+            in through (e.g. ``lbl-idp``), "" if unknown or Keycloak itself.
     """
 
     issuer: str
@@ -54,6 +63,7 @@ class SsoStash:
     display_name: str
     cookies: list[str]
     saved_at: float = field(default_factory=time.time)
+    identity_provider: str = ""
 
     @property
     def label_name(self) -> str:
@@ -99,6 +109,7 @@ def load_stash(issuer: str, path: Path | None = None) -> SsoStash | None:
             display_name=str(raw.get("display_name", "")),
             cookies=[str(c) for c in raw["cookies"]],
             saved_at=float(raw.get("saved_at", 0.0)),
+            identity_provider=str(raw.get("identity_provider", "")),
         )
     except (KeyError, TypeError, ValueError) as e:
         logger.warning("Ignoring malformed Keycloak sign-in stash {}: {}", path, e)

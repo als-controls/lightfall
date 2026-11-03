@@ -116,10 +116,11 @@ class LoginSettingsPlugin(SettingsPlugin):
                     description=(
                         "After a Keycloak login, remember it on this computer so "
                         "the next login screen can offer \"Continue as <name>\" "
-                        "without a password, while Keycloak's own session lasts. "
-                        "Anyone using this computer account can press it; Logout "
-                        "forgets the saved sign-in. Turning this off forgets it "
-                        "at the next login."
+                        "without a password, for as long as the LBL (or ORCID) "
+                        "sign-in lasts. The saved sign-in includes that LBL "
+                        "sign-on, and anyone using this computer account can "
+                        "press Continue; Logout forgets it. Turning this off "
+                        "forgets it at the next login."
                     ),
                 ),
             ]),
