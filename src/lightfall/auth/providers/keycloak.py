@@ -107,7 +107,18 @@ DEFAULT_ROLE_MAPPING: dict[str, Role] = {
     "ncs-user": Role.USER,
     "als-staff": Role.STAFF,
     "als-user": Role.USER,
+    # Keycloak group paths (full-path group claims, e.g. "/beamlines/_all/admin").
+    # Matched exactly on the normalised path -- never by last segment -- so that
+    # e.g. "/csm/foo/admin" or "/beamlines/7.0.1/maintainer" grant nothing.
+    "/beamlines/_all/admin": Role.ADMIN,
 }
+
+
+def _normalize_group_path(claim: str) -> str:
+    """Normalise a Keycloak group path: lowercase, single leading slash,
+    no empty segments or trailing slash ("beamlines//_all/admin/" ->
+    "/beamlines/_all/admin")."""
+    return "/" + "/".join(seg for seg in claim.lower().split("/") if seg)
 
 
 class _OAuthCallbackHandler(BaseHTTPRequestHandler):
@@ -846,6 +857,14 @@ class KeycloakAuthProvider(AuthProvider):
 
         # Map all to NCS roles
         for claim in realm_roles + resource_roles + groups:
+            # Group paths ("/a/b/c") match only by exact normalised path.
+            # The name-based rules below (prefix strip, "<role>:<beamline>")
+            # are intentionally NOT applied to paths.
+            if "/" in claim:
+                path = _normalize_group_path(claim)
+                if path in self._role_mapping:
+                    roles.add(self._role_mapping[path])
+                continue
             claim_lower = claim.lower()
             if claim_lower in self._role_mapping:
                 roles.add(self._role_mapping[claim_lower])
