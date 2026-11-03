@@ -98,6 +98,8 @@ def ping_or_spawn_exporter(
             ["lightfall-exporter", "--nats", nats_url],
             stderr=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
+            # Background service: no console window under lightfall-gui.exe.
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except FileNotFoundError:
         logger.error("lightfall-exporter not found on PATH")

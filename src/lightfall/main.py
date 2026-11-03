@@ -12,6 +12,27 @@ if sys.platform == "win32":
     import ctypes
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("gov.lbl.als.lightfall")
 
+
+def _ensure_std_streams() -> None:
+    """Give the process real stdout/stderr when launched without a console.
+
+    Under pythonw / the ``lightfall-gui`` gui-script, ``sys.stdout`` and
+    ``sys.stderr`` are ``None``. Libraries that call ``sys.stdout.flush()``
+    unguarded then raise — notably bluesky's ``RunEngine._run`` cleanup, which
+    left the RunEngine stuck in "running" after every successful plan. Point
+    missing streams (and their ``__stdout__``/``__stderr__`` originals) at
+    ``os.devnull``. Must run before the RunEngine is created.
+    """
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name, None) is None:
+            stream = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+            setattr(sys, name, stream)
+            if getattr(sys, f"__{name}__", None) is None:
+                setattr(sys, f"__{name}__", stream)
+
+
+_ensure_std_streams()
+
 # Install crash diagnostics before QApplication is constructed so
 # faulthandler is enabled and Qt environment knobs (QT_LOGGING_RULES) are
 # in place when Qt's logging system is first read. PySide6 is transitively
