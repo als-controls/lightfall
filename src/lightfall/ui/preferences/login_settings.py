@@ -2,6 +2,7 @@
 
 Provides configuration for:
 - Session duration for local authentication
+- Whether the login dialog offers "Continue as <name>" for Keycloak
 """
 
 from __future__ import annotations
@@ -12,8 +13,9 @@ from typing import TYPE_CHECKING
 from lightfall_settings import SettingSpec
 from loguru import logger
 
+from lightfall.auth.sso_stash import RESUME_SETTING_KEY
 from lightfall.plugins.settings_plugin import SettingsPlugin
-from lightfall.ui.preferences.form.schema import Choice, Section, SettingField
+from lightfall.ui.preferences.form.schema import Choice, Section, SettingField, Toggle
 from lightfall.ui.preferences.manager import PreferencesManager
 
 if TYPE_CHECKING:
@@ -89,6 +91,8 @@ class LoginSettingsPlugin(SettingsPlugin):
         return [
             SettingSpec(key="session_duration", scopes=frozenset({"user", "facility"}),
                         label="Session duration"),
+            SettingSpec(key=RESUME_SETTING_KEY, scopes=frozenset({"user", "facility"}),
+                        label="Offer \"Continue as\" for Keycloak"),
         ]
 
     def sections(self) -> Sequence[Section]:
@@ -101,6 +105,21 @@ class LoginSettingsPlugin(SettingsPlugin):
                     description=(
                         "This setting applies to local accounts only. "
                         "Keycloak sessions are controlled by the server."
+                    ),
+                ),
+            ]),
+            Section("Keycloak sign-in", [
+                SettingField(
+                    RESUME_SETTING_KEY,
+                    Toggle(),
+                    label="Offer \"Continue as\" for Keycloak",
+                    description=(
+                        "After a Keycloak login, remember it on this computer so "
+                        "the next login screen can offer \"Continue as <name>\" "
+                        "without a password, while Keycloak's own session lasts. "
+                        "Anyone using this computer account can press it; Logout "
+                        "forgets the saved sign-in. Turning this off forgets it "
+                        "at the next login."
                     ),
                 ),
             ]),

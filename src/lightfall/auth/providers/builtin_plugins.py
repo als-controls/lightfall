@@ -51,6 +51,14 @@ class KeycloakAuthPlugin(AuthProviderPlugin):
     def priority(self) -> int:
         return 10
 
+    def resume_name(self) -> str | None:
+        try:
+            stash = self.create_provider().resumable_stash()
+        except Exception as e:
+            logger.debug("Keycloak resume check skipped: {}", e)
+            return None
+        return stash.label_name if stash is not None else None
+
     def create_provider(self) -> AuthProvider:
         from lightfall.auth.providers.keycloak import KeycloakAuthProvider, KeycloakConfig
         from lightfall.config import ConfigManager

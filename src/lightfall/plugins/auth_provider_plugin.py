@@ -41,6 +41,16 @@ class AuthProviderPlugin(PluginType):
         """Full text shown on the provider's login button."""
         return f"Login with {self.display_name}"
 
+    def resume_name(self) -> str | None:
+        """Name of a person whose saved sign-in can be resumed, if any.
+
+        When this returns a name, the login dialog shows "Continue as <name>"
+        (calls ``authenticate(resume=True)``) and relabels the provider's own
+        button "Sign in as someone else" (``authenticate(fresh_login=True)``).
+        Providers that cannot resume a sign-in keep the default, None.
+        """
+        return None
+
     @property
     def accent_color(self) -> str:
         """Hex accent color for the provider's login button.

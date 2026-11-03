@@ -249,12 +249,41 @@ class LoginDialog(LFDialog):
     def _add_provider_buttons(self, layout) -> None:
         from lightfall.auth.provider_registry import AuthProviderRegistry
 
-        for plugin in AuthProviderRegistry.get_instance().get_all():
-            btn = QPushButton(plugin.button_label)
+        plugins = AuthProviderRegistry.get_instance().get_all()
+        for plugin in plugins:
+            resume_name = plugin.resume_name()
+            label = plugin.button_label
+            if resume_name:
+                # Resuming is always an explicit choice: show whose sign-in it
+                # is, and keep a clearly labelled way to sign in as anyone else.
+                cont = QPushButton(f"Continue as {resume_name}")
+                cont.setMinimumHeight(44)
+                cont.setCursor(Qt.CursorShape.PointingHandCursor)
+                cont.setStyleSheet(self._provider_button_style(plugin.accent_color))
+                cont.setToolTip(
+                    f"Resume {resume_name}'s {plugin.display_name} sign-in "
+                    "saved on this computer."
+                )
+                cont.clicked.connect(
+                    lambda _c=False, p=plugin: self._start_provider_login(
+                        p, "", "", {"resume": True}
+                    )
+                )
+                layout.addWidget(cont)
+                self._provider_buttons.append(cont)
+                label = (
+                    "Sign in as someone else"
+                    if len(plugins) == 1
+                    else f"{plugin.button_label} as someone else"
+                )
+            btn = QPushButton(label)
             btn.setMinimumHeight(44)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(self._provider_button_style(plugin.accent_color))
-            btn.clicked.connect(lambda _c=False, p=plugin: self._on_provider_login(p))
+            fresh = bool(resume_name)
+            btn.clicked.connect(
+                lambda _c=False, p=plugin, f=fresh: self._on_provider_login(p, fresh_login=f)
+            )
             layout.addWidget(btn)
             self._provider_buttons.append(btn)
             logger.debug("Login dialog: added provider button '{}'", plugin.name)
@@ -292,10 +321,12 @@ class LoginDialog(LFDialog):
             }}
             """
 
-    def _on_provider_login(self, plugin: AuthProviderPlugin) -> None:
+    def _on_provider_login(self, plugin: AuthProviderPlugin, fresh_login: bool = False) -> None:
         """Provider button clicked: auth immediately, or reveal the form."""
         if not plugin.requires_username and not plugin.requires_password:
-            self._start_provider_login(plugin, "", "")
+            self._start_provider_login(
+                plugin, "", "", {"fresh_login": True} if fresh_login else None
+            )
             return
         # Needs credentials — reveal the form bound to this plugin.
         self._pending_plugin = plugin
@@ -318,7 +349,13 @@ class LoginDialog(LFDialog):
             return
         self._start_provider_login(plugin, username, password)
 
-    def _start_provider_login(self, plugin: AuthProviderPlugin, username: str, password: str) -> None:
+    def _start_provider_login(
+        self,
+        plugin: AuthProviderPlugin,
+        username: str,
+        password: str,
+        auth_kwargs: dict | None = None,
+    ) -> None:
         self._login_cancelled = False
         for b in self._provider_buttons:
             b.setEnabled(False)
@@ -336,6 +373,7 @@ class LoginDialog(LFDialog):
             plugin,
             username,
             password,
+            auth_kwargs or {},
             callback_slot=self._on_login_complete,
             except_slot=self._on_login_error,
             interrupt_callable=self._interrupt_login,
@@ -359,7 +397,13 @@ class LoginDialog(LFDialog):
         except Exception as ex:
             logger.warning("Error cancelling auth provider: {}", ex)
 
-    def _do_provider_login(self, plugin: AuthProviderPlugin, username: str, password: str) -> bool:
+    def _do_provider_login(
+        self,
+        plugin: AuthProviderPlugin,
+        username: str,
+        password: str,
+        auth_kwargs: dict | None = None,
+    ) -> bool:
         from datetime import datetime
 
         from lightfall.ui.preferences.login_settings import LoginSettingsProvider
@@ -367,7 +411,9 @@ class LoginDialog(LFDialog):
         provider = plugin.create_provider()
         self._current_provider = provider
         session = asyncio.run(
-            provider.authenticate(username=username or None, password=password or None)
+            provider.authenticate(
+                username=username or None, password=password or None, **(auth_kwargs or {})
+            )
         )
         if session:
             duration = LoginSettingsProvider.get_session_duration()
