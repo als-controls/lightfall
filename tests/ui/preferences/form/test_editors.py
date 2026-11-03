@@ -11,6 +11,8 @@ from lightfall.ui.preferences.form.schema import (
     EditorSpec,
     Integer,
     Number,
+    NumberList,
+    Path,
     Secret,
     SettingField,
     Text,
@@ -556,3 +558,105 @@ def test_secret_is_stripped(qtbot, typed, expected):
         assert line.text() == ""
     editor.set_value(typed)
     assert editor.value() == expected
+
+
+def test_path_editor_browse_sets_value(qtbot, monkeypatch):
+    from qtpy.QtWidgets import QFileDialog
+
+    calls = []
+
+    def fake_open(parent, caption, start, filt):
+        calls.append(("file", start, filt))
+        return ("C:/data/model.bin", "")
+
+    def fake_dir(parent, caption, start):
+        calls.append(("dir", start))
+        return "C:/models"
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(fake_open))
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(fake_dir))
+    editor = make_spec(qtbot, Path(filter="Models (*.bin)"))
+    editor.set_value("C:/old.bin")
+    with qtbot.waitSignal(editor.changed):
+        editor.findChild(QToolButton).click()
+    assert calls == [("file", "C:/old.bin", "Models (*.bin)")]
+    assert editor.value() == "C:/data/model.bin"
+    assert editor.findChild(QLineEdit).text() == "C:/data/model.bin"
+    assert editor.findChild(QToolButton).text() == "Browse\u2026"
+
+    folder = make_spec(qtbot, Path(mode="dir"))
+    with qtbot.waitSignal(folder.changed):
+        folder.findChild(QToolButton).click()
+    assert calls[-1] == ("dir", "")
+    assert folder.value() == "C:/models"
+
+
+def test_path_browse_cancel_keeps_value(qtbot, monkeypatch):
+    from qtpy.QtWidgets import QFileDialog
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a: ("", "")))
+    editor = make_spec(qtbot, Path())
+    editor.set_value("C:/keep.bin")
+    with qtbot.assertNotEmitted(editor.changed):
+        editor.findChild(QToolButton).click()
+    assert editor.value() == "C:/keep.bin"
+
+
+def test_path_blank_is_none(qtbot):
+    editor = make_spec(qtbot, Path())
+    assert _edit_to(editor, "   ").text() == ""
+    assert editor.value() is None
+    _edit_to(editor, "  C:/x  ")
+    assert editor.value() == "C:/x"
+    editor.set_value("")
+    assert editor.value() is None
+
+
+def test_path_read_only_disables_browse(qtbot):
+    editor = make_spec(qtbot, Path())
+    editor.set_read_only(True)
+    assert not editor.findChild(QToolButton).isEnabled()
+    editor.set_read_only(False)
+    assert editor.findChild(QToolButton).isEnabled()
+
+
+def test_numberlist_round_trip(qtbot):
+    editor = make_spec(qtbot, NumberList())
+    editor.set_value([0.1, 1.0])
+    assert editor.findChild(QLineEdit).text() == "0.1, 1"
+    assert editor.value() == [0.1, 1.0]
+    _edit_to(editor, "0.001, 0.01,0.1 , 1, 10")
+    assert editor.is_valid()
+    assert editor.value() == [0.001, 0.01, 0.1, 1.0, 10.0]
+    _edit_to(editor, "  ")
+    assert editor.value() is None
+    editor.set_value(None)
+    assert editor.value() is None
+    assert editor.findChild(QLineEdit).text() == ""
+
+
+def test_numberlist_invalid_text(qtbot):
+    editor = make_spec(qtbot, NumberList())
+    for text in ("1, abc", "1,,2", "nan", "1, inf"):
+        _edit_to(editor, text)
+        assert not editor.is_valid(), text
+        assert editor._hint.text() == "Enter numbers separated by commas"
+    _edit_to(editor, "2")
+    assert editor.is_valid()
+    assert editor.value() == [2.0]
+
+
+def test_numberlist_below_minimum_invalid(qtbot):
+    editor = make_spec(qtbot, NumberList(minimum=0.0))
+    _edit_to(editor, "0, 1")
+    assert editor.is_valid()
+    _edit_to(editor, "1, -0.5")
+    assert not editor.is_valid()
+    assert editor._hint.text() == "Enter numbers separated by commas"
+
+
+def test_numberlist_keeps_precision(qtbot):
+    editor = make_spec(qtbot, NumberList())
+    editor.set_value([0.0012345678, 0.1, 1.0])
+    assert editor.findChild(QLineEdit).text() == "0.0012345678, 0.1, 1"
+    assert editor.value() == [0.0012345678, 0.1, 1.0]

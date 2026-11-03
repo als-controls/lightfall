@@ -23,10 +23,13 @@ from lightfall.scopes.client import is_transient
 from lightfall.scopes.journal import WriteJournal
 from lightfall.scopes.keys import (
     LOCAL_LAYER_KEYS,
+    add_console_key_listener,
     client_registry,
     console_only,
     flatten_preferences,
     is_local_only,
+    registered_console_keys,
+    remove_console_key_listener,
 )
 from lightfall.scopes.ops import migrate_user_prefs, push_write, replay_journal
 from lightfall.scopes.state import FetchedState, cached_state, fetch_state
@@ -40,6 +43,9 @@ from lightfall.utils.threads import QThreadFuture
 # they were here; _drop_old_user_cache() removes that copy once, then this marker.
 _OWNER_KEY = "_scoped_cache_owner"
 _MIGRATED_KEY = "_scoped_migrated"
+# "<identity> <key>" for each console key moved from that user's layer to this console's
+# YAML (Plan 6: old plugin pages stored them per user). Moved once, never again.
+_CONSOLE_MOVED_KEY = "_console_keys_moved"
 LOCAL = "local"  # write target for a console's own layer (the YAML)
 
 
@@ -279,6 +285,7 @@ class ScopedBackend(PreferenceBackend):
         if self._poll_ms:
             self._timer.start(self._poll_ms)
         self._subscribe_events()
+        add_console_key_listener(self._move_console_keys)
         if self._store is None:
             # Resolve from last session's cache right away, so readers that run before
             # the fetch lands (the post-login plugin wave) see scoped values; the fetch
@@ -306,6 +313,7 @@ class ScopedBackend(PreferenceBackend):
         self._debounce.stop()
         self._refresh_again = False
         self._unsubscribe_events()
+        remove_console_key_listener(self._move_console_keys)
         for key in sorted(keys):
             after = self._local.get(key, None)
             if after != before[key]:
@@ -701,7 +709,33 @@ class ScopedBackend(PreferenceBackend):
             self._retry_keys.clear()
             if waiting:
                 self._resend_queued(waiting)
+        self._move_console_keys(registered_console_keys())
         self._maybe_refresh_again()
+
+    def _move_console_keys(self, keys: frozenset[str]) -> None:
+        """Copy console keys an old page stored in the user's layer into this console's
+        YAML, once per user and key, where the YAML has no value. The server copy is left
+        as it is (it is never deleted or rewritten)."""
+        store = self._store
+        if not self._active or store is None or store.user_scope is None:
+            return
+        done = self._local.get(_CONSOLE_MOVED_KEY, None)
+        done = list(done) if isinstance(done, list) else []
+        moved: list[str] = []
+        for key in sorted(keys):
+            mark = f"{self._identity} {key}"
+            if mark in done:
+                continue
+            value = store.user_value(key)  # the raw user layer: owns() skips these keys
+            if value is MISSING or value is None:
+                continue
+            if self._local.get(key, None) is None:
+                self._cache_yaml(key, value)
+                logger.info("Moved {} from your user settings to This console", key)
+                self.changed.emit(key, value)
+            moved.append(mark)
+        if moved:
+            self._cache_yaml(_CONSOLE_MOVED_KEY, [*done, *moved])
 
     def _overlay_written(self, store: ScopedStore, scope: str,
                          server_versions: Mapping[str, int]) -> None:

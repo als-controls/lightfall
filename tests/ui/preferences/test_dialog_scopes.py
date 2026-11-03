@@ -1,4 +1,4 @@
-"""PreferencesDialog with the scope header, generated form pages and legacy pages."""
+"""PreferencesDialog with the scope header, generated form pages, custom pages and outdated plugins."""
 
 from __future__ import annotations
 
@@ -11,7 +11,11 @@ from PySide6.QtWidgets import QComboBox, QLabel, QMessageBox, QPushButton, QWidg
 
 from lightfall.ui.preferences.dialog import PreferencesDialog
 from lightfall.ui.preferences.form.editors import FieldEditor
-from lightfall.ui.preferences.form.header import APPROVAL_SCOPE_TEXT, LEGACY_TEXT, ScopeHeader
+from lightfall.ui.preferences.form.header import (
+    APPROVAL_SCOPE_TEXT,
+    CUSTOM_TEXT,
+    ScopeHeader,
+)
 from lightfall.ui.preferences.form.row import SettingRow
 from lightfall.ui.preferences.form.schema import (
     Custom,
@@ -144,18 +148,55 @@ class FormPlugin:
         raise AssertionError("save_settings called on a form page")
 
 
-class LegacyPlugin:
-    name = "legacy"
-    display_name = "Legacy"
+class OutdatedPlugin:
+    """A third-party page still on the removed hand-built API: neither a form nor a custom page."""
+
+    name = "outdated"
+    display_name = "Outdated"
     category = "B"
     priority = 0
     icon = None
 
     def __init__(self):
-        self.saved = 0
-        self.loaded = 0
-        self.reverted = 0
+        self.calls: list[str] = []  # every method the dialog called on it
+
+    def is_form_page(self):
+        return False
+
+    def create_widget(self, parent):
+        self.calls.append("create_widget")
+        return QWidget()
+
+    def load_settings(self):
+        self.calls.append("load_settings")
+
+    def save_settings(self):
+        self.calls.append("save_settings")
+
+    def validate(self):
+        self.calls.append("validate")
+        return []
+
+    def apply_preview(self):
+        self.calls.append("apply_preview")
+
+    def revert_preview(self):
+        self.calls.append("revert_preview")
+
+
+class CustomPlugin:
+    """A declared custom page: not scope aware, builds its own widget, never loaded or saved."""
+
+    name = "custom"
+    display_name = "Custom"
+    category = "C"
+    priority = 0
+    icon = None
+    scope_aware = False
+
+    def __init__(self):
         self.widget = None
+        self.reverted = 0
 
     def is_form_page(self):
         return False
@@ -164,14 +205,14 @@ class LegacyPlugin:
         self.widget = QWidget()
         return self.widget
 
-    def load_settings(self):
-        self.loaded += 1
+    def load_settings(self):  # pragma: no cover - must never be called
+        raise AssertionError("load_settings called on a custom page")
 
-    def save_settings(self):
-        self.saved += 1
+    def save_settings(self):  # pragma: no cover - must never be called
+        raise AssertionError("save_settings called on a custom page")
 
-    def validate(self):
-        return []
+    def validate(self):  # pragma: no cover - must never be called
+        raise AssertionError("validate called on a custom page")
 
     def revert_preview(self):
         self.reverted += 1
@@ -192,8 +233,9 @@ def env(monkeypatch):
     prefs = FakePrefs()
     main = FormPlugin("main", _main_sections(), priority=0)
     console = FormPlugin("console", [Section("Console", [SettingField(CONSOLE, Text(), label="Console")])], 1)
-    legacy = LegacyPlugin()
-    infos = [SimpleNamespace(instance=p) for p in (main, console, legacy)]
+    outdated = OutdatedPlugin()
+    custom = CustomPlugin()
+    infos = [SimpleNamespace(instance=p) for p in (main, console, outdated, custom)]
     registry = SimpleNamespace(get_ready_by_type=lambda _t: list(infos))
     services = SimpleNamespace(get=lambda _cls: registry)
     monkeypatch.setattr(
@@ -216,7 +258,7 @@ def env(monkeypatch):
     monkeypatch.setattr(QMessageBox, "warning", record("warning"))
     monkeypatch.setattr(QMessageBox, "critical", record("critical"))
     ns = SimpleNamespace(
-        prefs=prefs, main=main, console=console, legacy=legacy, restarts=restarts, boxes=boxes, box_choice=None,
+        prefs=prefs, main=main, console=console, outdated=outdated, custom=custom, restarts=restarts, boxes=boxes, box_choice=None,
         default_buttons=[],
     )
 
@@ -315,7 +357,7 @@ def test_edits_in_two_scopes_write_to_each(qtbot, env):
     )
     assert sorted(env.main.after_save_calls) == sorted([(USER, {FLAG: True}), (BEAMLINE, {FLAG: False})])
     assert not any(header(dialog)._combo.itemText(i).endswith(" •") for i in range(3))
-    assert env.legacy.saved == 1
+    assert env.outdated.calls == []
 
 
 def test_clear_issues_remove_with_scope(qtbot, env):
@@ -333,10 +375,10 @@ def test_clear_issues_remove_with_scope(qtbot, env):
 def test_switching_page_keeps_scope(qtbot, env):
     dialog = make_dialog(qtbot, env)
     dialog.select_scope(BEAMLINE)
-    dialog._sidebar.setCurrentRow(page_index(dialog, "legacy"))
+    dialog._sidebar.setCurrentRow(page_index(dialog, "custom"))
     h = header(dialog)
     assert not h._combo.isEnabled()
-    assert h._state.text() == LEGACY_TEXT
+    assert h._state.text() == CUSTOM_TEXT
     dialog._sidebar.setCurrentRow(page_index(dialog, "main"))
     assert h._combo.isEnabled()
     assert dialog.current_scope() == BEAMLINE
@@ -365,20 +407,6 @@ def test_page_without_fields_is_dimmed_and_offers_scopes(qtbot, env):
     assert form_of(dialog, "console").isVisibleTo(page)
     assert dialog._sidebar.item(page_index(dialog, "console")).data(Qt.ItemDataRole.ForegroundRole) is None
     assert dialog._sidebar.item(page_index(dialog, "main")).foreground().color() == placeholder
-
-
-def test_legacy_page_still_saves_and_header_not_scope_aware(qtbot, env):
-    dialog = make_dialog(qtbot, env)
-    assert env.legacy.loaded == 1
-    page = dialog._stack.widget(page_index(dialog, "legacy"))
-    assert page.widget() is env.legacy.widget
-    dialog._sidebar.setCurrentRow(page_index(dialog, "legacy"))
-    h = header(dialog)
-    assert not h._combo.isEnabled()
-    assert h._state.text() == LEGACY_TEXT
-    dialog.accept()
-    assert env.legacy.saved == 1
-    assert env.prefs.calls == []
 
 
 def test_scopes_changed_rebuilds_header_and_keeps_dirty_edit(qtbot, env):
@@ -423,7 +451,7 @@ def test_validation_error_blocks_all_writes(qtbot, env):
     click_toggle(qtbot, row(dialog, "main", FLAG), "On")
     assert dialog._apply() is False
     assert env.prefs.calls == []
-    assert env.legacy.saved == 0
+    assert env.outdated.calls == []
     assert any("Flag and Count disagree" in text for kind, text in env.boxes if kind == "warning")
 
 
@@ -467,7 +495,7 @@ def test_write_failure_stops_and_keeps_remaining_dirty(qtbot, env, monkeypatch):
     assert COUNT not in written
     model = dialog._model
     assert model.is_dirty(USER, COUNT)
-    assert env.legacy.saved == 0
+    assert env.outdated.calls == []
 
 
 def test_restart_prompt_once_for_restart_fields(qtbot, env, monkeypatch):
@@ -523,7 +551,8 @@ def test_cancel_discards_and_reverts(qtbot, env):
     dialog.reject()
     assert env.prefs.calls == []
     assert not dialog._model.dirty_scopes()
-    assert env.main.reverted == 1 and env.legacy.reverted == 1
+    assert env.main.reverted == 1 and env.custom.reverted == 1
+    assert env.outdated.calls == []
 
 
 def test_scopes_changed_at_same_scope_updates_editability(qtbot, env):
@@ -566,7 +595,7 @@ def test_edit_that_became_unwritable_blocks_save_with_warning_cancel_keeps_edits
     env.prefs.scopes_changed.emit(None)
     assert dialog._apply() is False  # the user closes the warning without discarding
     assert env.prefs.calls == []
-    assert env.legacy.saved == 0
+    assert env.outdated.calls == []
     warnings = [text for kind, text in env.boxes if kind == "box"]
     assert len(warnings) == 1
     assert "Flag (User — u1)" in warnings[0]
@@ -590,7 +619,7 @@ def test_discard_blocked_edits_then_save_continues(qtbot, env):
     assert env.prefs.calls == [("set", FLAG, True, USER)]
     assert not dialog._model.is_dirty(BEAMLINE, COUNT)
     assert dialog._model.dirty_cells() == []
-    assert env.legacy.saved == 1
+    assert env.outdated.calls == []
     assert dialog.result() == dialog.DialogCode.Accepted
 
 
@@ -683,8 +712,8 @@ def test_header_states_approval_once_when_every_field_needs_it(qtbot, env):
     dialog.select_scope(BEAMLINE)
     assert h._state.text() == APPROVAL_SCOPE_TEXT
     assert not any(r.approval_note_shown() for r in form_of(dialog, "main").findChildren(SettingRow))
-    dialog._sidebar.setCurrentRow(page_index(dialog, "legacy"))
-    assert h._state.text() == LEGACY_TEXT
+    dialog._sidebar.setCurrentRow(page_index(dialog, "custom"))
+    assert h._state.text() == CUSTOM_TEXT
     dialog._sidebar.setCurrentRow(page_index(dialog, "main"))
     assert h._state.text() == APPROVAL_SCOPE_TEXT
     dialog.select_scope(USER)
@@ -794,3 +823,113 @@ def test_restart_prompt_lists_reasons_under_its_sentence(qtbot, env):
     text = env.boxes[-1][1]
     assert text.startswith("Some of the changed settings take effect after Lightfall restarts.")
     assert text.endswith("First reason.\nSecond reason.")
+
+
+def test_custom_page_header_text_and_no_load_save(qtbot, env):
+    dialog = make_dialog(qtbot, env)  # would raise if load_settings were called
+    page = dialog._stack.widget(page_index(dialog, "custom"))
+    assert page.widget() is env.custom.widget
+    dialog._sidebar.setCurrentRow(page_index(dialog, "custom"))
+    h = header(dialog)
+    assert not h._combo.isEnabled()
+    assert h._state.text() == CUSTOM_TEXT == "Changes on this page apply immediately"
+    dialog.accept()  # would raise if validate or save_settings were called
+    assert env.prefs.calls == []
+
+
+def test_custom_page_logs_no_warning(qtbot, env, monkeypatch):
+    warnings: list[str] = []
+    monkeypatch.setattr("lightfall.ui.preferences.dialog.logger.warning", lambda msg, *a, **k: warnings.append(msg))
+    make_dialog(qtbot, env)
+    assert warnings == []
+
+
+def test_scopes_setting_keys_profile_are_custom_pages():
+    from lightfall.plugins.settings_plugin import SettingsPlugin
+    from lightfall.ui.preferences.dialog import _is_custom_page
+    from lightfall.ui.preferences.scopes_settings import ScopesSettingsPlugin
+    from lightfall.ui.preferences.setting_keys_settings import SettingKeysSettingsPlugin
+    from lightfall.ui.preferences.user_profile_settings import UserProfileSettingsPlugin
+
+    for cls in (ScopesSettingsPlugin, SettingKeysSettingsPlugin, UserProfileSettingsPlugin):
+        assert cls.scope_aware is False
+        assert cls.create_widget is not SettingsPlugin.create_widget
+        assert "load_settings" not in vars(cls) and "save_settings" not in vars(cls)
+        assert _is_custom_page(cls())
+
+
+# Legacy removal -------------------------------------------------------------------
+
+OUTDATED_TEXT = "Outdated uses an older settings API and can't be shown. Update the plugin."
+
+
+def test_outdated_plugin_gets_placeholder_and_error_log(qtbot, env, monkeypatch):
+    errors: list[str] = []
+    monkeypatch.setattr(
+        "lightfall.ui.preferences.dialog.logger.error",
+        lambda msg, *a, **k: errors.append(msg.format(*a) if a else msg),
+    )
+    dialog = make_dialog(qtbot, env)
+    assert "outdated" in dialog._page_names  # the dialog opened with every page
+    dialog._sidebar.setCurrentRow(page_index(dialog, "outdated"))
+    page = dialog._stack.currentWidget().widget()
+    labels = [lbl.text() for lbl in page.findChildren(QLabel)]
+    assert OUTDATED_TEXT in labels
+    assert dialog._sidebar.item(page_index(dialog, "outdated")).text() == "Outdated"
+    h = header(dialog)
+    assert not h._combo.isEnabled()
+    assert h._state.text() == ""
+    assert any("outdated" in m and "older settings API" in m for m in errors)
+    click_toggle(qtbot, row(dialog, "main", FLAG), "On")
+    dialog.accept()
+    assert env.prefs.calls == [("set", FLAG, True, USER)]
+    assert env.outdated.calls == []  # never built, loaded, validated, saved or reverted
+
+
+def test_apply_never_calls_save_settings(qtbot, env):
+    from lightfall.plugins.settings_plugin import SettingsPlugin
+
+    for name in ("load_settings", "save_settings", "validate", "apply_preview"):
+        assert not hasattr(SettingsPlugin, name), name
+    for name in ("create_widget", "revert_preview", "on_loaded"):
+        assert hasattr(SettingsPlugin, name), name
+    dialog = make_dialog(qtbot, env)
+    click_toggle(qtbot, row(dialog, "main", FLAG), "On")
+    assert dialog._apply() is True  # the custom page's save_settings would raise
+    dialog.reject()
+    assert env.outdated.calls == []
+
+
+def test_custom_pages_still_open(qtbot, env, monkeypatch):
+    from lightfall.plugins.settings_plugin import SettingsPlugin
+    from lightfall.ui.preferences.scopes_settings import ScopesSettingsPlugin
+    from lightfall.ui.preferences.setting_keys_settings import SettingKeysSettingsPlugin
+    from lightfall.ui.preferences.user_profile_settings import UserProfileSettingsPlugin
+
+    monkeypatch.setattr("lightfall.ui.preferences.scopes_settings.scopes_available", lambda: False)
+    monkeypatch.setattr("lightfall.ui.preferences.setting_keys_settings.scopes_available", lambda: False)
+    plugins = [ScopesSettingsPlugin(), SettingKeysSettingsPlugin(), UserProfileSettingsPlugin()]
+
+    def forbidden(*_a, **_k):  # pragma: no cover - must never be called
+        raise AssertionError("old settings method called")
+
+    for plugin in plugins:
+        for name in ("load_settings", "save_settings", "validate", "apply_preview"):
+            setattr(plugin, name, forbidden)
+    infos = [SimpleNamespace(instance=p) for p in plugins]
+    registry = SimpleNamespace(get_ready_by_type=lambda _t: list(infos))
+    services = SimpleNamespace(get=lambda _cls: registry)
+    monkeypatch.setattr(
+        "lightfall.core.services.ServiceRegistry.get_instance", classmethod(lambda cls: services)
+    )
+    dialog = make_dialog(qtbot, env)
+    assert sorted(dialog._page_names) == ["scopes", "setting_keys", "user_profile"]
+    for plugin in plugins:
+        assert type(plugin).create_widget is not SettingsPlugin.create_widget
+        dialog._sidebar.setCurrentRow(page_index(dialog, plugin.name))
+        assert dialog._stack.currentWidget().widget() is dialog._plugin_widgets[plugin.name]
+        assert header(dialog)._state.text() == CUSTOM_TEXT
+    status = dialog._plugin_widgets["scopes"].findChild(QLabel, "scopesStatus")
+    assert status.text().startswith("Scoped settings unavailable")
+    assert dialog._apply() is True
+    dialog.reject()

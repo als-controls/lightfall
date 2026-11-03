@@ -85,12 +85,12 @@ Plugins often need access to application services. Import them lazily to avoid c
 
 ```python
 class MyPlugin(SettingsPlugin):
-    def save_settings(self) -> None:
+    def on_loaded(self) -> None:
         # Import inside method to avoid circular imports
         from lightfall.ui.preferences.manager import PreferencesManager
 
         prefs = PreferencesManager.get_instance()
-        prefs.set("my_key", self._value)
+        self._apply(prefs.get("my_key"))
 ```
 
 ### Storing Plugin State
@@ -100,8 +100,8 @@ Use `__init__` to initialize instance variables:
 ```python
 class MyPlugin(SettingsPlugin):
     def __init__(self) -> None:
-        self._widget: QWidget | None = None
-        self._some_control: QLineEdit | None = None
+        super().__init__()  # registers the page's specs and console keys
+        self._service: MyService | None = None
 ```
 
 ### Deferred Imports
@@ -144,23 +144,28 @@ def create_widget(self, parent: QWidget | None = None) -> QWidget:
 ```python
 from lightfall.plugins.settings_plugin import SettingsPlugin
 
+from lightfall.ui.preferences.form.schema import Section, SettingField, Toggle
+
 class MySettingsPlugin(SettingsPlugin):
     @property
     def name(self) -> str:
         return "my_settings"
 
-    def create_widget(self, parent=None) -> QWidget:
-        # Return settings widget
+    def specs(self):
+        # SettingSpecs for keys nothing else declares (type, default, scopes)
         ...
 
-    def load_settings(self) -> None:
-        # Load values into widget
-        ...
+    def sections(self):
+        # The dialog builds, loads and saves the page from these
+        return [Section("General", [SettingField("my.enabled", Toggle(), label="Enabled")])]
 
-    def save_settings(self) -> None:
-        # Save values from widget
+    def after_save(self, scope, changed) -> None:
+        # Apply the values just saved
         ...
 ```
+
+A page that is not settings sets `scope_aware = False` and builds its own
+widget in `create_widget()`; see [SettingsPlugin](plugin-types/settings.md).
 
 ### PanelPlugin
 

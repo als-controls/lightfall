@@ -25,37 +25,36 @@ class SettingsPlugin(PluginType):
     """Abstract base for settings/preferences plugins.
 
     Settings plugins provide preference pages that can be discovered
-    and displayed in the Preferences dialog. Each plugin creates a widget
-    containing its settings controls.
+    and displayed in the Preferences dialog. A page is one of two kinds:
 
-    A page is built one of two ways:
+    * Form page: override ``sections()`` (and ``specs()`` for any keys not
+      already declared). The dialog generates the widget from the schema, edits
+      it at the scope chosen in its header and saves only the changed values.
+      Optional hooks: ``validate_values``, ``after_save``, ``restart_reason``,
+      ``preview`` / ``revert_preview`` and ``console_keys``.
+    * Custom page: set ``scope_aware = False`` and override ``create_widget``.
+      The page builds its own widget and applies changes immediately; the
+      dialog never loads, validates or saves it.
 
-    * Form page (preferred): override ``sections()`` (and ``specs()`` for any
-      keys not already declared). The Preferences dialog generates the widget,
-      scope handling and save logic from the schema; ``create_widget``,
-      ``load_settings`` and ``save_settings`` are not needed.
-    * Hand-built page (deprecated): override ``create_widget``,
-      ``load_settings`` and ``save_settings``.
+    A plugin that is neither is shown as an "outdated plugin" placeholder.
 
     Class Attributes:
         type_name: "settings" - identifies this as a settings plugin.
         is_singleton: True - settings plugins are singletons.
+        scope_aware: False for a custom page.
 
     Lifecycle:
-        1. Plugin is instantiated on load
+        1. Plugin is instantiated on load; its specs and console keys are registered
         2. on_loaded() is called (for preload plugins, applies settings immediately)
-        3. When Preferences dialog opens:
-           - create_widget() is called once and cached
-           - load_settings() populates widget with current values
-        4. As user interacts:
-           - apply_preview() is called for live preview
-        5. On OK/Apply:
-           - validate() checks values
-           - save_settings() persists values
-        6. On Cancel:
-           - revert_preview() undoes any preview changes
+        3. When the Preferences dialog opens, a form page's widget is generated
+           from sections(); a custom page's create_widget() is called
+        4. As the user edits a form page, preview(values) is called
+        5. On OK/Apply, form pages are validated (field validators and
+           validate_values()) and their changed values written, then
+           after_save() and restart_reason() are called
+        6. On Cancel, revert_preview() undoes any preview
 
-    Example implementation::
+    Example form page::
 
         class MySettingsPlugin(SettingsPlugin):
             @property
@@ -66,18 +65,8 @@ class SettingsPlugin(PluginType):
             def display_name(self) -> str:
                 return "My Settings"
 
-            def create_widget(self, parent=None) -> QWidget:
-                widget = QWidget(parent)
-                # Create controls...
-                return widget
-
-            def load_settings(self) -> None:
-                prefs = PreferencesManager.get_instance()
-                self._my_control.setValue(prefs.get("my_key"))
-
-            def save_settings(self) -> None:
-                prefs = PreferencesManager.get_instance()
-                prefs.set("my_key", self._my_control.value())
+            def sections(self):
+                return [Section("General", [SettingField("my_key", Toggle(), label="My key")])]
     """
 
     type_name: ClassVar[str] = "settings"
@@ -90,13 +79,14 @@ class SettingsPlugin(PluginType):
         self.register_specs()
 
     def register_specs(self) -> None:
-        """Declare this page's specs in the shared client registry."""
-        from lightfall.scopes.keys import register_client_specs
+        """Declare this page's specs in the shared client registry, and its console keys."""
+        from lightfall.scopes.keys import register_client_specs, register_console_keys
 
         register_client_specs(self.specs())
+        register_console_keys(self.console_keys())
 
     def sections(self) -> Sequence[Section]:
-        """Schema sections for a form page; empty for hand-built pages."""
+        """Schema sections for a form page; empty for custom pages."""
         return ()
 
     def specs(self) -> Sequence[SettingSpec]:
@@ -104,6 +94,14 @@ class SettingsPlugin(PluginType):
 
         Called at registration time, so it must not depend on instance state set
         after ``super().__init__()``.
+        """
+        return ()
+
+    def console_keys(self) -> Sequence[str]:
+        """Keys that belong to this console only (its devices, paths, daemons).
+
+        They are shown and saved only at "This console" and never written to a
+        server scope, like the core's local-only keys. Called at registration time.
         """
         return ()
 
@@ -195,10 +193,10 @@ class SettingsPlugin(PluginType):
         return 100
 
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        """Create the settings widget.
+        """Create a custom page's widget (``scope_aware = False`` only).
 
-        This is called once when the Preferences dialog opens. The returned
-        widget is cached and reused for subsequent opens.
+        Called when the Preferences dialog opens. The page applies its
+        changes immediately; form pages don't override this.
 
         Args:
             parent: Parent widget (the dialog).
@@ -208,53 +206,11 @@ class SettingsPlugin(PluginType):
         """
         raise NotImplementedError
 
-    def load_settings(self) -> None:
-        """Load current settings into the widget.
-
-        Called when the Preferences dialog opens, after create_widget().
-        Should populate the widget controls with current values from
-        PreferencesManager.
-        """
-        raise NotImplementedError
-
-    def save_settings(self) -> None:
-        """Save widget values to persistent storage.
-
-        Called when the user clicks OK or Apply, after validate() passes.
-        Should write values from the widget controls to PreferencesManager.
-        """
-        raise NotImplementedError
-
-    def validate(self) -> list[str]:
-        """Validate current widget values.
-
-        Called before save_settings(). Return a list of error messages
-        for any validation failures. If the list is non-empty, save is
-        blocked and errors are displayed.
-
-        Returns:
-            List of error messages, or empty list if valid.
-        """
-        return []
-
-    def apply_preview(self) -> None:
-        """Apply settings temporarily for live preview.
-
-        Called when the user changes settings in the dialog, allowing
-        immediate visual feedback (e.g., theme changes). Preview changes
-        should be reversible via revert_preview().
-
-        Override this for settings that benefit from live preview.
-        """
-        pass
-
     def revert_preview(self) -> None:
         """Revert any preview changes.
 
         Called when the user cancels the Preferences dialog. Should undo
-        any changes made by apply_preview() and restore original values.
-
-        Override this if you implement apply_preview().
+        any changes made by preview() and restore the saved values.
         """
         pass
 

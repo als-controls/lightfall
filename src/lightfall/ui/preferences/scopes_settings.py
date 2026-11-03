@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import shiboken6
 from PySide6.QtWidgets import (
@@ -97,6 +97,8 @@ def _logged_in_username() -> str | None:
 class ScopesSettingsPlugin(SettingsPlugin):
     """Facility / beamline / branch / user settings, and this console's binding."""
 
+    scope_aware: ClassVar[bool] = False
+
     def __init__(self) -> None:
         self.loader: Callable[[str], ScopesView] = _default_loader
         self._widget: QWidget | None = None
@@ -132,12 +134,6 @@ class ScopesSettingsPlugin(SettingsPlugin):
     @property
     def priority(self) -> int:
         return 90
-
-    def load_settings(self) -> None:
-        pass
-
-    def save_settings(self) -> None:
-        pass
 
     # ── widget ──────────────────────────────────────────────────────────
 

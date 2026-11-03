@@ -54,7 +54,8 @@ class CatalogItem:
 class EditorSpec:
     """Which editor widget to build for a field, and its parameters."""
 
-    # "toggle" | "choice" | "integer" | "number" | "text" | "url" | "secret" | "catalog" | "mapping" | "custom"
+    # "toggle" | "choice" | "integer" | "number" | "text" | "url" | "secret" | "path" | "numberlist"
+    # | "catalog" | "mapping" | "custom"
     kind: str
     options: Sequence[tuple[Any, str]] | Callable[[], Sequence[tuple[Any, str]]] = ()
     minimum: float | None = None
@@ -62,7 +63,9 @@ class EditorSpec:
     step: float | None = None
     schemes: tuple[str, ...] = ("http", "https")  # url only
     require_host: bool = True  # url only
-    # text/url only: a blank (whitespace-only) entry means Not set (None) instead of the value "".
+    mode: str = "file"  # path only: "file" or "dir"
+    file_filter: str = ""  # path only: QFileDialog name filter, e.g. "Models (*.bin)"
+    # text/url/path only: a blank (whitespace-only) entry means Not set (None) instead of the value "".
     blank_is_unset: bool = False
     items: Callable[[], Sequence[CatalogItem]] | None = None  # catalog only
     columns: tuple[str, ...] = ()  # catalog/mapping only: headers of the items' extra text columns
@@ -98,6 +101,21 @@ def Url(  # noqa: N802
 
 def Secret() -> EditorSpec:  # noqa: N802
     return EditorSpec("secret")
+
+
+def Path(mode: str = "file", filter: str = "", blank_is_unset: bool = True) -> EditorSpec:  # noqa: N802, A002
+    """A file (``mode="file"``) or folder (``mode="dir"``) path: text with a Browse button.
+
+    ``filter`` is the file dialog's name filter. The value is the stripped text.
+    """
+    if mode not in ("file", "dir"):
+        raise ValueError(f"Path mode must be 'file' or 'dir', not {mode!r}")
+    return EditorSpec("path", mode=mode, file_filter=filter, blank_is_unset=blank_is_unset)
+
+
+def NumberList(minimum: float | None = None) -> EditorSpec:  # noqa: N802
+    """A ``list[float]`` typed as comma-separated numbers; blank is Not set."""
+    return EditorSpec("numberlist", minimum=minimum)
 
 
 def Catalog(items: Callable[[], Sequence[CatalogItem]], columns: Sequence[str] = ()) -> EditorSpec:  # noqa: N802

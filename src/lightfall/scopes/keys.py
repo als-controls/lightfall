@@ -8,7 +8,7 @@ uploaded (spec section 1: the scoped store never holds secrets).
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from lightfall_settings import (
@@ -46,8 +46,47 @@ def is_secret_key(key: str) -> bool:
     return any(marker in lowered for marker in _SECRET_MARKERS)
 
 
+# Keys settings plugins declare console-only (SettingsPlugin.console_keys()): this
+# console's devices, paths and daemons. Treated exactly like LOCAL_ONLY_KEYS.
+_CONSOLE_KEYS: set[str] = set()
+# Called with each registration's keys (ScopedBackend moves values an old page stored in
+# the user layer to this console, also for pages registered after login).
+_CONSOLE_KEY_LISTENERS: list[Callable[[frozenset[str]], None]] = []
+
+
+def register_console_keys(keys: Iterable[str]) -> None:
+    """Make ``keys`` local-only (kept in this console's YAML, never in a server scope).
+
+    Idempotent; called from ``SettingsPlugin.register_specs()``.
+    """
+    new = frozenset(keys)
+    _CONSOLE_KEYS.update(new)
+    if not new:
+        return
+    for listener in list(_CONSOLE_KEY_LISTENERS):
+        try:
+            listener(new)
+        except Exception as e:
+            logger.warning("Console key listener failed: {}", e)
+
+
+def registered_console_keys() -> frozenset[str]:
+    """Keys settings plugins declared console-only so far."""
+    return frozenset(_CONSOLE_KEYS)
+
+
+def add_console_key_listener(listener: Callable[[frozenset[str]], None]) -> None:
+    if listener not in _CONSOLE_KEY_LISTENERS:
+        _CONSOLE_KEY_LISTENERS.append(listener)
+
+
+def remove_console_key_listener(listener: Callable[[frozenset[str]], None]) -> None:
+    if listener in _CONSOLE_KEY_LISTENERS:
+        _CONSOLE_KEY_LISTENERS.remove(listener)
+
+
 def is_local_only(key: str) -> bool:
-    return key in LOCAL_ONLY_KEYS or key.startswith("_") or is_secret_key(key)
+    return key in LOCAL_ONLY_KEYS or key in _CONSOLE_KEYS or key.startswith("_") or is_secret_key(key)
 
 
 def console_only(key: str) -> bool:
@@ -162,9 +201,10 @@ def base_spec(key: str, registry: SpecRegistry | None = None) -> SettingSpec:
 
 
 def _reset_client_registry() -> None:
-    """Forget cached registries and registered specs (test isolation)."""
+    """Forget cached registries, registered specs and console keys (test isolation)."""
     _REGISTRIES.clear()
     _CLIENT_REGISTERED.clear()
+    _CONSOLE_KEYS.clear()
 
 
 # Keys with a writable console layer: the console's own YAML sits between branch and user

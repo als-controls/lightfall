@@ -3,8 +3,10 @@
 Provides a plugin-driven dialog for viewing and editing user preferences.
 Settings plugins are discovered from the PluginRegistry and rendered
 dynamically. Form pages (``plugin.is_form_page()``) are generated from their
-schema and edited at the scope chosen in the header; hand-built (legacy) pages
-keep their own widget and save logic.
+schema and edited at the scope chosen in the header; custom pages
+(``scope_aware = False`` plus ``create_widget``) build their own widget and apply
+changes immediately. A plugin that is neither (still on the removed hand-built
+API) gets a placeholder page.
 """
 
 from __future__ import annotations
@@ -44,6 +46,16 @@ if TYPE_CHECKING:
 def _is_form_page(plugin: Any) -> bool:
     check = getattr(plugin, "is_form_page", None)
     return bool(check()) if callable(check) else False
+
+
+def _is_custom_page(plugin: Any) -> bool:
+    """A declared custom page: not scope aware, builds its own widget, applies changes immediately."""
+    if _is_form_page(plugin) or getattr(plugin, "scope_aware", True) is not False:
+        return False
+    from lightfall.plugins.settings_plugin import SettingsPlugin
+
+    build = getattr(type(plugin), "create_widget", None)
+    return build is not None and build is not SettingsPlugin.create_widget
 
 
 class _FormPage(QWidget):
@@ -89,6 +101,21 @@ class _FormPage(QWidget):
         self._empty.show()
 
 
+def _outdated_page(plugin: Any) -> QWidget:
+    """Placeholder for a plugin on the removed hand-built settings API."""
+    page = QWidget()
+    layout = QVBoxLayout(page)
+    layout.addStretch(1)
+    message = QLabel(
+        f"{plugin.display_name} uses an older settings API and can't be shown. Update the plugin.", page
+    )
+    message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    message.setWordWrap(True)
+    layout.addWidget(message)
+    layout.addStretch(1)
+    return page
+
+
 class PreferencesDialog(QDialog):
     """Plugin-driven dialog for editing user preferences.
 
@@ -103,8 +130,8 @@ class PreferencesDialog(QDialog):
         ...     # Preferences were applied
 
     The dialog supports:
-    - Live preview via preview(values) (form pages) / apply_preview() (hand-built)
-    - Validation before save via validate() / validate_values()
+    - Live preview via preview(values) (form pages)
+    - Validation before save via field validators / validate_values()
     - Revert on cancel via revert_preview()
     """
 
@@ -130,6 +157,7 @@ class PreferencesDialog(QDialog):
         self._plugin_widgets: dict[str, QWidget] = {}
         self._page_names: list[str] = []  # sidebar / stack order
         self._form_pages: dict[str, _FormPage] = {}
+        self._outdated: set[str] = set()  # plugins on the removed hand-built API
         self._key_owner: dict[str, str] = {}  # form key -> plugin name
         self._fields: dict[str, SettingField] = {}  # form key or companion key -> owning field
         self._restart_reasons: list[str] = []  # from plugins' restart_reason() in the last _apply
@@ -227,13 +255,17 @@ class PreferencesDialog(QDialog):
             try:
                 if _is_form_page(plugin):
                     widget = self._build_form_page(plugin)
+                elif _is_custom_page(plugin):
+                    widget = plugin.create_widget(self)
                 else:
-                    logger.warning(
-                        "Settings page '{}' is hand-built (deprecated); convert it to sections()",
+                    # Never call the old API: the page is neither a form nor a custom page.
+                    logger.error(
+                        "Settings page '{}' uses an older settings API and can't be shown; "
+                        "the plugin needs sections() or scope_aware = False with create_widget()",
                         plugin.name,
                     )
-                    widget = plugin.create_widget(self)
-                    plugin.load_settings()
+                    widget = _outdated_page(plugin)
+                    self._outdated.add(plugin.name)
                 self._plugins[plugin.name] = plugin
                 self._plugin_widgets[plugin.name] = widget
 
@@ -411,7 +443,7 @@ class PreferencesDialog(QDialog):
         if 0 <= row < len(self._page_names):
             plugin = self._plugins[self._page_names[row]]
             aware = _is_form_page(plugin) and getattr(plugin, "scope_aware", True)
-            self._header.set_page_scope_aware(bool(aware))
+            self._header.set_page_scope_aware(bool(aware), custom=_is_custom_page(plugin))
         self._refresh_header_approval()
 
     def _refresh_header_approval(self) -> None:
@@ -440,15 +472,8 @@ class PreferencesDialog(QDialog):
         errors = [f"Invalid value: {label}" for label in self._invalid_labels()]
         if errors:
             return errors
-        for plugin in self._plugins.values():
-            if _is_form_page(plugin):
-                errors.extend(self._form_errors(plugin))
-                continue
-            try:
-                for err in plugin.validate() or []:
-                    errors.append(f"{plugin.display_name}: {err}")
-            except Exception as e:
-                errors.append(f"{plugin.display_name}: Validation error - {e}")
+        for name in self._form_pages:
+            errors.extend(self._form_errors(self._plugins[name]))
         return errors
 
     def _form_errors(self, plugin: SettingsPlugin) -> list[str]:
@@ -602,22 +627,6 @@ class PreferencesDialog(QDialog):
         if not ok:
             return False
 
-        # Save hand-built (legacy) pages
-        for plugin in self._plugins.values():
-            if _is_form_page(plugin):
-                continue
-            try:
-                plugin.save_settings()
-                logger.debug("Saved settings for plugin: {}", plugin.name)
-            except Exception as e:
-                logger.error("Failed to save settings for '{}': {}", plugin.name, e)
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    f"Failed to save {plugin.display_name} settings: {e}",
-                )
-                return False
-
         if self._needs_restart(written) or self._restart_reasons:
             self._prompt_restart()
         return True
@@ -631,6 +640,8 @@ class PreferencesDialog(QDialog):
         """Discard pending edits, revert any preview changes and close dialog."""
         self._model.discard()
         for plugin in self._plugins.values():
+            if plugin.name in self._outdated:
+                continue
             try:
                 revert = getattr(plugin, "revert_preview", None)
                 if revert is not None:

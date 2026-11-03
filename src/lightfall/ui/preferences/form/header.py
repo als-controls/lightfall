@@ -8,7 +8,7 @@ from qtpy.QtWidgets import QComboBox, QHBoxLayout, QLabel, QWidget
 from lightfall.ui.preferences.form.row import set_muted
 from lightfall.ui.preferences.scope_api import ScopeChoice
 
-LEGACY_TEXT = "This page saves to your user settings only"
+CUSTOM_TEXT = "Changes on this page apply immediately"
 APPROVAL_SCOPE_TEXT = "Saving here asks a facility admin to approve these settings"
 DIRTY_MARK = " •"
 
@@ -27,6 +27,7 @@ class ScopeHeader(QWidget):
         self._choices: list[ScopeChoice] = []
         self._dirty: set[str] = set()
         self._aware = True
+        self._custom = False
         self._approval = False
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -71,8 +72,10 @@ class ScopeHeader(QWidget):
         for i, choice in enumerate(self._choices):
             self._combo.setItemText(i, self._item_text(choice))
 
-    def set_page_scope_aware(self, aware: bool) -> None:
+    def set_page_scope_aware(self, aware: bool, custom: bool = False) -> None:
+        """``aware``: the page follows the scope combo; ``custom``: a declared custom page (applies immediately)."""
         self._aware = aware
+        self._custom = custom
         self._refresh_state()
 
     def set_approval_for_all(self, needed: bool) -> None:
@@ -97,7 +100,7 @@ class ScopeHeader(QWidget):
         # A single choice (scopes off) leaves nothing to pick.
         self._combo.setEnabled(self._aware and len(self._choices) > 1)
         if not self._aware:
-            text = LEGACY_TEXT
+            text = CUSTOM_TEXT if self._custom else ""
         else:
             choice = next((c for c in self._choices if c.scope == self.selected()), None)
             text = choice.read_only_reason if choice is not None else ""
