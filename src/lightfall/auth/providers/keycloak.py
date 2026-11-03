@@ -23,6 +23,13 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from lightfall.auth.policy import Role
 from lightfall.auth.providers.base import AuthProvider
 from lightfall.auth.session import Session, User
+from lightfall.auth.sso_stash import (
+    SsoStash,
+    clear_stash,
+    load_stash,
+    resume_enabled,
+    save_stash,
+)
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -69,6 +76,11 @@ class KeycloakConfig:
         from lightfall.ui.preferences.proxy_settings import ProxySettingsProvider
 
         return ProxySettingsProvider.should_use_proxy_for_url(self.server_url)
+
+    @property
+    def issuer(self) -> str:
+        """Realm issuer URL; identifies whose SSO cookies a stash holds."""
+        return f"{self.server_url.rstrip('/')}/realms/{self.realm}"
 
     @property
     def auth_url(self) -> str:
@@ -311,6 +323,8 @@ class KeycloakAuthProvider(AuthProvider):
         # Set by cancel() to unblock an in-flight external-browser callback
         # wait (used as the login QThreadFuture's interrupt_callable).
         self._cancel_event = Event()
+        # Keycloak SSO cookies captured by the last embedded login.
+        self._captured_cookies: list[str] = []
 
     @property
     def name(self) -> str:
@@ -415,6 +429,16 @@ class KeycloakAuthProvider(AuthProvider):
 
         return False
 
+    def resumable_stash(self) -> SsoStash | None:
+        """The saved sign-in "Continue as <name>" would use, if it is offered.
+
+        None when the feature is switched off, nothing is saved for this realm,
+        or this display can't run the embedded login window (VNC / remote X).
+        """
+        if not resume_enabled() or self._is_remote_display():
+            return None
+        return load_stash(self._config.issuer)
+
     async def authenticate(
         self,
         username: str | None = None,
@@ -422,6 +446,8 @@ class KeycloakAuthProvider(AuthProvider):
         *,
         use_embedded_browser: bool = True,
         parent_widget: QWidget | None = None,
+        resume: bool = False,
+        fresh_login: bool = False,
         **kwargs: Any,
     ) -> Session | None:
         """
@@ -439,6 +465,10 @@ class KeycloakAuthProvider(AuthProvider):
             password: Ignored (browser auth).
             use_embedded_browser: Whether to try embedded browser first.
             parent_widget: Parent widget for the embedded browser dialog.
+            resume: "Continue as <name>": load the saved Keycloak sign-in
+                cookies into the login window so Keycloak can skip the form.
+            fresh_login: "Sign in as someone else": ask Keycloak to show the
+                login form even if it still has a session (``prompt=login``).
             **kwargs: Additional parameters.
 
         Returns:
@@ -461,26 +491,66 @@ class KeycloakAuthProvider(AuthProvider):
             "scope": self._config.scope,
             "state": state,
         }
+        if fresh_login:
+            params["prompt"] = "login"
         auth_url = f"{self._config.auth_url}?{urlencode(params)}"
+
+        restore: list[str] = []
+        if resume:
+            stash = self.resumable_stash()
+            if stash is not None:
+                restore = stash.cookies
+                logger.info("Resuming saved Keycloak sign-in for '{}'", stash.username)
 
         # Try embedded browser first if requested and available
         if use_embedded_browser:
-            result = self._auth_with_embedded_browser(auth_url, state, parent_widget)
+            self._captured_cookies = []
+            result = self._auth_with_embedded_browser(
+                auth_url, state, parent_widget, restore_cookies=restore
+            )
             if result is not None:
                 # result is either a code or False (cancelled/error)
                 if result is False:
                     return None
                 # Got an auth code, exchange it
-                return await self._exchange_code(result)
+                session = await self._exchange_code(result)
+                if session is not None:
+                    self._remember_sign_in(session, self._captured_cookies)
+                return session
 
-        # Fall back to external browser with callback server
+        # Fall back to external browser with callback server. A requested
+        # resume can't be honoured there (the system browser has its own,
+        # possibly different, Keycloak session), so make Keycloak ask for the
+        # password instead of silently signing in whoever that browser knows.
+        if resume and "prompt" not in params:
+            params["prompt"] = "login"
+            auth_url = f"{self._config.auth_url}?{urlencode(params)}"
         return await self._auth_with_external_browser(auth_url, state)
+
+    def _remember_sign_in(self, session: Session, cookies: list[str]) -> None:
+        """Save the SSO cookies behind "Continue as", or drop them if disabled."""
+        if not resume_enabled():
+            clear_stash()
+            return
+        if not cookies:
+            logger.debug("No Keycloak SSO cookies captured; nothing to save")
+            return
+        user = session.user
+        save_stash(
+            SsoStash(
+                issuer=self._config.issuer,
+                username=user.username,
+                display_name=user.display_name,
+                cookies=cookies,
+            )
+        )
 
     def _auth_with_embedded_browser(
         self,
         auth_url: str,
         state: str,
         parent_widget: QWidget | None = None,
+        restore_cookies: list[str] | None = None,
     ) -> str | bool | None:
         """Attempt authentication using embedded QWebEngineView browser.
 
@@ -525,12 +595,15 @@ class KeycloakAuthProvider(AuthProvider):
         logger.info("Using embedded browser for authentication")
 
         # Store result from Qt signals
-        result_holder: dict[str, Any] = {"code": None, "state": None, "error": None}
+        result_holder: dict[str, Any] = {
+            "code": None, "state": None, "error": None, "cookies": [],
+        }
         completed = Event()
 
-        def on_code_received(code: str, recv_state: str) -> None:
+        def on_code_received(code: str, recv_state: str, cookies: list[str]) -> None:
             result_holder["code"] = code
             result_holder["state"] = recv_state
+            result_holder["cookies"] = cookies
             completed.set()
 
         def on_error(error: str) -> None:
@@ -549,8 +622,14 @@ class KeycloakAuthProvider(AuthProvider):
                 parent=parent_widget,
                 title=f"Login - {self._config.realm}",
                 proxy_url=self._config.get_proxy_url(),
+                cookie_origin=self._config.server_url,
+                restore_cookies=restore_cookies or (),
             )
-            dialog.auth_code_received.connect(on_code_received)
+            dialog.auth_code_received.connect(
+                lambda code, recv_state: on_code_received(
+                    code, recv_state, dialog.captured_cookies()
+                )
+            )
             dialog.auth_error.connect(on_error)
             dialog.auth_cancelled.connect(on_cancelled)
 
@@ -583,6 +662,7 @@ class KeycloakAuthProvider(AuthProvider):
             logger.error("State mismatch - possible CSRF attack")
             return False
 
+        self._captured_cookies = list(result_holder["cookies"])
         return result_holder["code"]
 
     @staticmethod
@@ -887,7 +967,9 @@ class KeycloakAuthProvider(AuthProvider):
         Performs a full logout:
         1. Revokes the token via Keycloak's logout endpoint (ends SSO session)
         2. Clears embedded browser cookies (prevents auto-login on next auth)
+        3. Deletes the saved sign-in, so the next login offers no "Continue as"
         """
+        clear_stash()
         if not session.id_token:
             # Auth-v2: bearer is discarded post-mint; id_token is the RP-initiated
             # logout credential. If neither is present, there is nothing to revoke.

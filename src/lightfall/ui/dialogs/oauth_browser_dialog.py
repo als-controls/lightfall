@@ -11,10 +11,11 @@ behind firewalls.
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
-from PySide6.QtCore import QUrl, Signal
+from PySide6.QtCore import QByteArray, QTimer, QUrl, Signal
 from PySide6.QtWidgets import (
     QLabel,
     QProgressBar,
@@ -74,6 +75,11 @@ class OAuthBrowserDialog(LFDialog):
     auth_error = Signal(str)  # error message
     auth_cancelled = Signal()
 
+    # After the callback is intercepted, wait this long before reporting
+    # success so cookies set by Keycloak's final redirect response (the SSO
+    # cookies) reach cookieAdded; those signals are not ordered with urlChanged.
+    COOKIE_SETTLE_MS = 300
+
     def __init__(
         self,
         auth_url: str,
@@ -81,6 +87,8 @@ class OAuthBrowserDialog(LFDialog):
         parent: QWidget | None = None,
         title: str = "Login with Keycloak",
         proxy_url: str | None = None,
+        cookie_origin: str | None = None,
+        restore_cookies: Sequence[str] = (),
     ) -> None:
         """Initialize the OAuth browser dialog.
 
@@ -93,6 +101,11 @@ class OAuthBrowserDialog(LFDialog):
                        Must be set before the first QWebEngineView is created in
                        the application. If WebEngine was already initialized without
                        proxy, this parameter will be ignored with a warning.
+            cookie_origin: Base URL of the identity server (e.g. the Keycloak
+                server URL). Cookies for its host are captured and returned by
+                :meth:`captured_cookies`; ``restore_cookies`` are set for it.
+            restore_cookies: Raw ``Set-Cookie`` strings to put in the cookie
+                store before the login page loads ("Continue as <name>").
         """
         super().__init__(parent)
         self._auth_url = auth_url
@@ -101,6 +114,13 @@ class OAuthBrowserDialog(LFDialog):
         self._callback_path = urlparse(callback_url).path
         self._proxy_url = proxy_url
         self._completed = False
+        self._cookie_origin = cookie_origin
+        self._cookie_host = (urlparse(cookie_origin).hostname or "") if cookie_origin else ""
+        self._restore_cookies = list(restore_cookies)
+        # (name, domain, path) -> raw Set-Cookie string, for the identity host.
+        self._captured: dict[tuple[str, str, str], str] = {}
+        self._cookie_store = None
+        self._pending_code: tuple[str, str] | None = None
 
         self.setWindowTitle(title)
         self.setMinimumSize(800, 700)
@@ -187,6 +207,7 @@ class OAuthBrowserDialog(LFDialog):
 
         # Web view
         self._web_view = QWebEngineView()
+        self._prepare_cookie_store()
         self._web_view.setUrl(QUrl(self._auth_url))
 
         # Connect signals
@@ -197,6 +218,82 @@ class OAuthBrowserDialog(LFDialog):
         layout.addWidget(self._web_view)
 
         logger.debug("OAuth dialog: loading auth URL in embedded browser")
+
+    def _prepare_cookie_store(self) -> None:
+        """Start from an empty cookie jar, restore a saved sign-in, watch cookies.
+
+        The default profile is in-memory and process-wide, so a previous login
+        in this process could otherwise leak into "Sign in as someone else".
+        """
+        try:
+            from PySide6.QtNetwork import QNetworkCookie
+            from PySide6.QtWebEngineCore import QWebEngineProfile
+        except ImportError:
+            return
+        store = self._web_view.page().profile().cookieStore()
+        if store is None:
+            store = QWebEngineProfile.defaultProfile().cookieStore()
+        self._cookie_store = store
+        store.deleteAllCookies()
+        if not self._cookie_host:
+            return
+        store.cookieAdded.connect(self._on_cookie_added)
+        store.cookieRemoved.connect(self._on_cookie_removed)
+        origin = QUrl(self._cookie_origin)
+        restored = 0
+        for raw in self._restore_cookies:
+            for cookie in QNetworkCookie.parseCookies(QByteArray(raw.encode("utf-8"))):
+                store.setCookie(cookie, origin)
+                restored += 1
+        if restored:
+            logger.debug("OAuth dialog: restored {} saved sign-in cookie(s)", restored)
+
+    def _is_identity_cookie(self, cookie) -> bool:
+        domain = cookie.domain().lstrip(".").lower()
+        host = self._cookie_host.lower()
+        return not domain or host == domain or host.endswith("." + domain)
+
+    @staticmethod
+    def _cookie_key(cookie) -> tuple[str, str, str]:
+        return (
+            bytes(cookie.name().data()).decode("utf-8", "replace"),
+            cookie.domain().lstrip(".").lower(),
+            cookie.path() or "/",
+        )
+
+    def _on_cookie_added(self, cookie) -> None:
+        if not self._is_identity_cookie(cookie):
+            return
+        from PySide6.QtNetwork import QNetworkCookie
+
+        raw = bytes(cookie.toRawForm(QNetworkCookie.RawForm.Full).data())
+        self._captured[self._cookie_key(cookie)] = raw.decode("utf-8", "replace")
+
+    def _on_cookie_removed(self, cookie) -> None:
+        if self._is_identity_cookie(cookie):
+            self._captured.pop(self._cookie_key(cookie), None)
+
+    def captured_cookies(self) -> list[str]:
+        """Raw ``Set-Cookie`` strings currently held for the identity host."""
+        return list(self._captured.values())
+
+    def _disconnect_cookie_store(self) -> None:
+        store, self._cookie_store = self._cookie_store, None
+        if store is None or not self._cookie_host:
+            return
+        for sig, slot in (
+            (store.cookieAdded, self._on_cookie_added),
+            (store.cookieRemoved, self._on_cookie_removed),
+        ):
+            try:
+                sig.disconnect(slot)
+            except (RuntimeError, TypeError):
+                pass
+
+    def done(self, result: int) -> None:
+        """Stop watching the shared cookie store once the dialog closes."""
+        self._disconnect_cookie_store()
+        super().done(result)
 
     def _setup_fallback_ui(self, layout: QVBoxLayout) -> None:
         """Set up fallback UI when WebEngine is not available."""
@@ -275,23 +372,40 @@ class OAuthBrowserDialog(LFDialog):
                 code = params["code"][0]
                 state = params.get("state", [None])[0]
                 logger.debug("OAuth dialog: received authorization code")
-                self.auth_code_received.emit(code, state or "")
-                self.accept()
+                self._pending_code = (code, state or "")
+                # The callback host has no server behind it; don't render the
+                # connection-error page while the SSO cookies settle.
+                self._web_view.stop()
+                QTimer.singleShot(self.COOKIE_SETTLE_MS, self._finish_success)
 
             else:
                 logger.warning("OAuth dialog: callback missing code parameter")
                 self.auth_error.emit("Invalid callback - missing authorization code")
                 self.reject()
 
+    def _finish_success(self) -> None:
+        """Report the authorization code once the SSO cookies have settled."""
+        pending, self._pending_code = self._pending_code, None
+        if pending is None:
+            return
+        self.auth_code_received.emit(*pending)
+        self.accept()
+
     def closeEvent(self, event) -> None:
         """Handle dialog close event."""
-        if not self._completed:
+        if self._pending_code is not None:
+            self._finish_success()
+        elif not self._completed:
             logger.debug("OAuth dialog: user cancelled")
             self.auth_cancelled.emit()
         super().closeEvent(event)
 
     def reject(self) -> None:
         """Handle dialog rejection (Escape key or close)."""
+        if self._pending_code is not None:
+            # Closed while the SSO cookies settle: the login already succeeded.
+            self._finish_success()
+            return
         if not self._completed:
             self.auth_cancelled.emit()
         super().reject()
