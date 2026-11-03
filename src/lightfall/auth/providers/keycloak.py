@@ -325,6 +325,7 @@ class KeycloakAuthProvider(AuthProvider):
         self._cancel_event = Event()
         # Keycloak SSO cookies captured by the last embedded login.
         self._captured_cookies: list[str] = []
+        self._captured_idp = ""
 
     @property
     def name(self) -> str:
@@ -500,11 +501,17 @@ class KeycloakAuthProvider(AuthProvider):
             stash = self.resumable_stash()
             if stash is not None:
                 restore = stash.cookies
+                if stash.identity_provider:
+                    # Skip Keycloak's provider-choice page once its own
+                    # session has expired; the upstream sign-in finishes it.
+                    params["kc_idp_hint"] = stash.identity_provider
+                    auth_url = f"{self._config.auth_url}?{urlencode(params)}"
                 logger.info("Resuming saved Keycloak sign-in for '{}'", stash.username)
 
         # Try embedded browser first if requested and available
         if use_embedded_browser:
             self._captured_cookies = []
+            self._captured_idp = ""
             result = self._auth_with_embedded_browser(
                 auth_url, state, parent_widget, restore_cookies=restore
             )
@@ -515,7 +522,9 @@ class KeycloakAuthProvider(AuthProvider):
                 # Got an auth code, exchange it
                 session = await self._exchange_code(result)
                 if session is not None:
-                    self._remember_sign_in(session, self._captured_cookies)
+                    self._remember_sign_in(
+                        session, self._captured_cookies, self._captured_idp
+                    )
                 return session
 
         # Fall back to external browser with callback server. A requested
@@ -524,24 +533,34 @@ class KeycloakAuthProvider(AuthProvider):
         # password instead of silently signing in whoever that browser knows.
         if resume and "prompt" not in params:
             params["prompt"] = "login"
+            params.pop("kc_idp_hint", None)
             auth_url = f"{self._config.auth_url}?{urlencode(params)}"
         return await self._auth_with_external_browser(auth_url, state)
 
-    def _remember_sign_in(self, session: Session, cookies: list[str]) -> None:
-        """Save the SSO cookies behind "Continue as", or drop them if disabled."""
+    def _remember_sign_in(
+        self, session: Session, cookies: list[str], identity_provider: str = ""
+    ) -> None:
+        """Save the sign-in cookies behind "Continue as", or drop them if disabled."""
         if not resume_enabled():
             clear_stash()
             return
         if not cookies:
-            logger.debug("No Keycloak SSO cookies captured; nothing to save")
+            logger.debug("No sign-in cookies captured; nothing to save")
             return
         user = session.user
+        if not identity_provider:
+            # A resume that Keycloak's own session finished never visits the
+            # upstream provider; keep the alias the same person used before.
+            previous = load_stash(self._config.issuer)
+            if previous is not None and previous.username == user.username:
+                identity_provider = previous.identity_provider
         save_stash(
             SsoStash(
                 issuer=self._config.issuer,
                 username=user.username,
                 display_name=user.display_name,
                 cookies=cookies,
+                identity_provider=identity_provider,
             )
         )
 
@@ -596,14 +615,17 @@ class KeycloakAuthProvider(AuthProvider):
 
         # Store result from Qt signals
         result_holder: dict[str, Any] = {
-            "code": None, "state": None, "error": None, "cookies": [],
+            "code": None, "state": None, "error": None, "cookies": [], "idp": "",
         }
         completed = Event()
 
-        def on_code_received(code: str, recv_state: str, cookies: list[str]) -> None:
+        def on_code_received(
+            code: str, recv_state: str, cookies: list[str], idp: str
+        ) -> None:
             result_holder["code"] = code
             result_holder["state"] = recv_state
             result_holder["cookies"] = cookies
+            result_holder["idp"] = idp
             completed.set()
 
         def on_error(error: str) -> None:
@@ -627,7 +649,8 @@ class KeycloakAuthProvider(AuthProvider):
             )
             dialog.auth_code_received.connect(
                 lambda code, recv_state: on_code_received(
-                    code, recv_state, dialog.captured_cookies()
+                    code, recv_state, dialog.captured_cookies(),
+                    dialog.identity_provider(),
                 )
             )
             dialog.auth_error.connect(on_error)
@@ -663,6 +686,7 @@ class KeycloakAuthProvider(AuthProvider):
             return False
 
         self._captured_cookies = list(result_holder["cookies"])
+        self._captured_idp = result_holder["idp"]
         return result_holder["code"]
 
     @staticmethod

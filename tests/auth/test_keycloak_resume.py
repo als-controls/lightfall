@@ -201,3 +201,64 @@ def test_resume_without_embedded_browser_forces_password(
     monkeypatch.setattr(provider, "_auth_with_external_browser", fake_external)
     asyncio.run(provider.authenticate(resume=True))
     assert parse_qs(urlparse(seen["auth_url"]).query)["prompt"] == ["login"]
+
+
+# --- the brokered identity provider (login.lbl.gov behind "LBL Login") -----
+
+
+def _fake_embedded_idp(provider, monkeypatch, *, cookies, idp, seen: dict, name="Ron"):
+    def fake(auth_url, state, parent_widget=None, restore_cookies=None):
+        seen["auth_url"] = auth_url
+        seen["restore"] = list(restore_cookies or [])
+        provider._captured_cookies = list(cookies)
+        provider._captured_idp = idp
+        return "the-code"
+
+    async def fake_exchange(code, redirect_uri=None):
+        return _session("rp", name)
+
+    monkeypatch.setattr(provider, "_auth_with_embedded_browser", fake)
+    monkeypatch.setattr(provider, "_exchange_code", fake_exchange)
+
+
+def test_login_saves_identity_provider(provider, stash_file, enabled, monkeypatch) -> None:
+    _fake_embedded_idp(provider, monkeypatch, cookies=COOKIES, idp="lbl-idp", seen={})
+    asyncio.run(provider.authenticate())
+    assert load_stash(ISSUER).identity_provider == "lbl-idp"
+
+
+def test_resume_hints_saved_identity_provider(provider, stash_file, enabled, monkeypatch) -> None:
+    save_stash(SsoStash(ISSUER, "rp", "Ron", COOKIES, identity_provider="lbl-idp"))
+    seen: dict = {}
+    _fake_embedded_idp(provider, monkeypatch, cookies=COOKIES, idp="", seen=seen)
+
+    asyncio.run(provider.authenticate(resume=True))
+
+    query = parse_qs(urlparse(seen["auth_url"]).query)
+    assert query["kc_idp_hint"] == ["lbl-idp"]
+    # Keycloak's session finished it (no broker visit): the alias is kept.
+    assert load_stash(ISSUER).identity_provider == "lbl-idp"
+
+
+def test_someone_else_gets_no_hint_and_drops_old_alias(
+    provider, stash_file, enabled, monkeypatch
+) -> None:
+    save_stash(SsoStash(ISSUER, "other", "Other", COOKIES, identity_provider="lbl-idp"))
+    seen: dict = {}
+    _fake_embedded_idp(provider, monkeypatch, cookies=COOKIES, idp="", seen=seen)
+
+    asyncio.run(provider.authenticate(fresh_login=True))
+
+    assert "kc_idp_hint" not in parse_qs(urlparse(seen["auth_url"]).query)
+    # A different person: the previous person's alias must not carry over.
+    assert load_stash(ISSUER).identity_provider == ""
+
+
+def test_old_stash_without_alias_still_loads(stash_file: Path) -> None:
+    import json
+
+    stash_file.write_text(
+        json.dumps({"issuer": ISSUER, "username": "rp", "display_name": "Ron", "cookies": ["A=1"]}),
+        encoding="utf-8",
+    )
+    assert load_stash(ISSUER).identity_provider == ""
