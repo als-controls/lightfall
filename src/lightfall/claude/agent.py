@@ -158,6 +158,13 @@ def _patch_sdk_for_windows_cmdline_limit():
 # Apply the patch on module load
 _patch_sdk_for_windows_cmdline_limit()
 
+# No console window per agent session under the console-less GUI launch.
+from lightfall.agents.backends.claude_code.no_window import (  # noqa: E402
+    patch_sdk_no_console_window,
+)
+
+patch_sdk_no_console_window()
+
 
 # Every constructed agent, so app exit can stop them all: docked panels never
 # get a closeEvent when the main window closes, so the Claude panel's own

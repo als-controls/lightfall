@@ -18,6 +18,10 @@ from typing import ClassVar
 
 from loguru import logger
 
+# No console flash per git call when Lightfall runs without a console
+# (lightfall-gui.exe). 0 off Windows, where creationflags must be 0.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 class GitTracker:
     """Singleton wrapping the ``~/lightfall/`` git repo."""
@@ -61,7 +65,7 @@ class GitTracker:
                 self._ensure_local_identity()
                 return True
             subprocess.run(
-                ["git", "init"], cwd=self.repo_root, check=True,
+                ["git", "init"], cwd=self.repo_root, creationflags=_NO_WINDOW, check=True,
                 capture_output=True,
             )
             self._ensure_local_identity()
@@ -94,12 +98,12 @@ class GitTracker:
             if not existing_email:
                 subprocess.run(
                     ["git", "config", "--local", "user.email", self.DEFAULT_USER_EMAIL],
-                    cwd=self.repo_root, check=True, capture_output=True,
+                    cwd=self.repo_root, creationflags=_NO_WINDOW, check=True, capture_output=True,
                 )
             if not existing_name:
                 subprocess.run(
                     ["git", "config", "--local", "user.name", self.DEFAULT_USER_NAME],
-                    cwd=self.repo_root, check=True, capture_output=True,
+                    cwd=self.repo_root, creationflags=_NO_WINDOW, check=True, capture_output=True,
                 )
         except (FileNotFoundError, subprocess.CalledProcessError) as e:
             logger.warning("Failed to set local git identity: {}", e)
@@ -108,7 +112,7 @@ class GitTracker:
         try:
             out = subprocess.run(
                 ["git", "config", "--local", "--get", key],
-                cwd=self.repo_root, capture_output=True, text=True,
+                cwd=self.repo_root, creationflags=_NO_WINDOW, capture_output=True, text=True,
             )
             if out.returncode == 0:
                 return out.stdout.strip() or None
@@ -133,18 +137,18 @@ class GitTracker:
         try:
             subprocess.run(
                 ["git", "add", "--", *rel_paths],
-                cwd=self.repo_root, check=True, capture_output=True,
+                cwd=self.repo_root, creationflags=_NO_WINDOW, check=True, capture_output=True,
             )
             # No-op detection: --quiet returns 0 if no staged changes
             diff = subprocess.run(
                 ["git", "diff", "--cached", "--quiet"],
-                cwd=self.repo_root,
+                cwd=self.repo_root, creationflags=_NO_WINDOW,
             )
             if diff.returncode == 0:
                 return False
             subprocess.run(
                 ["git", "commit", "-m", message, "--", *rel_paths],
-                cwd=self.repo_root, check=True, capture_output=True,
+                cwd=self.repo_root, creationflags=_NO_WINDOW, check=True, capture_output=True,
             )
             logger.debug("git commit {} -m {!r}", rel_paths, message)
             return True
@@ -165,17 +169,17 @@ class GitTracker:
         try:
             subprocess.run(
                 ["git", "add", "--all", "--", *rel_paths],
-                cwd=self.repo_root, check=True, capture_output=True,
+                cwd=self.repo_root, creationflags=_NO_WINDOW, check=True, capture_output=True,
             )
             diff = subprocess.run(
                 ["git", "diff", "--cached", "--quiet"],
-                cwd=self.repo_root,
+                cwd=self.repo_root, creationflags=_NO_WINDOW,
             )
             if diff.returncode == 0:
                 return False
             subprocess.run(
                 ["git", "commit", "-m", message, "--", *rel_paths],
-                cwd=self.repo_root, check=True, capture_output=True,
+                cwd=self.repo_root, creationflags=_NO_WINDOW, check=True, capture_output=True,
             )
             logger.debug("git commit (removal) {} -m {!r}", rel_paths, message)
             return True
