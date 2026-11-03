@@ -428,6 +428,15 @@ def _qt_message_handler(mode: Any, context: Any, message: str) -> None:
         }
         level = level_map.get(mode, "WARNING")
 
+        # Qt WebEngine's default javaScriptConsoleMessage() forwards a web
+        # page's console output in the "js" category, console.error and
+        # Chromium's CSP/parse errors as QtCriticalMsg. The only pages Lightfall
+        # shows are remote sign-in sites (Keycloak, login.lbl.gov), so those are
+        # someone else's page bugs: cap them at WARNING so they stay in the log
+        # but don't reach Sentry (which captures ERROR) as Lightfall errors.
+        if getattr(context, "category", None) == "js" and level in ("ERROR", "CRITICAL"):
+            level = "WARNING"
+
         # Prefix with file:line when Qt provides it (debug builds typically do;
         # release builds usually don't).
         location = ""
