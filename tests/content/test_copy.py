@@ -214,3 +214,40 @@ def test_replacing_the_other_plugin_form_commits_its_removal(tmp_path, monkeypat
         ("displace", "tools"),
         ("load", dest, msg),
     ]
+
+
+def _age(path: Path, seconds: float = 7200) -> None:
+    import os
+    import time
+
+    t = time.time() - seconds
+    for p in [path, *path.rglob("*")]:
+        os.utime(p, (t, t))
+
+
+def test_stale_copy_leftovers_are_removed(tmp_path):
+    synced, root = tmp_path / "synced", tmp_path / "mine"
+    plan = _write(synced / "xafs@3" / "xafs.py", "NEW = 1\n")
+    stale = root / "plans" / ".copy-other.py-abc123_x"
+    _write(stale / "other.py", "half copied\n")
+    _age(stale)
+    fresh = root / "plans" / ".copy-busy.py-zzz999_y"
+    _write(fresh / "busy.py", "another copy in progress\n")
+    copy_to_mine(_row("plan", "xafs", plan), root=root)
+    assert not stale.exists()
+    assert fresh.exists()
+
+
+def test_item_stranded_by_a_crash_mid_swap_is_put_back(tmp_path):
+    """Killed after moving the old item aside, before the new one went in."""
+    synced, root = tmp_path / "synced", tmp_path / "mine"
+    skill = synced / "fitting@9"
+    _write(skill / "SKILL.md", "new\n")
+    stranded = root / "skills" / ".copy-fitting-k3j_ab12"
+    _write(stranded / "previous" / "SKILL.md", "mine\n")
+    _write(stranded / "fitting" / "SKILL.md", "new\n")
+    _age(stranded)
+    with pytest.raises(FileExistsError):
+        copy_to_mine(_row("skill", "fitting", skill), root=root)
+    assert (root / "skills" / "fitting" / "SKILL.md").read_text(encoding="utf-8") == "mine\n"
+    assert sorted(p.name for p in (root / "skills").iterdir()) == ["fitting"]

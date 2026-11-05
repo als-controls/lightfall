@@ -356,6 +356,83 @@ def test_resolve_none_when_nothing_subscribable(qtbot, monkeypatch):
     assert node is None  # never a column facet, never a 500/hang
 
 
+# ---------------------------------------------------------------------------
+# 3c. Real Tiled composite streams (GlitchTip LIGHTFALL-A)
+#
+# The stubs above model a scalar field's facet with a made-up "column"
+# structure_family. The real Tiled 0.2.9 CompositeClient (BlueskyEventStreamV3)
+# behaves differently, as probed against a live SimpleTiledServer:
+#   * stream["det"] for a scalar column returns an ArrayClient whose
+#     structure_family IS "array" -- its path_parts are
+#     [..., "primary", "internal", "det"], one level deeper than a first-class
+#     array child ([..., "primary", "img"]);
+#   * stream["internal"] raises KeyError (tables are flattened away); the table
+#     node is reachable only via stream.base["internal"].
+# Subscribing to the facet makes the server answer the WS upgrade with HTTP 500;
+# tiled's subscription thread dies with InvalidStatus and start_in_thread()
+# blocks forever.
+# ---------------------------------------------------------------------------
+
+
+class _PathNode(_StubNode):
+    """A stub client node that also carries Tiled's ``path_parts``."""
+
+    def __init__(self, name, family, path_parts):
+        super().__init__(name, family)
+        self.path_parts = list(path_parts)
+
+
+class _StubCompositeStream:
+    """Mimics tiled's CompositeClient for a Bluesky V3 event stream."""
+
+    def __init__(self, *, array_fields=(), scalar_fields=()):
+        self.path_parts = ["run", "primary"]
+        self._children = {}
+        for f in array_fields:
+            self._children[f] = _PathNode(f, "array", [*self.path_parts, f])
+        for f in scalar_fields:
+            # Column facet: an "array" client living under the internal table.
+            self._children[f] = _PathNode(f, "array", [*self.path_parts, "internal", f])
+        self.internal = _PathNode("internal", "table", [*self.path_parts, "internal"])
+        self.base = {"internal": self.internal}
+        self.metadata = {"data_keys": {}, "hints": {"fields": []}}
+
+    def __getitem__(self, key):
+        if key not in self._children:
+            raise KeyError(
+                f"Key '{key}' not found. If it refers to a table, access it via "
+                f"the base Container client using `.base['{key}']` instead."
+            )
+        return self._children[key]
+
+
+def test_resolve_rejects_composite_column_facet(qtbot, monkeypatch):
+    """A scalar field's facet on a composite stream is never subscribed.
+
+    It reports structure_family "array" but lives under the internal table;
+    the resolver must fall through to the internal TABLE node instead.
+    """
+    stream = _StubCompositeStream(array_fields=["img"], scalar_fields=["det"])
+    panel = _panel_with_stream(qtbot, monkeypatch, stream, active_field="det")
+    node = panel._resolve_active_node()
+    assert node is not stream["det"]
+    assert node is stream.internal
+
+
+def test_resolve_composite_internal_via_base(qtbot, monkeypatch):
+    """No active field on a composite stream -> internal table via ``.base``."""
+    stream = _StubCompositeStream(scalar_fields=["det", "motor"])
+    panel = _panel_with_stream(qtbot, monkeypatch, stream, active_field="")
+    assert panel._resolve_active_node() is stream.internal
+
+
+def test_resolve_composite_array_field_still_picked(qtbot, monkeypatch):
+    """A first-class array child of a composite stream is still subscribed."""
+    stream = _StubCompositeStream(array_fields=["img"], scalar_fields=["det"])
+    panel = _panel_with_stream(qtbot, monkeypatch, stream, active_field="img")
+    assert panel._resolve_active_node() is stream["img"]
+
+
 def test_field_change_resubscribes_to_internal_for_scalar(qtbot, monkeypatch):
     """_on_field_changed on a scalar field re-points the bridge at `internal`."""
     stream = _StubStream(array_fields=[], scalar_fields=["SampleX", "Counter1"])

@@ -110,6 +110,10 @@ dev = [
     "pre-commit>=3.6",
     # tests/services start a real local broker (same as lightfall-utils' dev extra).
     "nats-server-bin>=2.14",
+    # tests/services/test_tiled_writer_row_order.py round-trips through an
+    # in-process Tiled server (tiled.server.app.build_app, tiled.catalog), which
+    # needs fastapi & co. from tiled's [server] extra; [client] alone lacks them.
+    "tiled[server]>=0.2.5",
 ]
 docs = [
     "sphinx>=8.0,<9.0",
