@@ -4,13 +4,13 @@ description: "Onboard a beamline's BCS LabVIEW motors and AIs into Lightfall as 
 ---
 # BCS LabVIEW configs → happi device database
 
-**Status: DRAFT, partly verified.** Written 2026-10-29 from the 12.0.2.1 CHiPPS onboarding. PV naming and record types were verified against the live BCS IOC on 2026-11-04 (see Evidence). The `Motor Used?` / `Channel Used?` flag meanings are still **unverified**. Update this skill as testing goes on. It may later become a happi-row "Import from BCS" action or a `bcs-config` backend type.
+**Status: DRAFT, partly verified.** Written 2026-10-29 from the 12.0.2.1 CHiPPS onboarding. PV naming and record types were verified against the live 12.0.2.1 BCS IOC on 2026-11-04 (see Evidence). The `Motor Used?` / `Channel Used?` flag meanings are still **unverified**. Update this skill as testing goes on. It may later become a happi-row "Import from BCS" action or a `bcs-config` backend type.
 
 ## When this applies
 - The beamline runs BCS (LabVIEW), and its config directory is at
   `C:\Beamline Controls\<BL> <NAME>\<BL> <NAME> Specific\Support Files\`
   (for example `C:\Beamline Controls\12.0.2.1 CHiPPS\12.0.2.1 CHiPPS Specific\Support Files`).
-- The user wants Lightfall devices for the BCS motors and AIs. BCS publishes these over EPICS with a prefix like `BCS<BL without dots>:` (e.g. `BCS12021:`).
+- The user wants Lightfall devices for the BCS motors and AIs. BCS publishes these over EPICS under the prefix `BCS<BLID>:`. `<BLID>` is the beamline number with the dots removed, so it **is different for every beamline**: 12.0.2.1 → `BCS12021:`, 7.0.1.2 → `BCS7012:`. Work it out from the `<BL>` in the config path, and confirm it with the user.
 - This is not the live `bcs` backend type, which talks to a running BCS server over TCP. This skill builds a static happi file instead.
 
 ## Source files (in Support Files)
@@ -29,9 +29,10 @@ Gotchas in the source files:
 
 ## Steps
 1. **Inspect** the two JSON files. Count motors and AIs, and list Name / Type / Driver / Units. Show the user anything that looks surprising, such as legacy `Old *` stages or remote AI lists.
-2. **Confirm the PV naming** with the user. Rule (verified live at 12.0.2.1, 2026-11-04): strip the BCS name of everything except `[A-Za-z0-9_]` (case kept, `Å`→`A`), then
-   - **Motors:** `BCS<BL>:<Name>`. This is an EPICS `motor` record (`.RTYP` = `motor`, `.RBV` connects). Example: `Sample X` → `BCS12021:SampleX`.
-   - **AIs:** `BCS<BL>:<Name>:ai-AI`. This is an EPICS `ai` record. Example: `Sample TEY` → `BCS12021:SampleTEY:ai-AI`, `M4 current` → `BCS12021:M4current:ai-AI`. The bare `BCS<BL>:<Name>` does **not** exist for AIs.
+2. **Confirm the PV naming** with the user. Rule (verified live at 12.0.2.1, 2026-11-04): strip the BCS name of everything except `[A-Za-z0-9_]` (case kept, `Å`→`A`) to get `<Name>`, then
+   - **Motors:** `BCS<BLID>:<Name>`. This is an EPICS `motor` record (`.RTYP` = `motor`, `.RBV` connects).
+   - **AIs:** `BCS<BLID>:<Name>:ai-AI`. This is an EPICS `ai` record. The bare `BCS<BLID>:<Name>` does **not** exist for AIs.
+   Examples from 12.0.2.1 (`<BLID>` = `12021`): `Sample X` → `BCS12021:SampleX`, `Sample TEY` → `BCS12021:SampleTEY:ai-AI`, `M4 current` → `BCS12021:M4current:ai-AI`. Use the current beamline's `<BLID>`, not `12021`.
    If the IOC is reachable, spot-check a motor and an AI with `caget` (or `EpicsSignalRO(...).get()` in the console) before you generate.
 3. **Generate** the happi JSON with the script below. Save it to `~/lightfall/happi/bcs_<bl>_<name>.json` and keep the script in `~/lightfall/scripts/`. Don't put scripts in the Support Files directory.
    - Item names must match happi's `^[a-z][a-z_0-9]{2,78}$`, so use snake_case. Put the original name in `display_name` (Lightfall reads it) and in `bcs_name`.
@@ -55,7 +56,8 @@ Gotchas in the source files:
    - Edit the generator rather than the JSON by hand, and re-run it. Then record the findings in this skill.
 
 ## Generator script
-Usage: `python -I bcs_to_happi.py "<Support Files dir>" <out.json> --prefix BCS12021: --beamline 12.0.2.1`
+Usage: `python -I bcs_to_happi.py "<Support Files dir>" <out.json> --prefix BCS<BLID>: --beamline <BL>`
+(at 12.0.2.1 this was `--prefix BCS12021: --beamline 12.0.2.1`)
 ```python
 """Generate a happi JSON db from BCS LabVIEW 'Motor Setup.json' / 'AI Setup.json'."""
 import argparse, json, math, re
@@ -64,8 +66,8 @@ from pathlib import Path
 
 ap = argparse.ArgumentParser()
 ap.add_argument("src"); ap.add_argument("out")
-ap.add_argument("--prefix", required=True)    # e.g. BCS12021:
-ap.add_argument("--beamline", required=True)  # e.g. 12.0.2.1
+ap.add_argument("--prefix", required=True)    # BCS<BLID>: (beamline number without dots, e.g. BCS12021:)
+ap.add_argument("--beamline", required=True)  # <BL>, e.g. 12.0.2.1
 a_ = ap.parse_args()
 src, out = Path(a_.src), Path(a_.out)
 now = datetime.now().strftime("%a %b %d %H:%M:%S %Y")
