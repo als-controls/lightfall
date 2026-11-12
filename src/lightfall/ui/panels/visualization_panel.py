@@ -588,6 +588,39 @@ class VisualizationPanel(BasePanel):
         except AttributeError:
             return str(sf)
 
+    @staticmethod
+    def _is_column_facet(stream: Any, child: Any) -> bool:
+        """True if ``child`` is a table column reached through ``stream``.
+
+        Tiled's composite stream client (Bluesky V3 runs) flattens the columns
+        of its ``internal`` table into the stream's own keys: ``stream["det"]``
+        returns an ``ArrayClient`` (structure_family ``"array"``) whose
+        ``path_parts`` end in ``[..., "internal", "det"]``. A first-class array
+        child sits one level below the stream. Nodes without ``path_parts``
+        (stubs) are not treated as facets.
+        """
+        stream_parts = getattr(stream, "path_parts", None)
+        child_parts = getattr(child, "path_parts", None)
+        if stream_parts is None or child_parts is None:
+            return False
+        return len(list(child_parts)) > len(list(stream_parts)) + 1
+
+    @staticmethod
+    def _internal_table(stream: Any) -> Any | None:
+        """The stream's ``internal`` table node, or None.
+
+        A composite stream raises KeyError for ``stream["internal"]`` (tables
+        are flattened away); its table is reachable via ``stream.base``.
+        """
+        try:
+            return stream["internal"]
+        except Exception:
+            pass
+        try:
+            return stream.base["internal"]
+        except Exception:
+            return None
+
     def _resolve_active_node(self) -> Any | None:
         """Resolve a **subscribable** Tiled node for the active viz.
 
@@ -625,24 +658,26 @@ class VisualizationPanel(BasePanel):
             return None
 
         # 1. Active field that is a first-class ARRAY node -> subscribe it.
-        #    (A scalar field's child is a column facet, structure_family != "array",
-        #    so it is rejected here and falls through to the internal table.)
+        #    (A scalar field's child is a column facet of `internal`; on composite
+        #    streams it still reports "array", so it is rejected by path depth
+        #    and falls through to the internal table.)
         active_field = self._active_field()
         if active_field:
             try:
                 child = stream[active_field]
             except Exception:
                 child = None
-            if child is not None and self._structure_family(child) == "array":
+            if (
+                child is not None
+                and self._structure_family(child) == "array"
+                and not self._is_column_facet(stream, child)
+            ):
                 return child
 
         # 2. The stream's `internal` table node (WS-subscribable; table-data
         #    pushes drive refresh for scalar/table viz). Verify it is a table —
         #    never return a non-table child masquerading under that key.
-        try:
-            internal = stream["internal"]
-        except Exception:
-            internal = None
+        internal = self._internal_table(stream)
         if internal is not None and self._structure_family(internal) == "table":
             return internal
 
