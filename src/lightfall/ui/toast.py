@@ -12,7 +12,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from pyqttoast import Toast, ToastPosition, ToastPreset
-from PySide6.QtCore import QObject, Slot
+from PySide6.QtCore import QObject, Qt, Slot
 from PySide6.QtWidgets import QApplication
 
 from lightfall.ui.style.windows_frame import suppress_windows_frame
@@ -93,16 +93,31 @@ class ToastManager(QObject):
     def _get_parent(self) -> QWidget | None:
         """Get the parent widget for toasts."""
         if self._parent_widget is not None:
-            return self._parent_widget
+            return self._durable_parent(self._parent_widget)
         app = QApplication.instance()
         if app:
-            active = app.activeWindow()
-            # With no main window the active window is the toast shown last. A child of
-            # it dies with it while pyqttoast still lists it, and the next show() crashes.
-            if isinstance(active, Toast):
-                return None
-            return active
+            return self._durable_parent(app.activeWindow())
         return None
+
+    @staticmethod
+    def _durable_parent(widget: QWidget | None) -> QWidget | None:
+        """The window a toast can safely be parented to, or None for no parent.
+
+        Qt deletes a toast together with its parent, but pyqttoast keeps listing it,
+        and the next toast to show or hide touches the dead object ("Internal C++
+        object (Toast) already deleted", GlitchTip LIGHTFALL-H). A dialog usually
+        closes before its toast expires, so use the window at the top of the parent
+        chain (the main window), and no parent if that window is a toast (the one
+        shown last, when there is no main window) or deletes itself on close.
+        """
+        if widget is None:
+            return None
+        root = widget.window()
+        while root.parentWidget() is not None:
+            root = root.parentWidget().window()
+        if isinstance(root, Toast) or root.testAttribute(Qt.WidgetAttribute.WA_DeleteOnClose):
+            return None
+        return root
 
     def _get_preset(self, base_preset: ToastPreset) -> ToastPreset:
         """Get the appropriate preset variant based on current theme.
@@ -144,14 +159,14 @@ class ToastManager(QObject):
             text: Optional detail text.
             preset: Toast preset for styling.
             duration: Display duration in ms (None for default).
-            parent: Widget to parent the toast to (default: the manager's parent
-                widget, else the active window).
+            parent: Widget whose window the toast is parented to (default: the
+                manager's parent widget, else the active window). A dialog gives way
+                to its main window; see :meth:`_durable_parent`.
 
         Returns:
             The Toast instance.
         """
-        if parent is None:
-            parent = self._get_parent()
+        parent = self._get_parent() if parent is None else self._durable_parent(parent)
         toast = Toast(parent)
 
         toast.setTitle(title)
