@@ -260,8 +260,7 @@ def test_download_failure_after_page_deleted_does_not_touch_dead_label(
     )
     try:
         p = UserProfileSettingsPlugin()
-        w = p.create_widget()
-        p.load_settings()  # download starts and blocks in _slow_401
+        w = p.create_widget()  # download starts and blocks in _slow_401
         label = p._avatar_label
         shiboken6.delete(w)  # dialog closed: page and its QLabel are gone
         assert not shiboken6.isValid(label)
