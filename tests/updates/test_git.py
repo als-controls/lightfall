@@ -168,3 +168,8 @@ def test_fetch_has_stall_limits(monkeypatch, clone):
     fetch = next(a for a in calls if "fetch" in a)
     assert "http.lowSpeedLimit=1000" in fetch and "http.lowSpeedTime=20" in fetch
     assert "ConnectTimeout" in git_env()["GIT_SSH_COMMAND"]
+
+
+def test_run_git_env_override(clone):
+    assert run_git(clone, "config", "--get", "core.bare", env={"X": "1"}) == "false"
+    assert run_git(clone, "var", "GIT_EDITOR", env={"GIT_EDITOR": "lf-test"}) == "lf-test"

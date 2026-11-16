@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,8 +37,11 @@ def git_env() -> dict[str, str]:
     return env
 
 
-def run_git(root: Path, *args: str, timeout: float = 30.0) -> str:
+def run_git(root: Path, *args: str, timeout: float = 30.0,
+            env: Mapping[str, str] | None = None) -> str:
     """Run ``git <args>`` in ``root`` and return its stripped stdout.
+
+    ``env`` entries are merged over :func:`git_env`.
 
     Raises:
         GitError: on a non-zero exit, a timeout, or a missing git binary.
@@ -46,8 +50,8 @@ def run_git(root: Path, *args: str, timeout: float = 30.0) -> str:
     command = " ".join(args)
     try:
         proc = subprocess.Popen(
-            ["git", *args], cwd=root, env=git_env(), stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+            ["git", *args], cwd=root, env={**git_env(), **(env or {})},
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
             errors="replace", creationflags=NO_WINDOW,
             start_new_session=sys.platform != "win32",
         )
