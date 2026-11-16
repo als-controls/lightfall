@@ -23,7 +23,12 @@ STALL_LIMITS = ("-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=20")
 
 
 class GitError(Exception):
-    """A git command failed, timed out, or git is not installed."""
+    """A git command failed, timed out, or git is not installed.
+
+    ``stderr`` holds git's own error output when the command ran and failed.
+    """
+
+    stderr: str | None = None
 
 
 def git_env() -> dict[str, str]:
@@ -38,19 +43,25 @@ def git_env() -> dict[str, str]:
 
 
 def run_git(root: Path, *args: str, timeout: float = 30.0,
-            env: Mapping[str, str] | None = None) -> str:
+            env: Mapping[str, str | None] | None = None) -> str:
     """Run ``git <args>`` in ``root`` and return its stripped stdout.
 
-    ``env`` entries are merged over :func:`git_env`.
+    ``env`` entries are merged over :func:`git_env`; a value of None removes the variable.
 
     Raises:
         GitError: on a non-zero exit, a timeout, or a missing git binary.
     """
     global GIT_MISSING
     command = " ".join(args)
+    full_env = git_env()
+    for key, value in (env or {}).items():
+        if value is None:
+            full_env.pop(key, None)
+        else:
+            full_env[key] = value
     try:
         proc = subprocess.Popen(
-            ["git", *args], cwd=root, env={**git_env(), **(env or {})},
+            ["git", *args], cwd=root, env=full_env,
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
             errors="replace", creationflags=NO_WINDOW,
             start_new_session=sys.platform != "win32",
@@ -74,7 +85,9 @@ def run_git(root: Path, *args: str, timeout: float = 30.0,
             pass
         raise GitError(f"git {command}: timed out after {timeout:g} s") from e
     if proc.returncode != 0:
-        raise GitError(f"git {command}: {stderr.strip()}")
+        error = GitError(f"git {command}: {stderr.strip()}")
+        error.stderr = stderr.strip()
+        raise error
     return stdout.strip()
 
 

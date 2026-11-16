@@ -100,7 +100,11 @@ def test_token_not_in_argv(monkeypatch, tmp_path):
         assert all(TOKEN not in a for a in args)
     push_call = next(c for c in calls if "push" in c[0])
     assert push_call[1]["env"][TOKEN_ENV] == TOKEN
-    assert all("--force" not in a and "-u" != a for a in push_call[0])
+    argv = push_call[0]
+    assert all("--force" not in a and "-u" != a for a in argv)
+    assert "--no-verify" in argv
+    assert "HEAD:refs/heads/feat" in argv
+    assert argv.index("credential.helper=") < argv.index(HELPER)
 
 
 def test_push_error_is_scrubbed(monkeypatch, tmp_path):
@@ -129,3 +133,8 @@ def test_helper_supplies_token_from_env():
     )
     assert "password=github_pat_TEST" in proc.stdout
     assert "username=x-access-token" in proc.stdout
+
+
+def test_github_url_rejects_dot_segments():
+    assert github_https_url("https://github.com/./r") is None
+    assert github_https_url("https://github.com/o/..") is None
