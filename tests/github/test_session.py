@@ -102,3 +102,47 @@ def test_scrub_defaults_to_held_token(gh, monkeypatch):
     monkeypatch.setattr("lightfall.github.session.get_github_session", lambda: gh)
     gh.set_credential(make_cred(expires_at=NOW - timedelta(seconds=1)))
     assert scrub("a github_pat_SECRET b") == "a *** b"
+
+
+def _in_worker(func):
+    import threading
+
+    box = {}
+    thread = threading.Thread(target=lambda: box.setdefault("value", func()))
+    thread.start()
+    thread.join(5)
+    return box["value"]
+
+
+def test_session_made_on_worker_still_clears_on_logout(auth):
+    from PySide6.QtCore import QCoreApplication
+
+    gh = _in_worker(lambda: GitHubSession(auth_session=auth, now=lambda: NOW))
+    assert gh.thread() is QCoreApplication.instance().thread()
+    gh.set_credential(make_cred())
+    auth.state_changed.emit(AuthState.UNAUTHENTICATED, AuthState.AUTHENTICATED)
+    assert gh.credential() is None
+    gh.set_credential(make_cred())
+    auth.user_changed.emit(SimpleNamespace(username="u1"))
+    assert gh.credential() is None
+
+
+def test_singleton_made_on_worker_clears_on_logout(auth, monkeypatch):
+    from PySide6.QtCore import QCoreApplication
+
+    from lightfall.auth.session import SessionManager
+    from lightfall.github import session as session_mod
+
+    monkeypatch.setattr(SessionManager, "get_instance", classmethod(lambda cls: auth))
+    session_mod._reset_for_tests()
+    try:
+        gh = _in_worker(session_mod.get_github_session)
+        assert gh.thread() is QCoreApplication.instance().thread()
+        gh.set_credential(make_cred())
+        auth.state_changed.emit(AuthState.UNAUTHENTICATED, AuthState.AUTHENTICATED)
+        assert gh.credential() is None
+        # Same user logs back in: the old token must not come back.
+        auth.state_changed.emit(AuthState.AUTHENTICATED, AuthState.AUTHENTICATING)
+        assert gh.credential() is None
+    finally:
+        session_mod._reset_for_tests()

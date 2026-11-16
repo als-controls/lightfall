@@ -241,6 +241,9 @@ def _before_send(event: Event, hint: Hint) -> Event | None:
 
     Used to scrub sensitive data and filter out noise.
     """
+    # Backstop: a session GitHub token must never leave in an event.
+    event = _scrub_github_token(event)
+
     # Strip loguru formatting from messages
     # Format: "2024-01-15 10:30:45.123 | ERROR | module:func:line - actual message"
     _strip_loguru_formatting(event)
@@ -274,6 +277,42 @@ def _before_send(event: Event, hint: Hint) -> Event | None:
         return None
 
     return event
+
+
+def _scrub_github_token(event: Event) -> Event:
+    """Replace the held GitHub session token with ``***`` anywhere in ``event``.
+
+    Only an already-created session is consulted (never created here). Every step
+    is guarded: on any failure the event is returned unchanged.
+    """
+    try:
+        import sys
+
+        module = sys.modules.get("lightfall.github.session")
+        session = getattr(module, "_instance", None) if module is not None else None
+        if session is None:
+            return event
+        token = session._held_token()
+        if not isinstance(token, str) or not token:
+            return event
+
+        def scrub(value: Any, depth: int = 0) -> Any:
+            if depth > 64:
+                return value
+            if isinstance(value, str):
+                return value.replace(token, "***") if token in value else value
+            if isinstance(value, dict):
+                return {scrub(k, depth + 1): scrub(v, depth + 1) for k, v in value.items()}
+            if isinstance(value, list):
+                return [scrub(v, depth + 1) for v in value]
+            if isinstance(value, tuple):
+                return tuple(scrub(v, depth + 1) for v in value)
+            return value
+
+        scrubbed = scrub(event)
+        return scrubbed if isinstance(scrubbed, dict) else event
+    except Exception:  # noqa: BLE001 - a scrubber must never break event delivery
+        return event
 
 
 def _strip_loguru_formatting(event: Event) -> None:

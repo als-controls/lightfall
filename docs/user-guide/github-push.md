@@ -59,6 +59,17 @@ settings → Personal access tokens → Fine-grained tokens* with:
 The token is held in memory for the session, like the code sign-in, and stops
 working at its own expiry date.
 
+## Pushing from the git-state dialog
+
+Each eligible checkout in the git-state dialog has a **Push** button. Pressing
+it asks you to confirm, naming the branch, the commit that will be pushed (its
+short id), the repository and your GitHub account, for example *Push my-branch
+@ 1a2b3c4d5e6f of lightfall to github.com/owner/repo as your-login?* Only that
+commit is pushed. If, by the time you confirm, the checkout has moved to
+another branch or commit, its remote has changed, you have been signed out, or
+you no longer have permission to push, nothing is pushed and the row says why;
+press **Push** again to see the new state.
+
 ## What a push does
 
 A push sends the **current branch** to the branch of the same name on its
@@ -78,9 +89,18 @@ The assistant has two tools for this:
 - **Push** pushes one checkout, given by name or by path.
 
 The assistant never sees your token. It also never pushes without asking:
-**every push** shows you a question in the chat, such as *Push my-branch of
-/path/to/repo to https://github.com/owner/repo.git as your-login?*, with only
-**Allow** and **Deny**. Allow pushes once; there is no "always allow". Deny, or
+**every push** shows you a question in the chat, titled *GitHub push*, such as:
+
+```text
+To: https://github.com/owner/repo.git
+Branch: my-branch @ 1a2b3c4d5e6f
+Folder: /path/to/repo
+GitHub account: your-login
+```
+
+with only **Allow** and **Deny**. Allow pushes that commit once; there is no
+"always allow". If the checkout moves to another branch or commit, or your
+sign-in changes, while the question is open, nothing is pushed. Deny, or
 closing the question without an answer, pushes nothing and the assistant is
 told so.
 

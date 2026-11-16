@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QCoreApplication, QObject, Qt, Signal
 
 
 @dataclass(frozen=True)
@@ -49,9 +49,16 @@ class GitHubSession(QObject):
         self._cred: GitHubCredential | None = None
         self._now = now
         self._auth = auth_session
+        # The first caller may be a worker (the agent's asyncio QThread). Live on the
+        # GUI thread, and take the auth signals directly (the slots are lock-safe), so
+        # logout clears the token even if the creating thread never runs an event loop.
+        app = QCoreApplication.instance()
+        if app is not None and self.thread() is not app.thread():
+            self.moveToThread(app.thread())
         if auth_session is not None:
-            auth_session.state_changed.connect(self._on_state_changed)
-            auth_session.user_changed.connect(self._on_user_changed)
+            direct = Qt.ConnectionType.DirectConnection
+            auth_session.state_changed.connect(self._on_state_changed, direct)
+            auth_session.user_changed.connect(self._on_user_changed, direct)
 
     def set_credential(self, cred: GitHubCredential) -> None:
         with self._lock:
@@ -104,6 +111,13 @@ def get_github_session() -> GitHubSession:
 
             _instance = GitHubSession(SessionManager.get_instance())
         return _instance
+
+
+def _reset_for_tests() -> None:
+    """Forget the process-wide session (tests only)."""
+    global _instance
+    with _instance_lock:
+        _instance = None
 
 
 def scrub(text: str, *tokens: str) -> str:

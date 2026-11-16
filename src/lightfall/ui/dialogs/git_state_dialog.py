@@ -19,11 +19,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.github.push import PushResult, PushTarget, push_repo, push_target
+from lightfall.github.push import (
+    PushResult,
+    PushTarget,
+    push_repo,
+    push_target,
+    recheck_and_push,
+)
 from lightfall.github.session import GitHubSession, get_github_session, scrub
 from lightfall.ui.dialogs.base import LFDialog
 from lightfall.ui.dialogs.github_sign_in import start_sign_in
-from lightfall.updates.git import RepoState
+from lightfall.updates.git import RepoState, run_git
 from lightfall.utils.crash_diagnostics import gui_thread_only
 from lightfall.utils.threads import QThreadFuture
 
@@ -40,6 +46,10 @@ def describe_state(repo: RepoState) -> str:
     if repo.ahead:
         parts.append(f"ahead {repo.ahead}")
     return ", ".join(parts)
+
+
+def _read_head(root: Path) -> str:
+    return run_git(root, "rev-parse", "HEAD")
 
 
 def _owner_repo(url: str) -> str:
@@ -65,8 +75,12 @@ class _Rechecker(QObject):
 
     @Slot(object)
     def on_result(self, payload: tuple[int, PushResult]) -> None:
-        if payload[1].ok:
-            self._checker.check_now(fetch=True)
+        try:
+            if payload[1].ok:
+                self._checker.check_now(fetch=True)
+        finally:
+            _Rechecker._keep.discard(self)
+            self.deleteLater()
 
 
 class GitStateDialog(LFDialog):
@@ -81,6 +95,7 @@ class GitStateDialog(LFDialog):
         github_session: GitHubSession | None = None,
         push: Callable[..., PushResult] = push_repo,
         target: Callable[[Path], PushTarget | str] = push_target,
+        head: Callable[[Path], str] = _read_head,
     ) -> None:
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -91,6 +106,7 @@ class GitStateDialog(LFDialog):
         self._session = github_session if github_session is not None else get_github_session()
         self._push = push
         self._target = target
+        self._head = head
         self._targets: list[PushTarget | str] | None = None
         self._futures: list[QThreadFuture] = []
         layout = QVBoxLayout(self)
@@ -197,9 +213,15 @@ class GitStateDialog(LFDialog):
             self._rebuild_push_buttons()
             return
         repo = self._repos[row]
+        try:
+            head = self._head(target.root)
+        except Exception as exc:  # noqa: BLE001 - reported in the row
+            self._finish_row(row, False, f"Could not read HEAD: {scrub(str(exc), cred.token)}")
+            return
         answer = QMessageBox.question(
             self, "Push to GitHub",
-            f"Push {target.branch} of {repo.name} to {_owner_repo(target.url)} as {cred.login}?")
+            f"Push {target.branch} @ {head[:12]} of {repo.name} to "
+            f"{_owner_repo(target.url)} as {cred.login}?")
         if answer != QMessageBox.StandardButton.Yes:
             return
         button = self.table.cellWidget(row, PUSH_COL)
@@ -207,14 +229,20 @@ class GitStateDialog(LFDialog):
             button.setEnabled(False)
             button.setProperty("pushing", True)
         self.table.item(row, STATE_COL).setText("Pushing…")
-        push = self._push
+        session, checker, login = self._session, self._checker, cred.login
+        target_fn, push = self._target, self._push
+
+        def gate() -> bool:
+            return checker is None or bool(checker.is_allowed())
 
         def work() -> tuple[int, PushResult]:
-            # Never pass url=: that override skips the redirect/TLS safety checks.
+            # The confirm may have stayed open: re-check gate, sign-in and target, and
+            # push exactly the commit that was shown.
             try:
-                return row, push(target, cred)
+                return row, recheck_and_push(target, head, login, session, gate,
+                                             target=target_fn, push=push)
             except Exception as exc:  # noqa: BLE001 - reported in the row, never raised
-                message = scrub(f"push failed: {exc}", cred.token)
+                message = scrub(f"push failed: {exc}", session._held_token())
                 return row, PushResult(False, message, target, None, None)
 
         future = QThreadFuture(work, callback_slot=self._on_pushed, name="git_push")

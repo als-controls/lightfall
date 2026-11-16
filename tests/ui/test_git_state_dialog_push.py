@@ -44,9 +44,13 @@ def signed_in(session):
     return session
 
 
-def make(qtbot, session, *, target=good_target, push=None, checker=None, track=True):
+HEAD = "abc123def4567890abc123def4567890abc12345"
+
+
+def make(qtbot, session, *, target=good_target, push=None, checker=None, track=True,
+         head=lambda root: HEAD):
     dlg = GitStateDialog([repo("lightfall", branch="feat/x")], checker=checker,
-                         github_session=session, push=push, target=target)
+                         github_session=session, push=push, target=target, head=head)
     if track:
         qtbot.addWidget(dlg)
     qtbot.waitUntil(lambda: dlg.table.cellWidget(0, PUSH_COL).text() != "Checking…")
@@ -98,9 +102,86 @@ def test_push_confirm_yes_runs_and_rechecks(qtbot, signed_in, monkeypatch):
     assert button(dlg).text() == "Push"
     button(dlg).click()
     qtbot.waitUntil(lambda: dlg.table.item(0, STATE_COL).text().startswith("✓"))
-    assert asked == ["Push feat/x of lightfall to github.com/als-controls/lightfall as octo?"]
-    assert pushed == [("feat/x", "octo", {})]
+    assert asked == ["Push feat/x @ abc123def456 of lightfall to "
+                     "github.com/als-controls/lightfall as octo?"]
+    assert pushed == [("feat/x", "octo", {"expected_head": HEAD})]
     assert checker.checks == [True]
+
+
+def _push_with(qtbot, signed_in, monkeypatch, *, during_confirm=None, target=good_target,
+               checker=None):
+    """Click Push; ``during_confirm()`` runs while the confirm is open."""
+    def question(*a, **k):
+        if during_confirm is not None:
+            during_confirm()
+        return QMessageBox.StandardButton.Yes
+
+    monkeypatch.setattr(QMessageBox, "question", question)
+    pushed = []
+
+    def fake_push(t, c, **kw):
+        pushed.append((t.branch, kw))
+        return PushResult(True, "pushed", t, None, "bbb")
+
+    checker = checker if checker is not None else FakeChecker()
+    dlg = make(qtbot, signed_in, push=fake_push, checker=checker, target=target)
+    button(dlg).click()
+    qtbot.waitUntil(lambda: dlg.table.item(0, STATE_COL).text()[:1] in "✓✗")
+    return dlg, pushed, checker
+
+
+def test_branch_switch_after_open_is_not_pushed(qtbot, signed_in, monkeypatch):
+    state = {"branch": "feat/x"}
+
+    def target(root):
+        return PushTarget(root=root, branch=state["branch"], remote="origin",
+                          url="https://github.com/als-controls/lightfall.git",
+                          has_upstream=True, ahead=1)
+
+    dlg, pushed, checker = _push_with(
+        qtbot, signed_in, monkeypatch, target=target,
+        during_confirm=lambda: state.update(branch="other"))
+    assert pushed == []
+    assert "changed after you approved" in dlg.table.item(0, STATE_COL).text()
+    assert checker.checks == []
+
+
+def test_sign_out_during_confirm_is_not_pushed(qtbot, signed_in, monkeypatch):
+    dlg, pushed, _ = _push_with(qtbot, signed_in, monkeypatch,
+                                during_confirm=signed_in.sign_out)
+    assert pushed == []
+    assert "sign-in changed" in dlg.table.item(0, STATE_COL).text()
+
+
+def test_gate_closing_during_confirm_is_not_pushed(qtbot, signed_in, monkeypatch):
+    checker = FakeChecker()
+    dlg, pushed, _ = _push_with(qtbot, signed_in, monkeypatch, checker=checker,
+                                during_confirm=lambda: setattr(checker, "allowed", False))
+    assert pushed == []
+    assert "system-admin" in dlg.table.item(0, STATE_COL).text()
+
+
+def test_head_read_failure_asks_nothing(qtbot, signed_in, monkeypatch):
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: asked.append(1))
+
+    def bad_head(root):
+        raise RuntimeError("no HEAD github_pat_SECRET")
+
+    dlg = make(qtbot, signed_in, push=lambda *a, **k: 1 / 0, head=bad_head)
+    button(dlg).click()
+    text = dlg.table.item(0, STATE_COL).text()
+    assert asked == [] and text.startswith("✗") and "github_pat_SECRET" not in text
+
+
+def test_rechecker_is_released_after_result(qtbot, signed_in, monkeypatch):
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    _, pushed, checker = _push_with(qtbot, signed_in, monkeypatch)
+    assert pushed and checker.checks == [True]
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert checker.findChildren(gsd._Rechecker) == []
+    assert gsd._Rechecker._keep == set()
 
 
 def test_push_failure_shows_cross(qtbot, signed_in, monkeypatch):

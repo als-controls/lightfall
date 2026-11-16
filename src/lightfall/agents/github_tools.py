@@ -4,18 +4,20 @@ The always-on ``github`` server has a read-only repo listing and a push tool. Th
 uses the user's session GitHub credential (never visible to the agent) and always asks
 the user first in the chat, offering only Allow and Deny. Anything but Allow pushes
 nothing. Handlers run on the agent worker's asyncio loop: git goes to a thread
-(``asyncio.to_thread``) and the update checker is read on the Qt thread.
+(``asyncio.to_thread``) and the update checker is read on the Qt thread (injectable as
+``read_checker`` so tests need not block on a Qt main thread that isn't running).
 """
 from __future__ import annotations
 
 import asyncio
+import functools
 import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from lightfall.agents.tooling import tool_id
-from lightfall.github.push import push_repo, push_target
+from lightfall.github.push import GATE_CLOSED, push_repo, push_target, recheck_and_push
 from lightfall.github.session import get_github_session, scrub
 from lightfall.plugins.agents._mcp_helpers import mcp_error, mcp_result
 from lightfall.updates.git import run_git
@@ -35,18 +37,17 @@ GITHUB_ALLOWED_TOOLS = [tool_id(SERVER, n) for n in TOOL_NAMES]
 ALLOW = "Allow"
 DENY = "Deny"
 
-_GATE = "Not pushed: pushing requires being logged in, online, with the system-admin permission."
+_GATE = GATE_CLOSED
 _NOT_SIGNED_IN = ("Not pushed: not signed in to GitHub — ask the user to sign in "
                   "(Preferences → GitHub or the git-state indicator) and try again.")
 
-
-_CHANGED = "Not pushed: the repository changed while you were asked; try again."
-_SIGN_IN_CHANGED = "Not pushed: GitHub sign-in changed while you were asked."
+#: Control, format (bidi) and line/paragraph separator characters, dropped from the card.
+_UNSAFE_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
 
 
 def _plain(value: object) -> str:
-    """``value`` as one line of text with control and format (bidi) characters removed."""
-    return "".join(c for c in str(value) if unicodedata.category(c) not in ("Cc", "Cf"))
+    """``value`` as one line of text with control, format and separator characters removed."""
+    return "".join(c for c in str(value) if unicodedata.category(c) not in _UNSAFE_CATEGORIES)
 
 
 def _default_checker() -> Any:
@@ -55,20 +56,25 @@ def _default_checker() -> Any:
     return get_update_checker()
 
 
-def _make_tools(*, permission_manager, agent_name, github_session, checker, target, push):
+CheckerState = tuple[bool, list[tuple[str, Path, str, bool]]]
+
+
+def checker_state(checker: Any = None) -> CheckerState:
+    """The gate and the source checkouts (name, root, branch, dirty), read directly."""
+    c = checker if checker is not None else _default_checker()
+    repos = [(r.name, Path(r.root), r.branch, bool(r.dirty)) for r in c.result.repos]
+    return bool(c.is_allowed()), repos
+
+
+def _make_tools(*, permission_manager, agent_name, github_session, read_checker, target,
+                push):
     from lightfall.agents.tooling import tool
 
     def _session() -> Any:
         return github_session if github_session is not None else get_github_session()
 
-    def _read_checker() -> tuple[bool, list[tuple[str, Path, str, bool]]]:
-        c = checker if checker is not None else _default_checker()
-        repos = [(r.name, Path(r.root), r.branch, bool(r.dirty)) for r in c.result.repos]
-        return bool(c.is_allowed()), repos
-
-    async def _checker_state() -> tuple[bool, list[tuple[str, Path, str, bool]]]:
-        # The checker's state belongs to the Qt thread; hop there as content_tools does.
-        return await asyncio.to_thread(run_on_main_thread, _read_checker)
+    async def _checker_state() -> CheckerState:
+        return await asyncio.to_thread(read_checker)
 
     async def _ask(header: str, question: str) -> str:
         """``"allow"``, ``"declined"`` or ``"no answer"`` (closed card or timeout)."""
@@ -177,29 +183,16 @@ def _make_tools(*, permission_manager, agent_name, github_session, checker, targ
                 why = "the user declined" if outcome == "declined" else "no answer"
                 return _fail(repo, found.branch, outcome, f"Not pushed: {why}.")
             # The card can stay open for minutes: re-check everything before sending.
-            allowed, _ = await _checker_state()
-            if not allowed:
-                return _fail(repo, found.branch, "gate closed", _GATE)
-            now = _session().credential()
-            if now is None or now.login != cred.login:
-                return _fail(repo, found.branch, "sign-in changed", _SIGN_IN_CHANGED)
-            again = await asyncio.to_thread(target, root)
-            if isinstance(again, str) or (again.branch, again.url, again.remote) != (
-                    found.branch, found.url, found.remote):
-                return _fail(repo, found.branch, "changed", _CHANGED)
-            try:
-                result = await asyncio.to_thread(push, again, now, expected_head=head)
-            except Exception as exc:  # noqa: BLE001
-                # No traceback: frames of the push hold the token (loguru diagnose, Sentry).
-                logger.error("github_tools: push of {!r} failed: {}: {}", repo,
-                             type(exc).__name__, scrub(str(exc), now.token))
-                return _fail(repo, found.branch, "failed", "git push failed")
+            result = await asyncio.to_thread(
+                recheck_and_push, found, head, cred.login, _session(),
+                lambda: read_checker()[0], target=target, push=push)
             if not result.ok:
-                return _fail(repo, found.branch, "failed", scrub(result.message, now.token))
+                return _fail(repo, found.branch, "not pushed",
+                             scrub(result.message, cred.token))
             logger.info("github_tools: push of {!r} ({}) by agent {}: pushed",
                         repo, found.branch, agent_name())
             return mcp_result({
-                "ok": True, "message": scrub(result.message, now.token),
+                "ok": True, "message": scrub(result.message, cred.token),
                 "branch": found.branch, "url": found.url,
                 "old_head": result.old_head, "new_head": result.new_head,
             })
@@ -217,18 +210,25 @@ def create_github_tools_server(
     agent_name: Callable[[], str],
     github_session: Any = None,
     checker: Any = None,
+    read_checker: Callable[[], CheckerState] | None = None,
     target: Callable[..., Any] = push_target,
     push: Callable[..., Any] = push_repo,
 ):
     """The always-on ``github`` ToolServer for a session.
 
     Without a ``permission_manager`` every push is refused unasked. ``github_session`` and
-    ``checker`` default to the process-wide ones.
+    ``checker`` default to the process-wide ones. ``read_checker`` returns
+    :func:`checker_state`; by default it is read on the Qt main thread, which handlers
+    reach from worker threads (so it must not be called while the main thread waits).
     """
     from lightfall.agents.tooling import ToolServer, as_tool_spec
 
+    if read_checker is None:
+        # The checker's state belongs to the Qt thread; hop there as content_tools does.
+        read_checker = functools.partial(run_on_main_thread, checker_state, checker)
+
     tools = _make_tools(permission_manager=permission_manager, agent_name=agent_name,
-                        github_session=github_session, checker=checker,
+                        github_session=github_session, read_checker=read_checker,
                         target=target, push=push)
     return ToolServer(name=SERVER, version="1.0.0", tools=tuple(as_tool_spec(t) for t in tools))
 

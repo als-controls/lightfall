@@ -10,10 +10,12 @@ from lightfall.github import push as push_mod
 from lightfall.github.push import (
     HELPER,
     TOKEN_ENV,
+    PushResult,
     PushTarget,
     github_https_url,
     push_repo,
     push_target,
+    recheck_and_push,
 )
 from lightfall.github.session import GitHubCredential
 from lightfall.updates.git import GitError, git_env
@@ -109,6 +111,8 @@ def fake_git(calls, push_error=None):
             raise _git_error("", 1)
         if "ls-remote" in args:
             return GH_URL
+        if "symbolic-ref" in args:
+            return "feat"
         if "rev-parse" in args and "HEAD" in args:
             return "a" * 40
         if "rev-parse" in args:
@@ -217,3 +221,123 @@ def test_unexpected_exception_becomes_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(push_mod, "run_git", boom)
     result = push_repo(_target(tmp_path), make_cred())
     assert not result.ok and result.message == "git push failed"
+
+
+def test_branch_switch_refused_without_expected_head(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(push_mod, "run_git", _fake_with_branch(calls, branch="other"))
+    result = push_repo(_target(tmp_path), make_cred())
+    assert not result.ok and "changed after you approved" in result.message
+    assert not any("push" in c[0] for c in calls)
+
+
+def test_detached_head_refused_without_expected_head(monkeypatch, tmp_path):
+    calls = []
+    base = fake_git(calls)
+
+    def fake(root, *args, **kw):
+        if "symbolic-ref" in args:
+            raise _git_error("", 1)
+        return base(root, *args, **kw)
+
+    monkeypatch.setattr(push_mod, "run_git", fake)
+    result = push_repo(_target(tmp_path), make_cred())
+    assert not result.ok
+    assert not any("push" in c[0] for c in calls)
+
+
+def test_push_env_strips_tracing_and_tls(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(push_mod, "run_git", fake_git(calls))
+    assert push_repo(_target(tmp_path), make_cred()).ok
+    env = next(c for c in calls if "push" in c[0])[1]["env"]
+    for key in ("GIT_TRACE", "GIT_TRACE_CURL", "GIT_TRACE_PACKET", "GIT_CURL_VERBOSE",
+                "GIT_TRACE_REDACT", "GIT_SSL_NO_VERIFY", "GIT_SSL_CAINFO"):
+        assert key in env and env[key] is None
+
+
+def test_token_dropped_from_locals_after_push(monkeypatch, tmp_path):
+    import sys
+
+    seen = []
+    real = push_mod._remote_heads
+
+    def spy(*args):
+        seen.append(dict(sys._getframe(1).f_locals))
+        return real(*args)
+
+    monkeypatch.setattr(push_mod, "run_git", fake_git([]))
+    monkeypatch.setattr(push_mod, "_remote_heads", spy)
+    assert push_repo(_target(tmp_path), make_cred()).ok
+    assert "env" not in seen[0]
+    assert all(TOKEN not in repr(v) for v in seen[0].values())
+
+
+# --- recheck_and_push ------------------------------------------------------------
+
+
+class _Session:
+    def __init__(self, cred):
+        self.cred = cred
+
+    def credential(self):
+        return self.cred
+
+
+def _recheck(tmp_path, *, gate=True, cred=None, target=None, push=None):
+    approved = _target(tmp_path)
+    calls = []
+
+    def fake_push(t, c, **kw):
+        calls.append((t, c, kw))
+        return PushResult(True, "pushed", t, None, "a" * 40)
+
+    result = recheck_and_push(
+        approved, "a" * 40, "octo", _Session(make_cred() if cred is None else cred),
+        lambda: gate, target=target or (lambda root: approved), push=push or fake_push)
+    return result, calls
+
+
+def test_recheck_pushes_approved_head(tmp_path):
+    result, calls = _recheck(tmp_path)
+    assert result.ok
+    assert len(calls) == 1 and calls[0][2] == {"expected_head": "a" * 40}
+
+
+def test_recheck_gate_closed(tmp_path):
+    result, calls = _recheck(tmp_path, gate=False)
+    assert not result.ok and "system-admin" in result.message and calls == []
+
+
+def test_recheck_signed_out_or_other_login(tmp_path):
+    other = GitHubCredential(token="github_pat_OTHER", kind="pat", login="eve",
+                             expires_at=None, lightfall_user="u")
+    for cred in (other,):
+        result, calls = _recheck(tmp_path, cred=cred)
+        assert not result.ok and "sign-in changed" in result.message and calls == []
+    approved = _target(tmp_path)
+    result = recheck_and_push(approved, "a" * 40, "octo", _Session(None), lambda: True,
+                              target=lambda r: approved, push=lambda *a, **k: 1 / 0)
+    assert not result.ok and "sign-in changed" in result.message
+
+
+def test_recheck_target_changed(tmp_path):
+    moved = PushTarget(tmp_path, "other", "origin", GH_URL, True, 1)
+    for found in (moved, "detached HEAD",
+                  PushTarget(tmp_path, "feat", "origin", "https://github.com/x/y.git",
+                             False, 1)):
+        result, calls = _recheck(tmp_path, target=lambda root, f=found: f)
+        assert not result.ok and "changed after you approved" in result.message
+        assert calls == []
+
+
+def test_recheck_errors_are_scrubbed(tmp_path):
+    def boom_target(root):
+        raise RuntimeError(f"inspect {TOKEN}")
+
+    def boom_push(t, c, **kw):
+        raise RuntimeError(f"push {TOKEN}")
+
+    for kw in ({"target": boom_target}, {"push": boom_push}):
+        result, _ = _recheck(tmp_path, **kw)
+        assert not result.ok and TOKEN not in result.message and "***" in result.message

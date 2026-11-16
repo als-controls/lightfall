@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import re
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from lightfall.github.session import GitHubCredential, scrub
 from lightfall.updates.git import STALL_LIMITS, GitError, run_git
@@ -29,6 +31,9 @@ HELPER = (
 #: Environment variables that could weaken TLS for the push; removed from its env.
 _TLS_ENV = ("GIT_SSL_NO_VERIFY", "GIT_SSL_CAINFO", "GIT_SSL_CAPATH", "GIT_SSL_CERT",
             "GIT_SSL_KEY")
+#: Tracing variables that could write the credential exchange to stderr or a file.
+_TRACE_ENV = ("GIT_TRACE", "GIT_TRACE_CURL", "GIT_TRACE_PACKET", "GIT_CURL_VERBOSE",
+              "GIT_TRACE_REDACT")
 
 _GITHUB_URL = re.compile(
     r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
@@ -40,6 +45,10 @@ _DENIED = (
     "account lacks write access. Try signing in with a fine-grained token instead."
 )
 _REJECTED = "The remote branch has commits you don't have; pull first."
+_CHANGED = "Not pushed: the repository changed after you approved; try again."
+GATE_CLOSED = ("Not pushed: pushing requires being logged in, online, with the "
+               "system-admin permission.")
+SIGN_IN_CHANGED = "Not pushed: GitHub sign-in changed after you approved."
 
 
 def github_https_url(url: str) -> str | None:
@@ -215,8 +224,9 @@ def push_repo(
 ) -> PushResult:
     """Push ``HEAD`` to ``refs/heads/<branch>`` on the remote; never forced.
 
-    With ``expected_head``, the push is refused unless the checkout is still on
-    ``target.branch`` at exactly that commit, and that commit is what is pushed.
+    The push is refused unless the checkout is still on ``target.branch``. With
+    ``expected_head``, it must also be at exactly that commit, and that commit is
+    what is pushed.
     """
     root, branch = target.root, target.branch
     try:
@@ -228,35 +238,35 @@ def push_repo(
                 "remove it and try again.",
                 target, None, None)
         head = run_git(root, "rev-parse", "HEAD")
-        if expected_head is not None:
-            try:
-                current = run_git(root, "symbolic-ref", "--short", "-q", "HEAD")
-            except GitError:
-                current = None
-            if head != expected_head or current != branch:
-                return PushResult(
-                    False,
-                    "Not pushed: the repository changed after you approved; try again.",
-                    target, None, None)
+        try:
+            current = run_git(root, "symbolic-ref", "--short", "-q", "HEAD")
+        except GitError:
+            current = None
+        if current != branch or (expected_head is not None and head != expected_head):
+            return PushResult(False, _CHANGED, target, None, None)
         pushed = expected_head or "HEAD"
         try:
             before = run_git(root, "rev-parse", "--verify", "-q",
                              f"refs/remotes/{target.remote}/{branch}")
         except GitError:
             before = None
-        env: dict[str, str | None] = dict.fromkeys(_TLS_ENV)
+        env: dict[str, str | None] = dict.fromkeys(_TLS_ENV + _TRACE_ENV)
         env[TOKEN_ENV] = cred.token
-        with tempfile.TemporaryDirectory(prefix="lf-nohooks-") as no_hooks:
-            out = run_git(
-                root, *STALL_LIMITS, "-c", "credential.helper=", "-c", HELPER,
-                "-c", f"core.hooksPath={no_hooks}",
-                "-c", "http.sslVerify=true", "-c", "http.https://github.com/.sslVerify=true",
-                "-c", "push.recurseSubmodules=no",
-                "push", "--porcelain", "--no-verify", "--recurse-submodules=no",
-                url or target.url,
-                f"{pushed}:refs/heads/{branch}",
-                env=env, timeout=120,
-            )
+        try:
+            with tempfile.TemporaryDirectory(prefix="lf-nohooks-") as no_hooks:
+                out = run_git(
+                    root, *STALL_LIMITS, "-c", "credential.helper=", "-c", HELPER,
+                    "-c", f"core.hooksPath={no_hooks}",
+                    "-c", "http.sslVerify=true",
+                    "-c", "http.https://github.com/.sslVerify=true",
+                    "-c", "push.recurseSubmodules=no",
+                    "push", "--porcelain", "--no-verify", "--recurse-submodules=no",
+                    url or target.url,
+                    f"{pushed}:refs/heads/{branch}",
+                    env=env, timeout=120,
+                )
+        finally:
+            del env  # the token leaves this frame's locals before anything else runs
     except GitError as e:
         return PushResult(False, scrub(_describe_failure(e, target), cred.token),
                           target, None, None)
@@ -272,3 +282,41 @@ def push_repo(
     except GitError as e:
         message += f" (pushed, but could not update local tracking: {e.stderr or e})"
     return PushResult(True, scrub(message, cred.token), target, old, new)
+
+
+def recheck_and_push(
+    approved: PushTarget,
+    approved_head: str,
+    approved_login: str,
+    session: Any,
+    gate: Callable[[], bool],
+    *,
+    target: Callable[[Path], PushTarget | str] = push_target,
+    push: Callable[..., PushResult] = push_repo,
+) -> PushResult:
+    """Push what the user approved, after re-checking that it is still what they saw.
+
+    The approval (a confirm dialog, an agent's Allow card) can stay open for a while.
+    Afterwards the gate and the credential (same GitHub login) are read again, the
+    target is re-derived and must match the approved branch, remote and URL, and the
+    push is pinned to ``approved_head``. Never raises; failures come back scrubbed.
+    """
+    if not gate():
+        return PushResult(False, GATE_CLOSED, approved, None, None)
+    cred = session.credential()
+    if cred is None or cred.login != approved_login:
+        return PushResult(False, SIGN_IN_CHANGED, approved, None, None)
+    try:
+        again = target(approved.root)
+    except Exception as exc:  # noqa: BLE001 - reported, never raised
+        return PushResult(False, scrub(f"Not pushed: could not inspect repo: {exc}",
+                                       cred.token), approved, None, None)
+    if isinstance(again, str) or (again.branch, again.url, again.remote) != (
+            approved.branch, approved.url, approved.remote):
+        return PushResult(False, _CHANGED, approved, None, None)
+    try:
+        # Never pass url=: that override skips the redirect/TLS safety checks.
+        return push(again, cred, expected_head=approved_head)
+    except Exception as exc:  # noqa: BLE001 - no traceback: push frames hold the token
+        return PushResult(False, scrub(f"git push failed: {type(exc).__name__}: {exc}",
+                                       cred.token), again, None, None)

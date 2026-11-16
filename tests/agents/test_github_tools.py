@@ -94,10 +94,13 @@ def fake_target(root):
 
 
 def _tools(pm=None, *, session=None, checker=None, target=fake_target, push=None):
+    # Read the checker directly: asyncio.run blocks the main thread, so the default
+    # main-thread hop would wait forever whenever a QApplication exists.
+    checker = checker if checker is not None else FakeChecker()
     server = github_tools.create_github_tools_server(
         permission_manager=pm, agent_name=lambda: "planner",
         github_session=session if session is not None else FakeSession(),
-        checker=checker if checker is not None else FakeChecker(),
+        read_checker=lambda: github_tools.checker_state(checker),
         target=target, push=push or Pushes())
     return {t.name: t for t in server.tools}
 
@@ -159,7 +162,7 @@ def _changed_while_asking(mine, change, *, session=None, checker=None):
 def test_branch_switch_while_asking_refuses(mine):
     err, text, push = _changed_while_asking(
         mine, lambda s, c: _git(mine, "checkout", "-b", "other"))
-    assert err and "changed while you were asked" in text
+    assert err and "changed after you approved" in text
     assert push.calls == []
 
 
@@ -220,6 +223,44 @@ def test_question_strips_control_and_bidi_characters(mine):
     _call(_tools(pm, session=session, checker=FakeChecker([repo_state(mine)]))
           ["lightfall_git_push"], {"repo": "mine"})
     assert pm.questions[0]["question"].splitlines()[-1] == "GitHub account: ronx"
+
+
+def test_question_strips_line_and_paragraph_separators(mine):
+    session = FakeSession()
+    session.cred = GitHubCredential(token=TOKEN, kind="app", login="ro n x​",
+                                    expires_at=None, lightfall_user="ron")
+    pm = _FakePermissionManager(github_tools.DENY)
+    _call(_tools(pm, session=session, checker=FakeChecker([repo_state(mine)]))
+          ["lightfall_git_push"], {"repo": "mine"})
+    question = pm.questions[0]["question"]
+    assert question.splitlines()[-1] == "GitHub account: ronx"
+    assert len(question.splitlines()) == 4
+    assert github_tools._plain("a b cd‮e") == "abcde"
+
+
+def test_default_checker_read_goes_through_main_thread(monkeypatch):
+    hops = []
+
+    def direct(func, *args):
+        hops.append(func)
+        return func(*args)
+
+    monkeypatch.setattr(github_tools, "run_on_main_thread", direct)
+    server = github_tools.create_github_tools_server(
+        permission_manager=None, agent_name=lambda: "planner", github_session=FakeSession(),
+        checker=FakeChecker(allowed=False))
+    tools = {t.name: t for t in server.tools}
+    err, text = _call(tools["lightfall_list_git_repos"], {})
+    assert err and "system-admin permission" in text
+    assert hops == [github_tools.checker_state]
+
+
+def test_runs_with_a_qapplication(qapp, mine):
+    """Handlers must not block on the Qt main thread that asyncio.run is occupying."""
+    pm, push = _FakePermissionManager(github_tools.ALLOW), Pushes()
+    err, _ = _call(_tools(pm, checker=FakeChecker([repo_state(mine)]), push=push)
+                   ["lightfall_git_push"], {"repo": "mine"})
+    assert not err and len(push.calls) == 1
 
 
 def test_push_exception_leaves_no_token_in_logs(mine):
