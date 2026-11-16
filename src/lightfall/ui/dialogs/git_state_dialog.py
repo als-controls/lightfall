@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import QObject, Qt, QUrl, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QDialogButtonBox,
@@ -48,6 +48,27 @@ def _owner_repo(url: str) -> str:
     return f"github.com/{owner}/{name}"
 
 
+class _Rechecker(QObject):
+    """Re-runs the checker after a successful push, whether or not the dialog is still open.
+
+    Lives on the (long-lived) checker, so the queued result is delivered even
+    when the dialog that started the push has been closed and deleted.
+    """
+
+    _keep: set[_Rechecker] = set()
+
+    def __init__(self, checker: Any) -> None:
+        super().__init__(checker if isinstance(checker, QObject) else None)
+        self._checker = checker
+        if self.parent() is None:
+            _Rechecker._keep.add(self)
+
+    @Slot(object)
+    def on_result(self, payload: tuple[int, PushResult]) -> None:
+        if payload[1].ok:
+            self._checker.check_now(fetch=True)
+
+
 class GitStateDialog(LFDialog):
     """Shows each noteworthy repo's branch and state, and can push its current branch."""
 
@@ -73,11 +94,11 @@ class GitStateDialog(LFDialog):
         self._targets: list[PushTarget | str] | None = None
         self._futures: list[QThreadFuture] = []
         layout = QVBoxLayout(self)
-        self.table = QTableWidget(len(repos), len(COLUMNS))
+        self.table = QTableWidget(len(self._repos), len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        for row, repo in enumerate(repos):
+        for row, repo in enumerate(self._repos):
             values = [repo.name, repo.branch or "detached HEAD", describe_state(repo),
                       str(repo.root)]
             for col, value in enumerate(values):
@@ -103,8 +124,16 @@ class GitStateDialog(LFDialog):
         roots = [r.root for r in self._repos]
         target = self._target
 
+        held = self._session._held_token
+
+        def inspect(root: Path) -> PushTarget | str:
+            try:
+                return target(root)
+            except Exception as exc:  # noqa: BLE001 - becomes the button's tooltip
+                return f"Could not inspect repo: {scrub(str(exc), held())}"
+
         def work() -> list[PushTarget | str]:
-            return [target(root) for root in roots]
+            return [inspect(root) for root in roots]
 
         future = QThreadFuture(work, callback_slot=self._on_targets,
                                except_slot=self._on_targets_error, name="git_push_targets")
@@ -182,11 +211,15 @@ class GitStateDialog(LFDialog):
 
         def work() -> tuple[int, PushResult]:
             # Never pass url=: that override skips the redirect/TLS safety checks.
-            return row, push(target, cred)
+            try:
+                return row, push(target, cred)
+            except Exception as exc:  # noqa: BLE001 - reported in the row, never raised
+                message = scrub(f"push failed: {exc}", cred.token)
+                return row, PushResult(False, message, target, None, None)
 
-        future = QThreadFuture(work, callback_slot=self._on_pushed,
-                               except_slot=lambda exc, r=row: self._on_push_error(r, exc),
-                               name="git_push")
+        future = QThreadFuture(work, callback_slot=self._on_pushed, name="git_push")
+        if self._checker is not None:
+            future.sigResult.connect(_Rechecker(self._checker).on_result)
         self._futures.append(future)
         future.start()
 
@@ -203,9 +236,3 @@ class GitStateDialog(LFDialog):
     def _on_pushed(self, payload: tuple[int, PushResult]) -> None:
         row, result = payload
         self._finish_row(row, result.ok, result.message)
-        if result.ok and self._checker is not None:
-            self._checker.check_now(fetch=True)
-
-    @gui_thread_only
-    def _on_push_error(self, row: int, exc: Exception) -> None:
-        self._finish_row(row, False, f"push failed: {exc}")

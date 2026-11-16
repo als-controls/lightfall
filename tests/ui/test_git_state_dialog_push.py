@@ -44,10 +44,11 @@ def signed_in(session):
     return session
 
 
-def make(qtbot, session, *, target=good_target, push=None, checker=None):
+def make(qtbot, session, *, target=good_target, push=None, checker=None, track=True):
     dlg = GitStateDialog([repo("lightfall", branch="feat/x")], checker=checker,
                          github_session=session, push=push, target=target)
-    qtbot.addWidget(dlg)
+    if track:
+        qtbot.addWidget(dlg)
     qtbot.waitUntil(lambda: dlg.table.cellWidget(0, PUSH_COL).text() != "Checking…")
     return dlg
 
@@ -137,3 +138,76 @@ def test_dialog_rebuilds_on_credential_change(qtbot, signed_in):
 def test_disabled_when_checker_not_allowed(qtbot, signed_in):
     dlg = make(qtbot, signed_in, checker=FakeChecker(allowed=False))
     assert not button(dlg).isEnabled()
+
+
+def _close_and_release(qtbot, dlg, gate):
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from shiboken6 import isValid
+
+    dlg.close()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert not isValid(dlg)
+    gate.set()
+
+
+def test_close_mid_push_success_still_rechecks(qtbot, signed_in, monkeypatch):
+    import threading
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    gate = threading.Event()
+
+    def slow_push(target, cred, **kw):
+        gate.wait(5)
+        return PushResult(True, "pushed", target, None, "bbb")
+
+    checker = FakeChecker()
+    dlg = make(qtbot, signed_in, push=slow_push, checker=checker, track=False)
+    button(dlg).click()
+    _close_and_release(qtbot, dlg, gate)
+    qtbot.waitUntil(lambda: checker.checks == [True])
+
+
+def test_close_mid_push_failure_is_quiet(qtbot, signed_in, monkeypatch):
+    import threading
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    gate = threading.Event()
+
+    def boom(target, cred, **kw):
+        gate.wait(5)
+        raise RuntimeError("boom github_pat_SECRET")
+
+    checker = FakeChecker()
+    dlg = make(qtbot, signed_in, push=boom, checker=checker, track=False)
+    button(dlg).click()
+    _close_and_release(qtbot, dlg, gate)
+    qtbot.wait(300)
+    assert checker.checks == []
+
+
+def test_push_exception_shows_scrubbed_message(qtbot, signed_in, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+
+    def boom(target, cred, **kw):
+        raise RuntimeError("bad github_pat_SECRET")
+
+    dlg = make(qtbot, signed_in, push=boom)
+    button(dlg).click()
+    qtbot.waitUntil(lambda: dlg.table.item(0, STATE_COL).text().startswith("✗"))
+    text = dlg.table.item(0, STATE_COL).text()
+    assert "github_pat_SECRET" not in text
+    assert "***" in text
+
+
+def test_target_error_shows_scrubbed_reason(qtbot, signed_in):
+    def boom(root):
+        raise RuntimeError("git exploded github_pat_SECRET")
+
+    dlg = make(qtbot, signed_in, target=boom)
+    assert not button(dlg).isEnabled()
+    tip = button(dlg).toolTip()
+    assert "git exploded" in tip
+    assert "github_pat_SECRET" not in tip
