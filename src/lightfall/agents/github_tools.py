@@ -9,6 +9,7 @@ nothing. Handlers run on the agent worker's asyncio loop: git goes to a thread
 from __future__ import annotations
 
 import asyncio
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,15 @@ DENY = "Deny"
 _GATE = "Not pushed: pushing requires being logged in, online, with the system-admin permission."
 _NOT_SIGNED_IN = ("Not pushed: not signed in to GitHub — ask the user to sign in "
                   "(Preferences → GitHub or the git-state indicator) and try again.")
+
+
+_CHANGED = "Not pushed: the repository changed while you were asked; try again."
+_SIGN_IN_CHANGED = "Not pushed: GitHub sign-in changed while you were asked."
+
+
+def _plain(value: object) -> str:
+    """``value`` as one line of text with control and format (bidi) characters removed."""
+    return "".join(c for c in str(value) if unicodedata.category(c) not in ("Cc", "Cf"))
 
 
 def _default_checker() -> Any:
@@ -93,7 +103,9 @@ def _make_tools(*, permission_manager, agent_name, github_session, checker, targ
     )
     async def list_git_repos(args: dict) -> dict[str, Any]:
         try:
-            _, repos = await _checker_state()
+            allowed, repos = await _checker_state()
+            if not allowed:
+                return _fail("(list)", "", "gate closed", _GATE)
             rows = []
             for name, root, branch, dirty in repos:
                 found = await asyncio.to_thread(target, root)
@@ -109,7 +121,7 @@ def _make_tools(*, permission_manager, agent_name, github_session, checker, targ
                 "github": scrub(cred.masked, cred.token) if cred else "not signed in",
             })
         except Exception as exc:  # noqa: BLE001
-            logger.exception("github_tools.list_git_repos failed")
+            logger.error("github_tools.list_git_repos failed: {}", scrub(str(exc)))
             return mcp_error(scrub(f"lightfall_list_git_repos error: {exc}"))
 
     async def _resolve(repo: str, repos) -> Path | None:
@@ -137,11 +149,13 @@ def _make_tools(*, permission_manager, agent_name, github_session, checker, targ
     )
     async def git_push(args: dict) -> dict[str, Any]:
         repo = str(args.get("repo") or "").strip()
+        if not repo:
+            return _fail(repo, "", "no repo", "Not pushed: a repo name or path is required.")
         try:
             allowed, repos = await _checker_state()
             if not allowed:
                 return _fail(repo, "", "gate closed", _GATE)
-            root = await _resolve(repo, repos) if repo else None
+            root = await _resolve(repo, repos)
             if root is None:
                 return _fail(repo, "", "not a repo",
                              f"Not pushed: {repo} is not a git repository.")
@@ -151,24 +165,47 @@ def _make_tools(*, permission_manager, agent_name, github_session, checker, targ
             cred = _session().credential()
             if cred is None:
                 return _fail(repo, found.branch, "not signed in", _NOT_SIGNED_IN)
-            outcome = await _ask(
-                "GitHub push",
-                f"Push {found.branch} of {found.root} to {found.url} as {cred.login}?")
+            head = await asyncio.to_thread(run_git, root, "rev-parse", "HEAD")
+            question = (
+                f"To: {_plain(found.url)}\n"
+                f"Branch: {_plain(found.branch)} @ {_plain(head[:12])}\n"
+                f"Folder: {_plain(found.root)}\n"
+                f"GitHub account: {_plain(cred.login)}"
+            )
+            outcome = await _ask("GitHub push", question)
             if outcome != "allow":
                 why = "the user declined" if outcome == "declined" else "no answer"
                 return _fail(repo, found.branch, outcome, f"Not pushed: {why}.")
-            result = await asyncio.to_thread(push, found, cred)
+            # The card can stay open for minutes: re-check everything before sending.
+            allowed, _ = await _checker_state()
+            if not allowed:
+                return _fail(repo, found.branch, "gate closed", _GATE)
+            now = _session().credential()
+            if now is None or now.login != cred.login:
+                return _fail(repo, found.branch, "sign-in changed", _SIGN_IN_CHANGED)
+            again = await asyncio.to_thread(target, root)
+            if isinstance(again, str) or (again.branch, again.url, again.remote) != (
+                    found.branch, found.url, found.remote):
+                return _fail(repo, found.branch, "changed", _CHANGED)
+            try:
+                result = await asyncio.to_thread(push, again, now, expected_head=head)
+            except Exception as exc:  # noqa: BLE001
+                # No traceback: frames of the push hold the token (loguru diagnose, Sentry).
+                logger.error("github_tools: push of {!r} failed: {}: {}", repo,
+                             type(exc).__name__, scrub(str(exc), now.token))
+                return _fail(repo, found.branch, "failed", "git push failed")
             if not result.ok:
-                return _fail(repo, found.branch, "failed", scrub(result.message, cred.token))
+                return _fail(repo, found.branch, "failed", scrub(result.message, now.token))
             logger.info("github_tools: push of {!r} ({}) by agent {}: pushed",
                         repo, found.branch, agent_name())
             return mcp_result({
-                "ok": True, "message": scrub(result.message, cred.token),
+                "ok": True, "message": scrub(result.message, now.token),
                 "branch": found.branch, "url": found.url,
                 "old_head": result.old_head, "new_head": result.new_head,
             })
         except Exception as exc:  # noqa: BLE001
-            logger.exception("github_tools.git_push failed")
+            logger.error("github_tools.git_push failed: {}: {}", type(exc).__name__,
+                         scrub(str(exc)))
             return mcp_error(scrub(f"lightfall_git_push error: {exc}"))
 
     return [list_git_repos, git_push]

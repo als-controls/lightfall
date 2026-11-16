@@ -169,3 +169,51 @@ def test_helper_supplies_token_from_env():
 def test_github_url_rejects_dot_segments():
     assert github_https_url("https://github.com/./r") is None
     assert github_https_url("https://github.com/o/..") is None
+
+
+def _fake_with_branch(calls, branch="feat"):
+    base = fake_git(calls)
+
+    def fake(root, *args, **kw):
+        if "symbolic-ref" in args:
+            calls.append((args, kw))
+            return branch
+        return base(root, *args, **kw)
+
+    return fake
+
+
+def test_expected_head_pushes_that_sha(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(push_mod, "run_git", _fake_with_branch(calls))
+    result = push_repo(_target(tmp_path), make_cred(), expected_head="a" * 40)
+    assert result.ok, result.message
+    argv = next(c for c in calls if "push" in c[0])[0]
+    assert f"{'a' * 40}:refs/heads/feat" in argv and "HEAD:refs/heads/feat" not in argv
+
+
+def test_expected_head_mismatch_refused_without_push(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(push_mod, "run_git", _fake_with_branch(calls))
+    result = push_repo(_target(tmp_path), make_cred(), expected_head="b" * 40)
+    assert not result.ok and "changed after you approved" in result.message
+    assert not any("push" in c[0] for c in calls)
+
+
+def test_expected_head_branch_switch_refused(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(push_mod, "run_git", _fake_with_branch(calls, branch="other"))
+    result = push_repo(_target(tmp_path), make_cred(), expected_head="a" * 40)
+    assert not result.ok and "changed after you approved" in result.message
+    assert not any("push" in c[0] for c in calls)
+
+
+def test_unexpected_exception_becomes_failure(monkeypatch, tmp_path):
+    def boom(root, *args, **kw):
+        if "push" in args:
+            raise RuntimeError(f"boom {TOKEN}")
+        return fake_git([])(root, *args, **kw)
+
+    monkeypatch.setattr(push_mod, "run_git", boom)
+    result = push_repo(_target(tmp_path), make_cred())
+    assert not result.ok and result.message == "git push failed"

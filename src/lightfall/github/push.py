@@ -207,9 +207,17 @@ def _remote_heads(root: Path, target: PushTarget, porcelain: str, before: str | 
 
 
 def push_repo(
-    target: PushTarget, cred: GitHubCredential, *, url: str | None = None
+    target: PushTarget,
+    cred: GitHubCredential,
+    *,
+    url: str | None = None,
+    expected_head: str | None = None,
 ) -> PushResult:
-    """Push ``HEAD`` to ``refs/heads/<branch>`` on the remote; never forced."""
+    """Push ``HEAD`` to ``refs/heads/<branch>`` on the remote; never forced.
+
+    With ``expected_head``, the push is refused unless the checkout is still on
+    ``target.branch`` at exactly that commit, and that commit is what is pushed.
+    """
     root, branch = target.root, target.branch
     try:
         key = _unsafe_config(root, target)
@@ -220,6 +228,17 @@ def push_repo(
                 "remove it and try again.",
                 target, None, None)
         head = run_git(root, "rev-parse", "HEAD")
+        if expected_head is not None:
+            try:
+                current = run_git(root, "symbolic-ref", "--short", "-q", "HEAD")
+            except GitError:
+                current = None
+            if head != expected_head or current != branch:
+                return PushResult(
+                    False,
+                    "Not pushed: the repository changed after you approved; try again.",
+                    target, None, None)
+        pushed = expected_head or "HEAD"
         try:
             before = run_git(root, "rev-parse", "--verify", "-q",
                              f"refs/remotes/{target.remote}/{branch}")
@@ -235,19 +254,21 @@ def push_repo(
                 "-c", "push.recurseSubmodules=no",
                 "push", "--porcelain", "--no-verify", "--recurse-submodules=no",
                 url or target.url,
-                f"HEAD:refs/heads/{branch}",
+                f"{pushed}:refs/heads/{branch}",
                 env=env, timeout=120,
             )
     except GitError as e:
         return PushResult(False, scrub(_describe_failure(e, target), cred.token),
                           target, None, None)
+    except Exception:  # noqa: BLE001 - frames here hold the token; never re-raise
+        return PushResult(False, "git push failed", target, None, None)
     old, new = _remote_heads(root, target, out, before, head)
     message = f"Pushed {branch} to {target.url}"
     try:
         if not target.has_upstream:
             run_git(root, "config", f"branch.{branch}.remote", target.remote)
             run_git(root, "config", f"branch.{branch}.merge", f"refs/heads/{branch}")
-        run_git(root, "update-ref", f"refs/remotes/{target.remote}/{branch}", "HEAD")
+        run_git(root, "update-ref", f"refs/remotes/{target.remote}/{branch}", head)
     except GitError as e:
         message += f" (pushed, but could not update local tracking: {e.stderr or e})"
     return PushResult(True, scrub(message, cred.token), target, old, new)

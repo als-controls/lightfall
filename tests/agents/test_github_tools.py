@@ -22,12 +22,15 @@ URL = "https://github.com/o/r.git"
 
 
 class _FakePermissionManager:
-    def __init__(self, choice: str | None):
+    def __init__(self, choice: str | None, on_ask=None):
         self.choice = choice
+        self.on_ask = on_ask
         self.questions: list[dict] = []
 
     async def request_question(self, questions):
         self.questions.extend(questions)
+        if self.on_ask is not None:
+            self.on_ask()
         if self.choice is None:
             return (False, {})
         return (True, {questions[0]["question"]: self.choice})
@@ -131,9 +134,111 @@ def test_allow_pushes(mine):
     assert len(push.calls) == 1 and push.calls[0][0].root == mine
     assert "url" not in push.calls[0][2]
     q = pm.questions[0]
-    assert q["header"] == "GitHub push" and "as ron" in q["question"]
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=mine, capture_output=True,
+                          text=True, check=True).stdout.strip()
+    assert push.calls[0][2] == {"expected_head": head}
+    assert q["header"] == "GitHub push"
+    assert q["question"].splitlines() == [
+        f"To: {URL}", f"Branch: master @ {head[:12]}", f"Folder: {mine}",
+        "GitHub account: ron"]
     assert [o["label"] for o in q["options"]] == ["Allow", "Deny"]
     assert q["options"][0]["description"] == "Push now, this once."
+
+
+def _changed_while_asking(mine, change, *, session=None, checker=None):
+    """Run the push with ``change()`` happening while the question is open."""
+    session = session or FakeSession()
+    checker = checker or FakeChecker([repo_state(mine)])
+    push = Pushes()
+    pm = _FakePermissionManager(github_tools.ALLOW, on_ask=lambda: change(session, checker))
+    tools = _tools(pm, session=session, checker=checker, target=push_target, push=push)
+    err, text = _call(tools["lightfall_git_push"], {"repo": "mine"})
+    return err, text, push
+
+
+def test_branch_switch_while_asking_refuses(mine):
+    err, text, push = _changed_while_asking(
+        mine, lambda s, c: _git(mine, "checkout", "-b", "other"))
+    assert err and "changed while you were asked" in text
+    assert push.calls == []
+
+
+def test_new_commit_while_asking_is_not_pushed(mine):
+    before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=mine, capture_output=True,
+                            text=True, check=True).stdout.strip()
+
+    def commit(s, c):
+        (mine / "g.txt").write_text("y", encoding="utf-8")
+        _git(mine, "add", "g.txt")
+        _git(mine, "commit", "-m", "later")
+
+    _, _, push = _changed_while_asking(mine, commit)
+    assert [c[2]["expected_head"] for c in push.calls] == [before]
+
+
+def test_sign_out_while_asking_refuses(mine):
+    err, text, push = _changed_while_asking(
+        mine, lambda s, c: setattr(s, "cred", None))
+    assert err and "sign-in changed" in text
+    assert push.calls == []
+
+
+def test_other_account_while_asking_refuses(mine):
+    def other(s, c):
+        s.cred = GitHubCredential(token="ghu_other", kind="app", login="eve",
+                                  expires_at=None, lightfall_user="ron")
+
+    err, text, push = _changed_while_asking(mine, other)
+    assert err and "sign-in changed" in text
+    assert push.calls == []
+
+
+def test_gate_closing_while_asking_refuses(mine):
+    err, text, push = _changed_while_asking(
+        mine, lambda s, c: setattr(c, "allowed", False))
+    assert err and "system-admin permission" in text
+    assert push.calls == []
+
+
+def test_empty_repo_is_refused():
+    err, text = _call(_tools(_FakePermissionManager(github_tools.ALLOW))["lightfall_git_push"],
+                      {"repo": "  "})
+    assert err and text == "Not pushed: a repo name or path is required."
+
+
+def test_listing_is_gated(mine):
+    err, text = _call(_tools(checker=FakeChecker([repo_state(mine)], allowed=False))
+                      ["lightfall_list_git_repos"], {})
+    assert err and "system-admin permission" in text
+
+
+def test_question_strips_control_and_bidi_characters(mine):
+    session = FakeSession()
+    session.cred = GitHubCredential(token=TOKEN, kind="app", login="ro\u202en\nx",
+                                    expires_at=None, lightfall_user="ron")
+    pm = _FakePermissionManager(github_tools.DENY)
+    _call(_tools(pm, session=session, checker=FakeChecker([repo_state(mine)]))
+          ["lightfall_git_push"], {"repo": "mine"})
+    assert pm.questions[0]["question"].splitlines()[-1] == "GitHub account: ronx"
+
+
+def test_push_exception_leaves_no_token_in_logs(mine):
+    def boom(target, cred, **kw):
+        raise RuntimeError(f"boom {TOKEN}")
+
+    records: list = []
+    sink_id = logger.add(records.append, format="{message}|{exception}", level="DEBUG",
+                         diagnose=True, backtrace=True)
+    try:
+        err, text = _call(
+            _tools(_FakePermissionManager(github_tools.ALLOW),
+                   checker=FakeChecker([repo_state(mine)]), push=boom)["lightfall_git_push"],
+            {"repo": "mine"})
+    finally:
+        logger.remove(sink_id)
+    assert err and TOKEN not in text
+    assert all(TOKEN not in str(r) for r in records)
+    assert not any("Traceback" in str(r) for r in records)
 
 
 def test_deny_does_not_push(mine):
