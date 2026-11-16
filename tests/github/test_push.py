@@ -86,16 +86,43 @@ def _target(tmp_path) -> PushTarget:
     return PushTarget(tmp_path, "feat", "origin", GH_URL, False, 1)
 
 
-def test_token_not_in_argv(monkeypatch, tmp_path):
-    calls = []
+def _git_error(stderr: str | None, returncode: int | None = 1) -> GitError:
+    error = GitError(f"git push ...: {stderr}")
+    error.stderr, error.returncode = stderr, returncode
+    return error
 
-    def rec(root, *args, **kw):
+
+def fake_git(calls, push_error=None):
+    """A run_git stand-in: safe answers for the config checks, optional push failure."""
+
+    def fake(root, *args, **kw):
         calls.append((args, kw))
+        if "push" in args:
+            if push_error is not None:
+                raise push_error
+            return ""
+        if "--get-urlmatch" in args:
+            if "http.sslverify" in args:
+                return "true"
+            raise _git_error("", 1)
+        if "--get-regexp" in args:
+            raise _git_error("", 1)
+        if "ls-remote" in args:
+            return GH_URL
+        if "rev-parse" in args and "HEAD" in args:
+            return "a" * 40
+        if "rev-parse" in args:
+            raise _git_error("", 1)
         return ""
 
-    monkeypatch.setattr(push_mod, "run_git", rec)
-    push_repo(_target(tmp_path), make_cred())
-    assert calls
+    return fake
+
+
+def test_token_not_in_argv(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(push_mod, "run_git", fake_git(calls))
+    result = push_repo(_target(tmp_path), make_cred())
+    assert result.ok, result.message
     for args, _kw in calls:
         assert all(TOKEN not in a for a in args)
     push_call = next(c for c in calls if "push" in c[0])
@@ -103,26 +130,30 @@ def test_token_not_in_argv(monkeypatch, tmp_path):
     argv = push_call[0]
     assert all("--force" not in a and "-u" != a for a in argv)
     assert "--no-verify" in argv
+    assert "--recurse-submodules=no" in argv and "push.recurseSubmodules=no" in argv
     assert "HEAD:refs/heads/feat" in argv
     assert argv.index("credential.helper=") < argv.index(HELPER)
 
 
 def test_push_error_is_scrubbed(monkeypatch, tmp_path):
-    def boom(root, *args, **kw):
-        raise GitError(f"fatal: https://x-access-token:{TOKEN}@github.com/o/r.git denied")
-
-    monkeypatch.setattr(push_mod, "run_git", boom)
+    err = _git_error(f"fatal: https://x-access-token:{TOKEN}@github.com/o/r.git unreachable")
+    monkeypatch.setattr(push_mod, "run_git", fake_git([], err))
     result = push_repo(_target(tmp_path), make_cred())
-    assert not result.ok and TOKEN not in result.message
+    assert not result.ok and TOKEN not in result.message and "***" in result.message
 
 
 def test_permission_denied_message_suggests_pat(monkeypatch, tmp_path):
-    def boom(root, *args, **kw):
-        raise GitError("remote: Permission to o/r.git denied to octo. 403")
-
-    monkeypatch.setattr(push_mod, "run_git", boom)
+    err = _git_error("remote: Permission to o/r.git denied to octo. 403")
+    monkeypatch.setattr(push_mod, "run_git", fake_git([], err))
     result = push_repo(_target(tmp_path), make_cred())
     assert "fine-grained token" in result.message
+
+
+def test_timeout_message_has_no_command_line(monkeypatch, tmp_path):
+    err = GitError(f"git -c {HELPER} push: timed out after 120 s")
+    monkeypatch.setattr(push_mod, "run_git", fake_git([], err))
+    result = push_repo(_target(tmp_path), make_cred())
+    assert result.message == "git push timed out"
 
 
 def test_helper_supplies_token_from_env():

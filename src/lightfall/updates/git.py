@@ -25,10 +25,12 @@ STALL_LIMITS = ("-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=20")
 class GitError(Exception):
     """A git command failed, timed out, or git is not installed.
 
-    ``stderr`` holds git's own error output when the command ran and failed.
+    ``stderr`` holds git's own error output and ``returncode`` its exit status when
+    the command ran and failed; both are None for a timeout or a missing git.
     """
 
     stderr: str | None = None
+    returncode: int | None = None
 
 
 def git_env() -> dict[str, str]:
@@ -87,6 +89,7 @@ def run_git(root: Path, *args: str, timeout: float = 30.0,
     if proc.returncode != 0:
         error = GitError(f"git {command}: {stderr.strip()}")
         error.stderr = stderr.strip()
+        error.returncode = proc.returncode
         raise error
     return stdout.strip()
 

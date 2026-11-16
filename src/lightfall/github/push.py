@@ -30,11 +30,6 @@ HELPER = (
 _TLS_ENV = ("GIT_SSL_NO_VERIFY", "GIT_SSL_CAINFO", "GIT_SSL_CAPATH", "GIT_SSL_CERT",
             "GIT_SSL_KEY")
 
-_WEAKENING_SUFFIXES = (".sslcainfo", ".sslcapath", ".curloptresolve", ".extraheader",
-                       ".sslbackend")
-
-_SYSTEM_OK_SUFFIXES = (".sslbackend", ".sslcainfo", ".sslcapath")
-
 _GITHUB_URL = re.compile(
     r"^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
     r"(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+?)(?:\.git)?/?$"
@@ -118,7 +113,9 @@ def push_target(root: Path) -> PushTarget | str:
 
 def _describe_failure(error: GitError, target: PushTarget) -> str:
     # Classify on git's own stderr only: the command prefix can contain the URL.
-    stderr = error.stderr if error.stderr is not None else str(error)
+    if error.stderr is None:  # timeout / git missing: never echo the command line
+        return "git push timed out" if "timed out" in str(error) else "git push failed"
+    stderr = error.stderr
     low = stderr.lower()
     if any(s.lower() in low for s in ("403", "Permission to", "denied", "Repository not found")):
         slug = target.url.removeprefix("https://github.com/").removesuffix(".git")
@@ -128,31 +125,61 @@ def _describe_failure(error: GitError, target: PushTarget) -> str:
     return stderr
 
 
-def _unsafe_config(root: Path, target: PushTarget) -> str | None:
-    """Return the first git config key that could redirect or weaken the push."""
+def _cfg(root: Path, *args: str) -> tuple[int | None, str]:
+    """Run ``git config``; return (exit code, stdout). Code None means git itself failed."""
     try:
-        listing = run_git(root, "config", "--show-scope", "--get-regexp",
-                         r"^(url|http)\.")
+        return 0, run_git(root, "config", *args)
+    except GitError as e:
+        return e.returncode, ""
+
+
+#: Keys whose effective value must come from system scope (Git for Windows sets them there).
+_SYSTEM_ONLY_KEYS = ("http.sslcainfo", "http.sslcapath", "http.sslbackend")
+#: Keys that are refused at any scope.
+_NEVER_KEYS = ("http.sslcert", "http.sslkey", "http.curloptresolve", "http.extraheader")
+
+
+def _unsafe_config(root: Path, target: PushTarget) -> str | None:
+    """Return a git config key that could redirect or weaken the push, or None.
+
+    Asks git itself to resolve the effective values (URL-scoped keys, includes,
+    every spelling of false) and fails closed on anything unexpected.
+    """
+    url = target.url
+    # TLS verification: must resolve to true (unset defaults to true).
+    code, out = _cfg(root, "--type=bool", "--get-urlmatch", "http.sslverify", url)
+    if not (code == 1 or (code == 0 and out == "true")):
+        return "http.sslVerify"
+    # Other TLS / request-shaping keys.
+    for key in _SYSTEM_ONLY_KEYS + _NEVER_KEYS:
+        code, out = _cfg(root, "--show-scope", "--null", "--get-urlmatch", key, url)
+        if code == 1:
+            continue
+        if code != 0:
+            return key
+        if key in _SYSTEM_ONLY_KEYS:
+            fields = out.split("\0")
+            scopes = fields[0::2] if len(fields) > 1 else fields
+            if all(sc == "system" for sc in scopes if sc):
+                continue
+        return key
+    # URL rewriting: any insteadOf / pushInsteadOf whose value is a prefix of the target.
+    code, out = _cfg(root, "--null", "--get-regexp", r"^url\..*\.(insteadof|pushinsteadof)$")
+    if code not in (0, 1):
+        return "url.*.insteadOf"
+    protected = (url, "git@github.com:", "ssh://git@github.com/")
+    for entry in out.split("\0") if code == 0 else ():
+        if not entry:
+            continue
+        key, _, value = entry.partition("\n")
+        if any(p.startswith(value) for p in protected):
+            return key
+    # Belt and braces: git's own rewriting must leave the URL untouched.
+    try:
+        if run_git(root, "ls-remote", "--get-url", url) != url:
+            return "url.*.insteadOf"
     except GitError:
-        return None  # no matching keys
-    protected = (target.url, "git@github.com:", "ssh://git@github.com/")
-    for line in listing.splitlines():
-        scope, _, entry = line.partition("	")
-        key, _, value = entry.partition(" ")
-        low = key.lower()
-        if low.startswith("url.") and low.endswith((".insteadof", ".pushinsteadof")):
-            if value and any(p.startswith(value) for p in protected):
-                return key
-        elif low.startswith("http."):
-            if low.endswith(".sslverify") and value.strip().lower() in (
-                    "false", "no", "off", "0"):
-                return key
-            if low.endswith(_WEAKENING_SUFFIXES):
-                # Git for Windows ships sslBackend/sslCAInfo in its system config;
-                # that scope is admin-installed, not repo- or user-controlled.
-                if scope == "system" and low.endswith(_SYSTEM_OK_SUFFIXES):
-                    continue
-                return key
+        return "url.*.insteadOf"
     return None
 
 
@@ -205,7 +232,9 @@ def push_repo(
                 root, *STALL_LIMITS, "-c", "credential.helper=", "-c", HELPER,
                 "-c", f"core.hooksPath={no_hooks}",
                 "-c", "http.sslVerify=true", "-c", "http.https://github.com/.sslVerify=true",
-                "push", "--porcelain", "--no-verify", url or target.url,
+                "-c", "push.recurseSubmodules=no",
+                "push", "--porcelain", "--no-verify", "--recurse-submodules=no",
+                url or target.url,
                 f"HEAD:refs/heads/{branch}",
                 env=env, timeout=120,
             )

@@ -98,3 +98,61 @@ def test_fast_forward_remote_heads(clone, git_remote):
     result = push_repo(target, make_cred(), url=str(git_remote))
     assert result.ok, result.message
     assert result.old_head == old and result.new_head == new
+
+
+import pytest  # noqa: E402
+
+from lightfall.updates.git import GitError  # noqa: E402
+
+
+@pytest.mark.parametrize("value", ["", "00", "0k", "off"])
+def test_specific_ssl_verify_false_refused(clone, monkeypatch, value):
+    target = _github_clone(clone)
+    git(clone, "config", "http.https://github.com/o/r.git.sslVerify", value)
+    calls = _recording(monkeypatch)
+    result = push_repo(target, make_cred())
+    assert not result.ok and "Not pushed" in result.message
+    assert not any("push" in a for a in calls)
+
+
+@pytest.mark.parametrize("key", [
+    "url.https://evil.example/.insteadOf",
+    "url./path/b dir/.insteadof",
+    "url.https://evil.example/.pushInsteadOf",
+])
+def test_empty_or_spaced_insteadof_refused(clone, monkeypatch, key):
+    target = _github_clone(clone)
+    value = "" if key.endswith("evil.example/.insteadOf") else "https://github.com/"
+    git(clone, "config", key, value)
+    calls = _recording(monkeypatch)
+    result = push_repo(target, make_cred())
+    assert not result.ok and "Not pushed" in result.message
+    assert not any("push" in a for a in calls)
+
+
+def test_extra_header_refused(clone, monkeypatch):
+    target = _github_clone(clone)
+    git(clone, "config", "http.https://github.com/.extraHeader", "X: 1")
+    calls = _recording(monkeypatch)
+    result = push_repo(target, make_cred())
+    assert not result.ok and "Not pushed" in result.message
+    assert not any("push" in a for a in calls)
+
+
+def test_config_check_fails_closed(clone, monkeypatch):
+    target = _github_clone(clone)
+    real = push_mod.run_git
+    calls = []
+
+    def rec(root, *args, **kw):
+        calls.append(args)
+        if args and args[0] == "config":
+            error = GitError("git config: fatal: bad config")
+            error.stderr, error.returncode = "fatal: bad config", 128
+            raise error
+        return real(root, *args, **kw)
+
+    monkeypatch.setattr(push_mod, "run_git", rec)
+    result = push_repo(target, make_cred())
+    assert not result.ok and "Not pushed" in result.message
+    assert not any("push" in a for a in calls)
