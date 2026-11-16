@@ -90,6 +90,11 @@ builtin_manifest = PluginManifest(
             name="login",
             import_path="lightfall.ui.preferences.login_settings:LoginSettingsPlugin",
         ),
+        PluginEntry(
+            type_name="settings",
+            name="github",
+            import_path="lightfall.ui.preferences.github_settings:GitHubSettingsPlugin",
+        ),
         # External tools settings (for code navigation)
         PluginEntry(
             type_name="settings",
