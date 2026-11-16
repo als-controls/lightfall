@@ -73,12 +73,14 @@ class ShusseboraStatusPlugin(StatusBarPlugin):
         monitor.start()
         monitor.sigStatus.connect(self._on_monitor_changed)
         monitor.sigStateChanged.connect(self._on_monitor_changed)
+        monitor.sigDiskPressure.connect(self._on_monitor_changed)
 
     def disconnect_signals(self) -> None:
         monitor = self._get_monitor()
         try:
             monitor.sigStatus.disconnect(self._on_monitor_changed)
             monitor.sigStateChanged.disconnect(self._on_monitor_changed)
+            monitor.sigDiskPressure.disconnect(self._on_monitor_changed)
         except RuntimeError:
             pass
         if self._theme_manager is not None:
@@ -105,7 +107,12 @@ class ShusseboraStatusPlugin(StatusBarPlugin):
     def update(self) -> None:
         monitor = self._get_monitor()
         state = monitor.worst_state()
-        color = self._state_color(state)
+        pressure = monitor.disk_pressure()
+        if pressure and state in ("ok", "unknown"):
+            state_for_color = "stale"  # warning color
+        else:
+            state_for_color = state
+        color = self._state_color(state_for_color)
 
         if self._button is not None:
             try:
@@ -129,12 +136,19 @@ class ShusseboraStatusPlugin(StatusBarPlugin):
                 f"queue {host_queue}, 24h {counts.get('complete_24h', 0)} ok / "
                 f"{counts.get('failed_24h', 0)} failed")
 
+        for hostname, info in sorted(pressure.items()):
+            pct = info.get("percent_used", info.get("used_pct"))
+            pct_text = f" ({pct:g}% used)" if isinstance(pct, (int, float)) else ""
+            tooltip_lines.append(f"Disk pressure on {hostname}{pct_text}")
+
         text = _STATE_TEXT.get(state, state)
         if state == "ok":
             # Healthy: the snail icon already conveys health, so the button
             # shows only the queue depth (or nothing when idle) rather than
             # an "OK" label. The "OK" label still appears in the tooltip.
             text = f"{queue_depth} queued" if queue_depth else ""
+        if pressure and state == "ok" and not text:
+            text = "Disk"
         self.set_text(text)
         self.set_color(color)
         self.set_tooltip("Shussebora data movement\n" + "\n".join(tooltip_lines)
@@ -157,6 +171,7 @@ class ShusseboraStatusPlugin(StatusBarPlugin):
         data = super().get_introspection_data()
         monitor = self._get_monitor()
         data["worst_state"] = monitor.worst_state()
+        data["disk_pressure"] = sorted(monitor.disk_pressure())
         data["instances"] = {
             host: inst["state"] for host, inst in monitor.instances().items()}
         return data

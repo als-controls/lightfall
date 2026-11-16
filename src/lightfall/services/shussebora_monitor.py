@@ -20,13 +20,34 @@ HEARTBEAT_STALE_S = 150  # ~2.5 missed 60 s heartbeats
 HEARTBEAT_DEAD_S = 300
 RECENT_LIMIT = 50
 
-SUBJECTS = (
-    "shussebora.*.heartbeat",
-    "shussebora.*.transfer.complete",
-    "shussebora.*.transfer.failed",
-    "shussebora.*.epics.connected",
-    "shussebora.*.epics.disconnected",
+_SUFFIXES = (
+    "heartbeat",
+    "transfer.complete",
+    "transfer.failed",
+    "epics.connected",
+    "epics.disconnected",
 )
+_NEW_SUFFIXES = (
+    "crucible.upload.complete",
+    "crucible.upload.failed",
+    "disk.pressure",
+)
+
+# Legacy ``shussebora.<host>.<suffix>`` and per-beamline
+# ``shussebora.<beamline token>.<host>.<suffix>`` forms are both followed
+# during the migration. Instance identity is the payload's ``hostname``.
+SUBJECTS = (
+    tuple(f"shussebora.*.{s}" for s in _SUFFIXES)
+    + tuple(f"shussebora.*.*.{s}" for s in _SUFFIXES + _NEW_SUFFIXES)
+)
+
+
+def _subject_host(subject: str, suffix: str) -> str:
+    """Hostname token from a subject of either form (fallback for payloads lacking it)."""
+    parts = subject.split(".")
+    n_suffix = len(suffix.split("."))
+    body = parts[1:len(parts) - n_suffix]
+    return body[-1] if body else ""
 
 
 class ShusseboraMonitor(QObject):
@@ -38,6 +59,8 @@ class ShusseboraMonitor(QObject):
         sigEpics: (hostname, connected, payload) EPICS trigger transition.
         sigStateChanged: (hostname, 'ok' | 'stale' | 'dead') heartbeat health.
         sigRecentTransfers: transfers.recent reply rows from an active refresh.
+        sigDiskPressure: (hostname, payload) disk.pressure event.
+        sigCrucible: ('complete' | 'failed', payload) Crucible upload event.
     """
 
     sigStatus = Signal(dict)
@@ -45,6 +68,8 @@ class ShusseboraMonitor(QObject):
     sigEpics = Signal(str, bool, dict)
     sigStateChanged = Signal(str, str)
     sigRecentTransfers = Signal(list)
+    sigDiskPressure = Signal(str, dict)
+    sigCrucible = Signal(str, dict)
 
     # Internal: marshals background-thread request results to the main thread.
     _sigIngestStatus = Signal(dict)
@@ -67,6 +92,7 @@ class ShusseboraMonitor(QObject):
         self._instances: dict[str, dict[str, Any]] = {}
         self._started = False
         self._refreshing = False
+        self._pressure: dict[str, dict[str, Any]] = {}
 
         self._sigIngestStatus.connect(self.ingest_status)
 
@@ -94,11 +120,19 @@ class ShusseboraMonitor(QObject):
         ipc = self._ipc()
         if ipc is None:
             return False
-        ipc.subscribe("shussebora.*.heartbeat", self._on_heartbeat)
-        ipc.subscribe("shussebora.*.transfer.complete", self._on_transfer)
-        ipc.subscribe("shussebora.*.transfer.failed", self._on_transfer)
-        ipc.subscribe("shussebora.*.epics.connected", self._on_epics)
-        ipc.subscribe("shussebora.*.epics.disconnected", self._on_epics)
+        handlers = {
+            "heartbeat": self._on_heartbeat,
+            "transfer.": self._on_transfer,
+            "epics.": self._on_epics,
+            "crucible.": self._on_crucible,
+            "disk.pressure": self._on_disk_pressure,
+        }
+        for subject in SUBJECTS:
+            suffix = subject.split("*.")[-1]
+            for prefix, handler in handlers.items():
+                if suffix.startswith(prefix):
+                    ipc.subscribe(subject, handler)
+                    break
         self._stale_timer.start()
         self._started = True
         return True
@@ -127,6 +161,10 @@ class ShusseboraMonitor(QObject):
                 return state
         return "ok"
 
+    def disk_pressure(self) -> dict[str, dict[str, Any]]:
+        """Hosts currently reporting disk pressure: hostname -> payload."""
+        return dict(self._pressure)
+
     def ingest_status(self, status: dict) -> None:
         """Record a status payload (from heartbeat or active refresh)."""
         hostname = status.get("hostname")
@@ -136,6 +174,12 @@ class ShusseboraMonitor(QObject):
             hostname, {"state": "unknown", "last_seen": None, "status": {}})
         inst["last_seen"] = time.time()
         inst["status"] = status
+        disk = status.get("disk")
+        if isinstance(disk, dict) and "pressure" in disk:
+            if disk["pressure"]:
+                self._pressure[hostname] = dict(disk)
+            else:
+                self._pressure.pop(hostname, None)
         self.sigStatus.emit(status)
         self._set_state(hostname, "ok")
 
@@ -166,13 +210,23 @@ class ShusseboraMonitor(QObject):
         self.sigTransfer.emit(kind, data)
 
     def _on_epics(self, subject: str, data: dict, reply: str | None) -> None:
-        hostname = subject.split(".")[1]
         connected = subject.endswith(".connected")
+        suffix = "epics.connected" if connected else "epics.disconnected"
+        hostname = data.get("hostname") or _subject_host(subject, suffix)
         triggers = self._instances.get(hostname, {}).get("status", {}).get("triggers", [])
         for trig in triggers:
             if trig.get("pv_prefix") == data.get("pv_prefix"):
                 trig["connected"] = connected
         self.sigEpics.emit(hostname, connected, data)
+
+    def _on_crucible(self, subject: str, data: dict, reply: str | None) -> None:
+        kind = "failed" if subject.endswith(".failed") else "complete"
+        self.sigCrucible.emit(kind, data)
+
+    def _on_disk_pressure(self, subject: str, data: dict, reply: str | None) -> None:
+        hostname = data.get("hostname") or _subject_host(subject, "disk.pressure")
+        self._pressure[hostname] = data
+        self.sigDiskPressure.emit(hostname, data)
 
     # -- active refresh --------------------------------------------------------
 
