@@ -61,7 +61,9 @@ def _current_username() -> str:
     return SessionManager.get_instance().current_user.username
 
 
-def confirm_login(cred: GitHubCredential, parent: QWidget | None) -> bool:
+def confirm_login(
+    cred: GitHubCredential, parent: QWidget | None, github_session: GitHubSession | None = None
+) -> bool:
     """Check ``cred.login`` against the user's linked ``github_login``.
 
     Unset: offer to link it. Different: warn, and sign out if declined.
@@ -88,7 +90,7 @@ def confirm_login(cred: GitHubCredential, parent: QWidget | None) -> bool:
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if answer != yes:
-            get_github_session().sign_out()
+            (github_session or get_github_session()).sign_out()
             return False
     return True
 
@@ -143,10 +145,12 @@ class DeviceSignInDialog(LFDialog):
 
         self.code_received.connect(self._on_code)
 
+        cid = client_id()  # read on the GUI thread
+
         def work() -> GitHubCredential:
-            code = request(client_id())
+            code = request(cid)
             self.code_received.emit(code)
-            grant = poll(client_id(), code, cancelled=self._cancel.is_set)
+            grant = poll(cid, code, cancelled=self._cancel.is_set)
             return make_credential(grant, lightfall_user)
 
         self._future = QThreadFuture(
@@ -173,8 +177,12 @@ class DeviceSignInDialog(LFDialog):
         QDesktopServices.openUrl(QUrl(self._verification_uri))
 
     def _on_cancel(self) -> None:
-        self._cancel.set()
         self.reject()
+
+    def reject(self) -> None:
+        """Every dismissal (Cancel, Esc, window X) stops the sign-in."""
+        self._cancel.set()
+        super().reject()
 
     @gui_thread_only
     def _on_result(self, cred: GitHubCredential) -> None:
@@ -182,7 +190,7 @@ class DeviceSignInDialog(LFDialog):
             return  # a late result after Cancel is dropped
         self._finished = True
         self._session.set_credential(cred)
-        if confirm_login(cred, self):
+        if confirm_login(cred, self, self._session):
             self.accept()
         else:
             self.reject()
@@ -213,6 +221,7 @@ class PatSignInDialog(LFDialog):
         self._user = lightfall_user
         self._make = make_credential
         self._future: QThreadFuture | None = None
+        self._closed = False
 
         layout = QVBoxLayout(self)
         link = QLabel(f'<a href="{PAT_URL}">Create a fine-grained token on github.com</a>')
@@ -256,27 +265,35 @@ class PatSignInDialog(LFDialog):
         )
         self._future.start()
 
+    def reject(self) -> None:
+        self._closed = True
+        super().reject()
+
     @gui_thread_only
     def _on_result(self, cred: GitHubCredential) -> None:
+        if self._closed:
+            return  # dialog was dismissed while the token was being checked
         self._session.set_credential(cred)
-        if confirm_login(cred, self):
+        if confirm_login(cred, self, self._session):
             self.accept()
         else:
             self.reject()
 
     @gui_thread_only
     def _on_error(self, exc: Exception) -> None:
+        if self._closed:
+            return
         self.error_label.setText(_describe(exc))
         self.sign_in_button.setEnabled(True)
 
 
-def start_sign_in(parent: QWidget | None) -> None:
+def start_sign_in(parent: QWidget | None, github_session: GitHubSession | None = None) -> None:
     """Open the device-flow dialog (the token dialog if there is no client id)."""
     if not client_id():
-        start_pat_sign_in(parent)
+        start_pat_sign_in(parent, github_session)
         return
-    DeviceSignInDialog(get_github_session(), _current_username(), parent).exec()
+    DeviceSignInDialog(github_session or get_github_session(), _current_username(), parent).exec()
 
 
-def start_pat_sign_in(parent: QWidget | None) -> None:
-    PatSignInDialog(get_github_session(), _current_username(), parent).exec()
+def start_pat_sign_in(parent: QWidget | None, github_session: GitHubSession | None = None) -> None:
+    PatSignInDialog(github_session or get_github_session(), _current_username(), parent).exec()

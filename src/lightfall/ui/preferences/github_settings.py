@@ -49,8 +49,8 @@ class GitHubStatusWidget(QWidget):
         self.sign_in_button = QPushButton("Sign in with GitHub")
         self.token_button = QPushButton("Use a token instead…")
         self.sign_out_button = QPushButton("Sign out")
-        self.sign_in_button.clicked.connect(lambda: start_sign_in(self))
-        self.token_button.clicked.connect(lambda: start_pat_sign_in(self))
+        self.sign_in_button.clicked.connect(lambda: start_sign_in(self, self._session))
+        self.token_button.clicked.connect(lambda: start_pat_sign_in(self, self._session))
         self.sign_out_button.clicked.connect(self._session.sign_out)
         for button in (self.sign_in_button, self.token_button, self.sign_out_button):
             row.addWidget(button)
@@ -58,6 +58,9 @@ class GitHubStatusWidget(QWidget):
         layout.addLayout(row)
 
         self._session.changed.connect(self.refresh)
+        result_changed = getattr(checker, "result_changed", None)
+        if result_changed is not None:
+            result_changed.connect(self.refresh)
         self.refresh()
 
     def refresh(self) -> None:

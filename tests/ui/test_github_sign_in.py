@@ -200,3 +200,45 @@ def test_start_sign_in_opens_device_dialog(qtbot, monkeypatch):
     monkeypatch.setattr(gsi, "get_github_session", lambda: SimpleNamespace())
     gsi.start_sign_in(None)
     assert opened == ["device"]
+
+
+def test_device_dialog_reject_cancels_and_ignores_late_result(qtbot, session, prefs):
+    seen = {}
+
+    def poll(cid, code, cancelled=None, **k):
+        seen["cancelled"] = cancelled
+        while not cancelled():
+            time.sleep(0.01)
+        raise GitHubAuthError("cancelled")
+
+    dialog = DeviceSignInDialog(
+        session, "u1", request=lambda cid: CODE, poll=poll,
+        make_credential=lambda grant, user: make_cred(),
+    )
+    qtbot.addWidget(dialog)
+    qtbot.waitUntil(lambda: "cancelled" in seen, timeout=5000)
+    dialog.reject()  # Esc / window X path
+    assert seen["cancelled"]() is True
+    dialog._on_result(make_cred())  # unpatched modals would raise
+    assert session.credential() is None
+
+
+def test_pat_dialog_reject_ignores_late_result(qtbot, session, prefs):
+    dialog = PatSignInDialog(session, "u1", make_credential=lambda token, user: make_cred())
+    qtbot.addWidget(dialog)
+    dialog.reject()
+    dialog._on_result(make_cred())
+    dialog._on_error(GitHubAuthError("network"))
+    assert session.credential() is None
+
+
+def test_confirm_login_mismatch_signs_out_given_session(qtbot, prefs, monkeypatch):
+    session = GitHubSession()
+    cred = make_cred(login="other")
+    session.set_credential(cred)
+    prefs.values["github_login"] = "octo"
+    monkeypatch.setattr(QMessageBox, "warning",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+    monkeypatch.setattr(gsi, "get_github_session", lambda: pytest.fail("global session used"))
+    assert confirm_login(cred, None, session) is False
+    assert session.credential() is None

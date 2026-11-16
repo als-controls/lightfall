@@ -62,15 +62,15 @@ def test_status_widget_gated(qtbot):
 
 def test_status_widget_buttons(qtbot, monkeypatch):
     calls = []
-    monkeypatch.setattr(gs, "start_sign_in", lambda parent: calls.append("device"))
-    monkeypatch.setattr(gs, "start_pat_sign_in", lambda parent: calls.append("pat"))
+    monkeypatch.setattr(gs, "start_sign_in", lambda parent, sess=None: calls.append(("device", sess)))
+    monkeypatch.setattr(gs, "start_pat_sign_in", lambda parent, sess=None: calls.append(("pat", sess)))
     session = GitHubSession()
     session.set_credential(cred())
     w = GitHubStatusWidget(github_session=session, checker=FakeChecker())
     qtbot.addWidget(w)
     w.sign_in_button.click()
     w.token_button.click()
-    assert calls == ["device", "pat"]
+    assert calls == [("device", session), ("pat", session)]
     w.sign_out_button.click()
     assert session.credential() is None
     assert not w.sign_out_button.isEnabled()
@@ -81,3 +81,13 @@ def test_manifest_registers_github_after_login():
 
     names = [e.name for e in builtin_manifest.plugins if e.type_name == "settings"]
     assert names.index("github") == names.index("login") + 1
+
+
+def test_status_widget_refreshes_on_checker_change(qtbot):
+    checker = FakeChecker(allowed=False)
+    w = GitHubStatusWidget(github_session=GitHubSession(), checker=checker)
+    qtbot.addWidget(w)
+    assert not w.sign_in_button.isEnabled()
+    checker.allowed = True
+    checker.result_changed.emit(None)
+    assert w.sign_in_button.isEnabled()
