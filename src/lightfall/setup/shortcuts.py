@@ -19,7 +19,7 @@ from importlib.resources import files
 from pathlib import Path
 
 APP_NAME = "Lightfall"
-DESCRIPTION = "Lightfall beamline controls and data acquisition"
+DESCRIPTION = "Lightfall beamline control and data acquisition"
 GUI_SCRIPT = "lightfall-gui"
 
 

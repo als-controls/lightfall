@@ -13,10 +13,10 @@ class ShortcutPage(StepPage):
     def __init__(self, ctx: SetupContext) -> None:
         super().__init__(ctx)
         self._outcome: dict[Location, bool] | None = None
-        self.desktop_box = QCheckBox("Add a shortcut to the desktop", self)
+        self.desktop_box = QCheckBox("Create desktop shortcut", self)
         self.desktop_box.setObjectName("setupShortcutDesktop")
         self.desktop_box.setChecked(True)
-        self.menu_box = QCheckBox(f"Add Lightfall to the {shortcuts.menu_label()}", self)
+        self.menu_box = QCheckBox(f"Add to {shortcuts.menu_label()}", self)
         self.menu_box.setObjectName("setupShortcutMenu")
         self.menu_box.setChecked(True)
         for box in (self.desktop_box, self.menu_box):
