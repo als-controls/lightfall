@@ -69,3 +69,12 @@ def test_introspection_reports_states(qtbot):
     data = plugin.get_introspection_data()
     assert data["worst_state"] == "ok"
     assert data["instances"] == {"suzume": "ok"}
+
+
+def test_disk_pressure_warns_with_host_and_percent(qtbot):
+    plugin, monitor = make_plugin(qtbot)
+    monitor.ingest_status({**STATUS, "disk": {"percent_used": 91.0, "pressure": True}})
+    tip = plugin._button.toolTip()
+    assert "suzume" in tip and "91" in tip and "pressure" in tip.lower()
+    monitor.ingest_status({**STATUS, "disk": {"percent_used": 50.0, "pressure": False}})
+    assert "pressure" not in plugin._button.toolTip().lower()

@@ -616,7 +616,7 @@ You are an AI assistant integrated with Lightfall, a scientific beamline control
 - lightfall_get_device_state — Device status, alarms, connection info
 - lightfall_set_device — Set a signal value (requires DEVICE_CONTROL permission)
 - lightfall_move_motor — Move a motor to a position (requires DEVICE_CONTROL permission)
-- lightfall_stop_device — Emergency stop a device (requires DEVICE_CONTROL permission)
+- lightfall_stop_device — Emergency stop a device (always allowed)
 - lightfall_get_catalog_info — Device catalog summary with counts by category
 
 ### Plans & Acquisition
