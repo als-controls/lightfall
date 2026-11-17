@@ -192,13 +192,25 @@ def test_wizard_embeds_saves_and_stops_the_assistant_section(qtbot, ctx):
     assert stops
 
 
-def test_default_registry_order():
+def test_default_registry_order(monkeypatch, tmp_path):
+    from lightfall.setup import shortcuts
     from lightfall.setup.registry import default_registry
 
+    monkeypatch.setattr(shortcuts, "is_supported_platform", lambda: True)
+    monkeypatch.setattr(shortcuts, "find_gui_script", lambda: tmp_path / "lightfall-gui")
+    assert [s.id for s in default_registry().steps()] == [
+        "facility", "network", "signin", "shortcut", "assistant"]
+    assert [s.title for s in default_registry().steps()] == [
+        "Facility", "Network", "Sign in", "Shortcut", "Assistant"]
+
+
+def test_default_registry_omits_shortcut_where_unsupported(monkeypatch):
+    from lightfall.setup import shortcuts
+    from lightfall.setup.registry import default_registry
+
+    monkeypatch.setattr(shortcuts, "is_supported_platform", lambda: False)
     assert [s.id for s in default_registry().steps()] == [
         "facility", "network", "signin", "assistant"]
-    assert [s.title for s in default_registry().steps()] == [
-        "Facility", "Network", "Sign in", "Assistant"]
 
 
 def test_signin_not_satisfied_by_a_session_from_another_provider(ctx):

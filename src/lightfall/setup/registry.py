@@ -1,4 +1,4 @@
-"""Ordered registry of setup steps. W1 registers Facility, Network, Sign in, Assistant."""
+"""Ordered registry of setup steps. W1 registers Facility, Network, Sign in, Shortcut, Assistant."""
 from __future__ import annotations
 
 from lightfall.setup.step import SetupStep
@@ -23,13 +23,22 @@ class SetupRegistry:
 
 
 def default_registry() -> SetupRegistry:
-    """W1 steps in order: Facility, Network, Sign in, Assistant (plugins come in W3)."""
+    """W1 steps in order: Facility, Network, Sign in, Shortcut, Assistant (plugins come
+    in W3). Shortcut sits before Assistant so the slow Assistant check stays last (see
+    ``SetupWizard._landing_index``); it is left out where shortcuts aren't supported
+    (macOS) or there is no ``lightfall-gui`` to point at (e.g. a non-installed checkout)."""
+    from lightfall.setup import shortcuts
     from lightfall.setup.steps.assistant import AssistantStep
     from lightfall.setup.steps.facility import FacilityStep
     from lightfall.setup.steps.network import NetworkStep
+    from lightfall.setup.steps.shortcut import ShortcutStep
     from lightfall.setup.steps.signin import SignInStep
 
     registry = SetupRegistry()
-    for step in (FacilityStep(), NetworkStep(), SignInStep(), AssistantStep()):
+    steps: list[SetupStep] = [FacilityStep(), NetworkStep(), SignInStep()]
+    if shortcuts.is_supported_platform() and shortcuts.find_gui_script() is not None:
+        steps.append(ShortcutStep())
+    steps.append(AssistantStep())
+    for step in steps:
         registry.register(step)
     return registry
