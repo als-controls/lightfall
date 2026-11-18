@@ -79,6 +79,7 @@ class GitStateStatusPlugin(StatusBarPlugin):
 
             app = LFApplication.get_instance()
             parent = app.main_window if app else None
-            GitStateDialog(self.checker.result.noteworthy_repos, parent).exec()
+            GitStateDialog(self.checker.result.noteworthy_repos, parent,
+                           checker=self.checker).exec()
         except Exception as e:  # noqa: BLE001 - a status bar click must never crash the app
             logger.debug("Could not open the git-state dialog: {}", e)

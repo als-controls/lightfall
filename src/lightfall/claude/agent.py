@@ -20,6 +20,7 @@ from lightfall.agents.backends.claude_code.options import (
 )
 from lightfall.agents.bus_tools import BUS_ALLOWED_TOOLS, create_bus_tools_server
 from lightfall.agents.content_tools import CONTENT_ALLOWED_TOOLS, create_content_tools_server
+from lightfall.agents.github_tools import GITHUB_ALLOWED_TOOLS, create_github_tools_server
 from lightfall.agents.skill_tools import SKILLS_ALLOWED_TOOLS, create_skill_tools_server
 from lightfall.agents.tooling import ToolServer, tool_id
 from lightfall.claude._internal.worker import PersistentClaudeWorker
@@ -462,6 +463,15 @@ class QtClaudeAgent(QObject):
             session_id=lambda: self._current_session_id,
         )))
         allowed_tools.extend(CONTENT_ALLOWED_TOOLS)
+
+        # The github server is always-on as well: list source checkouts and push the
+        # current branch with the user's session GitHub sign-in, each push asked of the
+        # user in chat (Allow / Deny only).
+        tool_servers.append(("github", create_github_tools_server(
+            permission_manager=self._permission_manager,
+            agent_name=self._approval_agent_name,
+        )))
+        allowed_tools.extend(GITHUB_ALLOWED_TOOLS)
 
         # Synthesize per-session SDK plugin dir
         from lightfall.claude._session_assembly import init_session_plugin_dir

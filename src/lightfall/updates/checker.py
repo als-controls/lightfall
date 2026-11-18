@@ -183,4 +183,15 @@ def get_update_checker() -> UpdateChecker:
     global _checker
     if _checker is None:
         _checker = UpdateChecker()
+        _create_github_session()
     return _checker
+
+
+def _create_github_session() -> None:
+    """Create the GitHub session singleton alongside the checker (on the GUI thread)."""
+    try:
+        from lightfall.github.session import get_github_session
+
+        get_github_session()
+    except Exception as exc:  # noqa: BLE001 - it is created lazily later instead
+        logger.debug("GitHub session not created at startup: {}", exc)

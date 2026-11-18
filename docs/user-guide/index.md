@@ -37,6 +37,8 @@ involve writing code (user plans, for example), it says so up front.
 11. **[Scoped Content](scoped-content.md)** — where plans, plugins, agents and
     skills come from, which one wins a name clash, how to publish and share your
     own, and what the warnings mean.
+12. **[Pushing to GitHub](github-push.md)** — signing in to GitHub for the
+    session, who can push, and how the assistant pushes only after you allow it.
 
 ```{toctree}
 :maxdepth: 2
@@ -52,4 +54,5 @@ scoped-content
 logbook
 preferences
 updates
+github-push
 ```

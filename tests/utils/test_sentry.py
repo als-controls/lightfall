@@ -86,3 +86,60 @@ def test_set_user_noops_when_inactive(monkeypatch):
     sentry.set_user(user_id="ron", username="ron", roles=["staff"])
 
     set_user_mock.assert_not_called()
+
+
+# --- GitHub token backstop -------------------------------------------------------
+
+_GH_TOKEN = "github_pat_SENTRYSECRET"
+
+
+class _HeldSession:
+    def __init__(self, token):
+        self.token = token
+
+    def _held_token(self):
+        if isinstance(self.token, Exception):
+            raise self.token
+        return self.token
+
+
+def _event():
+    return {
+        "message": f"push failed {_GH_TOKEN}",
+        "exception": {"values": [{"value": f"boom {_GH_TOKEN}", "stacktrace": {"frames": [
+            {"vars": {"env": {"LIGHTFALL_GITHUB_TOKEN": _GH_TOKEN}, "n": 3,
+                      "args": (f"x{_GH_TOKEN}y", None)}}]}}]},
+        "breadcrumbs": {"values": [{"message": "ok"}]},
+    }
+
+
+def test_before_send_scrubs_held_github_token(monkeypatch):
+    from lightfall.github import session as session_mod
+
+    monkeypatch.setattr(session_mod, "_instance", _HeldSession(_GH_TOKEN))
+    out = sentry._before_send(_event(), {})
+    assert _GH_TOKEN not in repr(out)
+    assert out["message"] == "push failed ***"
+    frame_vars = out["exception"]["values"][0]["stacktrace"]["frames"][0]["vars"]
+    assert frame_vars["env"]["LIGHTFALL_GITHUB_TOKEN"] == "***"
+    assert frame_vars["args"] == ("x***y", None) and frame_vars["n"] == 3
+
+
+def test_before_send_does_not_create_github_session(monkeypatch):
+    from lightfall.github import session as session_mod
+
+    monkeypatch.setattr(session_mod, "_instance", None)
+    called = []
+    monkeypatch.setattr(session_mod, "get_github_session", lambda: called.append(1))
+    event = _event()
+    assert sentry._before_send(event, {}) is event
+    assert called == [] and session_mod._instance is None
+
+
+@pytest.mark.parametrize("token", ["", None, RuntimeError("held token unavailable")])
+def test_before_send_scrub_never_raises(monkeypatch, token):
+    from lightfall.github import session as session_mod
+
+    monkeypatch.setattr(session_mod, "_instance", _HeldSession(token))
+    event = _event()
+    assert sentry._before_send(event, {}) is event

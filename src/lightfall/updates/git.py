@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,7 +23,14 @@ STALL_LIMITS = ("-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=20")
 
 
 class GitError(Exception):
-    """A git command failed, timed out, or git is not installed."""
+    """A git command failed, timed out, or git is not installed.
+
+    ``stderr`` holds git's own error output and ``returncode`` its exit status when
+    the command ran and failed; both are None for a timeout or a missing git.
+    """
+
+    stderr: str | None = None
+    returncode: int | None = None
 
 
 def git_env() -> dict[str, str]:
@@ -36,18 +44,27 @@ def git_env() -> dict[str, str]:
     return env
 
 
-def run_git(root: Path, *args: str, timeout: float = 30.0) -> str:
+def run_git(root: Path, *args: str, timeout: float = 30.0,
+            env: Mapping[str, str | None] | None = None) -> str:
     """Run ``git <args>`` in ``root`` and return its stripped stdout.
+
+    ``env`` entries are merged over :func:`git_env`; a value of None removes the variable.
 
     Raises:
         GitError: on a non-zero exit, a timeout, or a missing git binary.
     """
     global GIT_MISSING
     command = " ".join(args)
+    full_env = git_env()
+    for key, value in (env or {}).items():
+        if value is None:
+            full_env.pop(key, None)
+        else:
+            full_env[key] = value
     try:
         proc = subprocess.Popen(
-            ["git", *args], cwd=root, env=git_env(), stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+            ["git", *args], cwd=root, env=full_env,
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
             errors="replace", creationflags=NO_WINDOW,
             start_new_session=sys.platform != "win32",
         )
@@ -70,7 +87,10 @@ def run_git(root: Path, *args: str, timeout: float = 30.0) -> str:
             pass
         raise GitError(f"git {command}: timed out after {timeout:g} s") from e
     if proc.returncode != 0:
-        raise GitError(f"git {command}: {stderr.strip()}")
+        error = GitError(f"git {command}: {stderr.strip()}")
+        error.stderr = stderr.strip()
+        error.returncode = proc.returncode
+        raise error
     return stdout.strip()
 
 
