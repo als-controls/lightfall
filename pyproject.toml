@@ -81,7 +81,11 @@ dependencies = [
     # which mcp 2 depends on.
     "mcp>=2.3,<3",
     "happi>=2.0",
-    "nats-py>=2.1",
+    # <2.17: nats-py 2.17 (nats.py#1118) treats any tls= context as "TLS required",
+    # and lightfall-utils 0.3.0 IPCService always passes one, so it can no longer
+    # connect to the plaintext local nats-server. Drop the cap once lightfall-utils
+    # only passes tls= for non-local brokers.
+    "nats-py>=2.1,<2.17",
     "lightfall-utils>=0.3.0",
     "lightfall-settings>=0.1.4,<0.2",
 ]
@@ -253,7 +257,7 @@ requires = [
     "aiohttp-socks>=0.8",
     "httpx[socks]>=0.27",
     "PySocks>=1.7",
-    "nats-py>=2.1",
+    "nats-py>=2.1,<2.17",
 
     # EPICS
     "caproto>=1.1",
