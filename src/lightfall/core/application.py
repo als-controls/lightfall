@@ -542,8 +542,13 @@ class LFApplication(QObject):
                 trust.approve(app_name)
                 ipc.reply(reply, self._approved_auth_reply(ipc, app_name))
             else:
-                trust.deny(app_name)
+                # Only an explicit "Deny" is remembered. A dialog that timed
+                # out unanswered must not deny the app for the rest of the
+                # session: there is no UI to clear a denial, so a missed
+                # prompt would block the app until Lightfall restarts.
                 reason = "denied" if timer.isActive() else "timeout"
+                if reason == "denied":
+                    trust.deny(app_name)
                 ipc.reply(
                     reply,
                     ipc.build_auth_response(approved=False, reason=reason),
