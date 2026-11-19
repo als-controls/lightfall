@@ -13,7 +13,7 @@ from typing import Any
 
 from tiled.client import from_uri
 
-from lightfall.auth.service_key_auth import StaticApiKeyAuth
+from lightfall.auth.service_key_auth import tiled_static_api_key_auth
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def connect_tiled(
     """
     kwargs: dict[str, Any] = {}
     if api_key:
-        kwargs["auth"] = StaticApiKeyAuth(api_key)
+        kwargs["auth"] = tiled_static_api_key_auth(api_key)
     else:
         logger.warning("connect_tiled: no api_key provided, connecting anonymously")
 

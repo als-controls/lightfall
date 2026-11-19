@@ -65,3 +65,35 @@ def test_keycloaktiledauth_shim_also_emits_apikey(monkeypatch) -> None:
     req = httpx.Request("GET", "https://tiled.test/api/v1/metadata/")
     out = next(auth.sync_auth_flow(req))
     assert out.headers["Authorization"] == "Apikey shim-key"
+
+
+def test_tiled_auth_factories_pass_tiled_type_check(monkeypatch) -> None:
+    """tiled>=0.2.21 runs on httpx2 and rejects plain ``httpx.Auth``.
+
+    The factories must produce instances of tiled's own Auth base and still
+    emit the Apikey header.
+    """
+    from tiled.client import context as tiled_context
+
+    from lightfall.auth.service_key_auth import (
+        tiled_service_key_auth,
+        tiled_static_api_key_auth,
+    )
+
+    class _SM:
+        @classmethod
+        def get_instance(cls):
+            return cls()
+
+        def get_api_key(self, service):
+            return "cached-key"
+
+    monkeypatch.setattr("lightfall.auth.service_key_auth.SessionManager", _SM)
+    thttpx = tiled_context.httpx
+    for auth, expected in (
+        (tiled_service_key_auth("tiled"), "Apikey cached-key"),
+        (tiled_static_api_key_auth("literal"), "Apikey literal"),
+    ):
+        assert isinstance(auth, thttpx.Auth)
+        req = thttpx.Request("GET", "https://tiled.test/api/v1/metadata/")
+        assert next(auth.sync_auth_flow(req)).headers["Authorization"] == expected
