@@ -118,6 +118,11 @@ dev = [
     # in-process Tiled server (tiled.server.app.build_app, tiled.catalog), which
     # needs fastapi & co. from tiled's [server] extra; [client] alone lacks them.
     "tiled[server]>=0.2.5",
+    # tiled>=0.2.21 is built on httpx2 and Context.from_app wraps Starlette's
+    # TestClient, which only speaks httpx2 from starlette 1.10 on. With an older
+    # starlette the in-process server test fails: "Expected str or httpx.URL,
+    # got httpx2.URL".
+    "starlette>=1.10",
 ]
 docs = [
     "sphinx>=8.0,<9.0",
