@@ -40,12 +40,17 @@ from __future__ import annotations
 import collections.abc
 import copy
 import math
+import posixpath
+from pathlib import PurePosixPath
 from typing import Any
 
 import numpy
 import pyarrow
 from bluesky_tiled_plugins.writing.tiled_writer import (
     BATCH_SIZE,
+)
+from bluesky_tiled_plugins.writing.tiled_writer import (
+    RunNormalizer as _UpstreamRunNormalizer,
 )
 from bluesky_tiled_plugins.writing.tiled_writer import (
     TiledWriter as _UpstreamTiledWriter,
@@ -278,12 +283,64 @@ class _DescribedSchemaRunWriter(_UpstreamRunWriter):
         df_client.append_partition(0, table)
 
 
+def _posix_resource_uri(doc: dict[str, Any]) -> str | None:
+    r"""The ``file://`` URI for a legacy Resource whose path is POSIX, else ``None``.
+
+    Upstream ``RunNormalizer._convert_resource_to_stream_resource`` joins
+    ``root`` + ``resource_path`` and passes the result to
+    ``tiled.utils.ensure_uri``, which runs ``Path(path).absolute()``. On a
+    Windows acquisition host that turns the detector-side path ``/data/x.h5``
+    into ``file://localhost/C:\data\x.h5``, ignoring the document's
+    ``path_semantics``, and the Tiled server rejects the registration (403:
+    "not configured to read from the location of this data").
+
+    Returns the URI that ``ensure_uri`` would produce on a POSIX host
+    (``file://localhost/data/x.h5``), preserving a trailing ``/`` (the
+    directory-URI convention). Applies when ``path_semantics`` is ``"posix"``,
+    or is absent and the path is POSIX-absolute. Relative paths and
+    ``"windows"`` semantics return ``None`` so upstream behaviour is kept.
+    """
+    if "mimetype" in doc:  # already a current-schema StreamResource
+        return None
+    semantics = doc.get("path_semantics")
+    if semantics not in (None, "posix"):
+        return None
+    root = doc.get("root") or ""
+    resource_path = doc.get("resource_path") or ""
+    # Same composition as upstream, so the two can only differ in the
+    # path -> URI step.
+    if root:
+        head = "/" if resource_path.startswith("/") else ""
+        path = posixpath.join(root + head, resource_path.lstrip("/"))
+    else:
+        path = resource_path
+    if not path.startswith("/"):
+        return None
+    tail = "/" if path.endswith("/") else ""
+    # PurePosixPath drops a trailing "/" and collapses "//" and "." segments,
+    # as Path.absolute() does on POSIX.
+    return f"file://localhost{PurePosixPath(path)}".rstrip("/") + tail
+
+
+class PosixAwareRunNormalizer(_UpstreamRunNormalizer):
+    """``RunNormalizer`` that honours POSIX ``path_semantics`` on any client OS."""
+
+    def _convert_resource_to_stream_resource(self, doc):  # type: ignore[override]
+        uri = _posix_resource_uri(doc)
+        stream_resource = super()._convert_resource_to_stream_resource(doc)
+        if uri is not None and stream_resource.get("uri") != uri:
+            stream_resource["uri"] = uri
+        return stream_resource
+
+
 class TiledWriter(_UpstreamTiledWriter):
     """``TiledWriter`` that uses ``_DescribedSchemaRunWriter`` per run.
 
     Drop-in replacement for ``bluesky_tiled_plugins.TiledWriter`` — the only
-    behavioural delta is the schema-from-descriptor construction inside
-    ``_write_internal_data``. All other knobs (``batch_size``,
+    behavioural deltas are the schema-from-descriptor construction inside
+    ``_write_internal_data`` and, when the default normalizer is in use,
+    ``PosixAwareRunNormalizer`` (POSIX Resource paths keep POSIX URIs on
+    Windows). All other knobs (``batch_size``,
     ``max_array_size``, ``backup_directory``, ``patches``, ``validate``)
     behave identically.
     """
@@ -301,8 +358,11 @@ class TiledWriter(_UpstreamTiledWriter):
             validate=self._validate,
         )
 
-        if self._normalizer:
-            cb = self._normalizer(
+        normalizer = self._normalizer
+        if normalizer is _UpstreamRunNormalizer:
+            normalizer = PosixAwareRunNormalizer
+        if normalizer:
+            cb = normalizer(
                 patches=self.patches, spec_to_mimetype=self.spec_to_mimetype
             )
             cb.subscribe(run_writer)
@@ -313,4 +373,4 @@ class TiledWriter(_UpstreamTiledWriter):
         return [cb], []
 
 
-__all__ = ["TiledWriter", "BATCH_SIZE"]
+__all__ = ["TiledWriter", "PosixAwareRunNormalizer", "BATCH_SIZE"]
