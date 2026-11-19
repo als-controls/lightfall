@@ -492,92 +492,29 @@ class TiledService(QObject):
             logger.error("Proxy connectivity test FAILED: {} → {}: {}", proxy_url, target_url, e)
 
     @staticmethod
-    def _create_proxy_transport(proxy_url: str) -> Any:
-        """Create a proxy-aware httpx transport.
-
-        Args:
-            proxy_url: The proxy URL (e.g. ``socks5://localhost:1080``).
-
-        Returns:
-            A transport instance, or None if creation failed.
-        """
-        if proxy_url.startswith("socks"):
-            try:
-                from httpx_socks import SyncProxyTransport
-
-                t = SyncProxyTransport.from_url(proxy_url)
-                logger.info("Created SyncProxyTransport for {}", proxy_url)
-                return t
-            except ImportError:
-                logger.error(
-                    "httpx-socks not installed — cannot use SOCKS proxy for Tiled. "
-                    "Install with: pip install httpx-socks"
-                )
-                return None
-        else:
-            import httpx
-
-            t = httpx.HTTPTransport(proxy=proxy_url)
-            logger.info("Created HTTPTransport(proxy={}) for Tiled", proxy_url)
-            return t
-
-    @staticmethod
     def _patch_tiled_for_proxy(proxy_url: str) -> dict[str, Any] | None:
         """Patch tiled to use a SOCKS/HTTP proxy for all connections.
 
-        Tiled's ``Context.from_any_uri`` makes a bare ``httpx.get()`` call
-        (to check for HTTP→HTTPS redirects) before creating its transport.
-        We must patch both:
-
-        1. ``httpx.get`` / ``httpx.request`` — for the redirect check
-        2. ``context.Transport`` — for the actual client connection
-
-        Args:
-            proxy_url: The proxy URL.
+        See :mod:`lightfall.services.tiled_proxy`: both tiled's redirect probe
+        (``httpx.get``) and its client Transport are routed through the proxy,
+        using tiled's own httpx flavour (httpx2 on tiled>=0.2.21).
 
         Returns:
-            Dict with restore info, or None if patching failed.
+            Restore info for :meth:`_restore_tiled_transport`, or None if
+            patching failed.
         """
+        from lightfall.services import tiled_proxy
+
         try:
-            import httpx
-            import tiled.client.context as context_mod
-            from tiled.client.transport import Transport as OriginalTransport
-
-            proxy_transport = TiledService._create_proxy_transport(proxy_url)
-            if proxy_transport is None:
-                return None
-
-            # 1. Patch httpx.get (used by Context.from_any_uri for redirect check)
-            #    Create a proxy-aware client for top-level httpx functions.
-            original_httpx_get = httpx.get
-
-            def proxy_httpx_get(url, **kwargs):
-                logger.info("Intercepted httpx.get({}) — routing through proxy", url)
-                # Create a one-shot client with proxy transport
-                proxy_t = TiledService._create_proxy_transport(proxy_url)
-                with httpx.Client(transport=proxy_t, timeout=15.0) as client:
-                    return client.get(url, **kwargs)
-
-            context_mod.httpx.get = proxy_httpx_get  # type: ignore[attr-defined]
-
-            # 2. Patch Transport for the actual client
-            class ProxyTransport(OriginalTransport):
-                """Transport wrapper that uses a proxy-aware inner transport."""
-
-                def __init__(self, *, transport=None, **kwargs):
-                    logger.info("ProxyTransport.__init__: injecting proxy inner transport")
-                    super().__init__(transport=proxy_transport, **kwargs)
-
-            original_transport_cls = context_mod.Transport
-            context_mod.Transport = ProxyTransport
-
-            logger.info("Patched tiled for proxy: {}", proxy_url)
-
-            return {
-                "original_transport_cls": original_transport_cls,
-                "original_httpx_get": original_httpx_get,
-                "context_mod": context_mod,
-            }
+            state = tiled_proxy.install(proxy_url)
+        except ImportError as e:
+            logger.error(
+                "Cannot use proxy {} for Tiled ({}). For SOCKS install socksio "
+                "(pip install 'httpx[socks]' / 'httpx2[socks]').",
+                proxy_url,
+                e,
+            )
+            return None
         except Exception as e:
             import traceback
 
@@ -587,17 +524,18 @@ class TiledService(QObject):
                 traceback.format_exc(),
             )
             return None
+        logger.info("Patched tiled for proxy: {}", proxy_url)
+        return state
 
     @staticmethod
     def _restore_tiled_transport(restore_info: dict[str, Any] | None) -> None:
         """Restore all tiled patches."""
-        if restore_info is None:
-            return
+        from lightfall.services import tiled_proxy
+
         try:
-            context_mod = restore_info["context_mod"]
-            context_mod.Transport = restore_info["original_transport_cls"]
-            context_mod.httpx.get = restore_info["original_httpx_get"]
-            logger.debug("Restored original tiled Transport and httpx.get")
+            tiled_proxy.restore(restore_info)
+            if restore_info:
+                logger.debug("Restored original tiled Transport and httpx.get")
         except Exception:
             pass
 

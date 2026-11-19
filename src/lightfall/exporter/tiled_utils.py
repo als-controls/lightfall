@@ -44,36 +44,17 @@ def connect_tiled(
     if not proxy_url:
         return from_uri(url, **kwargs)
 
-    # Tiled's from_uri calls httpx.get() for a redirect check and then
-    # creates a Transport for the real connection.  Both need to go
-    # through the proxy.
-    import httpx
-    import tiled.client.context as context_mod
-    from tiled.client.transport import Transport as OriginalTransport
+    # Tiled's from_uri probes the URL with httpx.get() and then builds a
+    # Transport for the real connection; tiled_proxy routes both through the
+    # proxy using tiled's own httpx flavour.
+    from lightfall.services import tiled_proxy
 
-    proxy_transport = httpx.HTTPTransport(proxy=proxy_url)
-
-    original_httpx_get = context_mod.httpx.get
-
-    def proxy_httpx_get(u, **kw):
-        with httpx.Client(proxy=proxy_url, timeout=15.0) as client:
-            return client.get(u, **kw)
-
-    context_mod.httpx.get = proxy_httpx_get  # type: ignore[attr-defined]
-
-    class ProxyTransport(OriginalTransport):
-        def __init__(self, *, transport=None, **kw):
-            super().__init__(transport=proxy_transport, **kw)
-
-    original_transport_cls = context_mod.Transport
-    context_mod.Transport = ProxyTransport
-
+    state = tiled_proxy.install(proxy_url)
     try:
         logger.info("Connecting to Tiled at %s via proxy %s", url, proxy_url)
         return from_uri(url, **kwargs)
     finally:
-        context_mod.Transport = original_transport_cls
-        context_mod.httpx.get = original_httpx_get
+        tiled_proxy.restore(state)
 
 
 def get_run(client: Any, uid: str) -> Any:
