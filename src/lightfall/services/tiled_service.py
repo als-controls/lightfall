@@ -155,6 +155,12 @@ class TiledService(QObject):
         self._subscription_token: int | None = None
         self._error_message: str = ""
         self._connect_thread: QThreadFuture | None = None
+        # Bumped by every connect_async() and disconnect_tiled(). An async
+        # connect only applies its result if no newer connect/disconnect has
+        # happened since it started; otherwise two overlapping connects (e.g.
+        # configure() re-run while the first was still CONNECTING) would each
+        # install a client and subscribe a writer.
+        self._connect_generation: int = 0
         self._session_connected = False
 
         # Health check timer
@@ -275,6 +281,8 @@ class TiledService(QObject):
             self._set_state(TiledConnectionState.ERROR, "No Tiled URL configured")
             return False
 
+        # A synchronous connect supersedes any async connect still in flight
+        self._connect_generation += 1
         self._set_state(TiledConnectionState.CONNECTING, "Connecting to Tiled server...")
 
         try:
@@ -398,14 +406,18 @@ class TiledService(QObject):
         api_key = self._config.api_key
         auth_mode = self._config.auth_mode
 
+        self._connect_generation += 1
+        generation = self._connect_generation
+
         # Run connection in background thread
         self._connect_thread = QThreadFuture(
-            self._do_connect,
+            self._do_connect_tagged,
+            generation,
             url,
             api_key,
             auth_mode,
-            callback_slot=self._on_connect_complete,
-            except_slot=self._on_connect_error,
+            callback_slot=self._on_connect_result,
+            except_slot=self._on_connect_failure,
             name="tiled_connect",
         )
         self._connect_thread.start()
@@ -577,6 +589,40 @@ class TiledService(QObject):
 
         return client
 
+    def _do_connect_tagged(
+        self, generation: int, url: str, api_key: str | None, auth_mode: TiledAuthMode
+    ) -> tuple[int, Any]:
+        """Run :meth:`_do_connect` and tag the outcome with its connect generation."""
+        try:
+            return generation, self._do_connect(url, api_key, auth_mode)
+        except Exception as e:
+            e._lightfall_tiled_connect_generation = generation  # type: ignore[attr-defined]
+            raise
+
+    def _on_connect_result(self, result: Any = None) -> None:
+        """Main-thread slot for a tagged async connect; drops superseded results."""
+        if result is None:
+            return
+        generation, client = result
+        if generation != self._connect_generation:
+            logger.info(
+                "Ignoring stale Tiled connect result (generation {} superseded by {})",
+                generation,
+                self._connect_generation,
+            )
+            return
+        self._on_connect_complete(client)
+
+    def _on_connect_failure(self, error: Exception) -> None:
+        """Main-thread slot for a tagged async connect error; drops superseded ones."""
+        generation = getattr(error, "_lightfall_tiled_connect_generation", None)
+        if generation is not None and generation != self._connect_generation:
+            logger.debug(
+                "Ignoring stale Tiled connect error (generation {}): {}", generation, error
+            )
+            return
+        self._on_connect_error(error)
+
     def _on_connect_complete(self, client: Any = None) -> None:
         """Handle successful connection (called in main thread).
 
@@ -660,6 +706,9 @@ class TiledService(QObject):
         Named ``disconnect_tiled`` (not ``disconnect``) to avoid shadowing
         :meth:`QObject.disconnect`.
         """
+        # Invalidate any async connect still in flight
+        self._connect_generation += 1
+
         # Stop health check timer
         self._health_timer.stop()
 
@@ -729,9 +778,18 @@ class TiledService(QObject):
 
         Uses ThreadedTiledWriter wrapper to prevent blocking the main thread
         during HTTP calls to the Tiled server.
+
+        Idempotent: any previously subscribed writer is unsubscribed (and
+        flushed/stopped) first. Overwriting ``_writer``/``_subscription_token``
+        without that left the old writer subscribed but untracked, so every
+        run was written twice and the second start-document POST hit a 409.
         """
         if self._client is None:
             return
+
+        if self._writer is not None or self._subscription_token is not None:
+            logger.debug("Replacing existing TiledWriter subscription")
+            self._unsubscribe_writer()
 
         try:
             from lightfall.acquire import get_engine
