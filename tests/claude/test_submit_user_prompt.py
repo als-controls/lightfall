@@ -41,6 +41,7 @@ class FakeAgent(QObject):
     error_occurred = Signal(str)
     query_completed = Signal()
     query_cancelled = Signal()
+    turn_started = Signal(bool)
     permission_requested = Signal(str, str, dict)
     permission_expired = Signal(str)
     question_requested = Signal(str, list)
@@ -403,3 +404,41 @@ def test_placeholder_flash_after_busy_ends_restores_idle(w, qtbot):
     qtbot.waitUntil(lambda: w.input_field.placeholderText() == idle, timeout=2000)
     qtbot.wait(100)
     assert w.input_field.placeholderText() == idle
+
+
+def _system_lines(w):
+    from PySide6.QtWidgets import QLabel
+    return [lbl.text() for lbl in w.findChildren(QLabel) if "background event" in lbl.text()]
+
+
+def test_unprompted_turn_shows_busy_and_says_why(w):
+    """A turn the session starts itself (background task finished) while the
+    chat is idle must show as busy, then settle back on completion."""
+    w.agent.busy = True
+    w.agent.turn_started.emit(True)
+    assert w._is_busy and not w.input_field.isEnabled()
+    assert len(_system_lines(w)) == 1
+    w.agent.complete()
+    assert not w._is_busy and w.input_field.isEnabled()
+
+
+def test_turn_started_while_already_busy_changes_nothing(w):
+    assert w.submit_user_prompt("one") == "sent"
+    w.agent.turn_started.emit(False)
+    w.agent.turn_started.emit(True)  # e.g. an injected turn ahead of ours
+    assert _system_lines(w) == []
+    assert w._is_busy
+
+
+def test_queued_prompt_turn_after_cancel_shows_busy_without_note(w):
+    w.agent.turn_started.emit(False)
+    assert w._is_busy
+    assert _system_lines(w) == []
+
+
+def test_prompt_submitted_during_unprompted_turn_is_queued(w):
+    w.agent.busy = True
+    w.agent.turn_started.emit(True)
+    assert w.submit_user_prompt("next") == "queued"
+    w.agent.complete()
+    assert w.agent.sent == ["next"]

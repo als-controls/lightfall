@@ -4,18 +4,17 @@ from __future__ import annotations
 import asyncio
 
 from claude_agent_sdk.types import ResultMessage
+
 from lightfall.claude._internal.worker import PersistentClaudeWorker
+from tests.claude.session_stub import TurnScriptedStream
 
 
-class _ModelStubClient:
+class _ModelStubClient(TurnScriptedStream):
     def __init__(self) -> None:
         self.models: list[str] = []
         self._set_evt = asyncio.Event()
 
     async def connect(self, prompt: str | None = None) -> None:
-        pass
-
-    async def query(self, prompt: str) -> None:
         pass
 
     async def receive_response(self):

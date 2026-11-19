@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 from claude_agent_sdk.types import ResultMessage
+
 from lightfall.claude._internal.worker import PersistentClaudeWorker
+from tests.claude.session_stub import TurnScriptedStream
 
 
-class _SidStubClient:
+class _SidStubClient(TurnScriptedStream):
     async def connect(self, prompt: str | None = None) -> None:
-        pass
-
-    async def query(self, prompt: str) -> None:
         pass
 
     async def receive_response(self):

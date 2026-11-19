@@ -1,4 +1,4 @@
-"""ClaudeCodeBackend translates SDK messages into neutral AgentEvents."""
+"""ClaudeCodeBackend translates the SDK session stream into neutral AgentEvents."""
 from __future__ import annotations
 
 import asyncio
@@ -7,15 +7,22 @@ from claude_agent_sdk.types import (
     AssistantMessage,
     ResultMessage,
     StreamEvent,
+    SystemMessage,
+    TaskNotificationMessage,
     TextBlock,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
 )
 
 from lightfall.agents.backend import (
     ContextUsageEvent,
+    PromptAcceptedEvent,
     SessionIdEvent,
+    TaskFinishedEvent,
     TextBlockEvent,
     TurnResultEvent,
+    TurnStartedEvent,
 )
 from lightfall.agents.backends.claude_code.backend import ClaudeCodeBackend
 
@@ -27,7 +34,7 @@ class _Client:
     async def query(self, prompt):
         pass
 
-    async def receive_response(self):
+    async def receive_messages(self):
         for m in self.msgs:
             yield m
 
@@ -35,15 +42,21 @@ class _Client:
         return self.ctx
 
 
-def _result(sid="sess"):
+def _result(sid="sess", **kw):
+    kw.setdefault("num_turns", 1)
     return ResultMessage(subtype="success", duration_ms=0, duration_api_ms=0,
-                         is_error=False, num_turns=1, session_id=sid)
+                         is_error=False, session_id=sid, **kw)
 
 
-def _collect(backend, prompt="hi"):
+def _all_events(backend):
     async def go():
-        return [e async for e in backend.run_turn(prompt, lambda: False, lambda: False)]
+        return [e async for e in backend.events(lambda: False)]
     return asyncio.run(go())
+
+
+def _collect(backend):
+    """The stream's events minus turn-boundary bookkeeping."""
+    return [e for e in _all_events(backend) if not isinstance(e, TurnStartedEvent)]
 
 
 def test_backend_falls_back_to_full_blocks():
@@ -163,3 +176,121 @@ def test_close_swallows_disconnect_errors():
     client = _ClosableClient(raises=True)
     asyncio.run(ClaudeCodeBackend(client).close())  # must not raise
     assert client.disconnects == 1
+
+
+# --- turn boundaries, prompt echoes, injected turns -------------------------
+
+def _init():
+    return SystemMessage(subtype="init", data={})
+
+
+def _notification():
+    return TaskNotificationMessage(
+        subtype="task_notification", data={}, task_id="bg1", status="stopped",
+        output_file="", summary="Background shell command didn't finish",
+        uuid="u-n", session_id="sess",
+    )
+
+
+def _names(events):
+    return [type(e).__name__ for e in events]
+
+
+def test_injected_turn_before_prompt_is_its_own_turn():
+    """The 2026-11-19 sequence: a task notification pending at send time makes
+    the CLI run (and close) an injected zero-turn turn before the prompt's."""
+    msgs = [
+        _notification(),
+        _init(),
+        _result(num_turns=0, origin={"kind": "task-notification"}),
+        _init(),
+        UserMessage(content="I restarted. Are we able to test rixs-live?"),
+        AssistantMessage(content=[TextBlock(text="Checking.")], model="m"),
+        _result(num_turns=14, terminal_reason="completed"),
+    ]
+    events = _all_events(ClaudeCodeBackend(_Client(msgs)))
+    assert _names(events) == [
+        "TaskFinishedEvent",
+        "TurnStartedEvent", "TurnResultEvent", "SessionIdEvent",
+        "TurnStartedEvent", "PromptAcceptedEvent", "TextBlockEvent",
+        "TurnResultEvent", "SessionIdEvent",
+    ]
+    results = [e.info for e in events if isinstance(e, TurnResultEvent)]
+    assert results[0]["origin"] == "task-notification"
+    assert results[1]["origin"] == ""
+    assert results[1]["text"] == "Checking."
+    assert not any(r["cancelled"] for r in results)
+
+
+def test_prompt_sent_mid_turn_is_accepted_into_the_running_turn():
+    msgs = [
+        _init(),
+        UserMessage(content="A"),
+        AssistantMessage(content=[ToolUseBlock(id="t1", name="Bash", input={})], model="m"),
+        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="ok")]),
+        UserMessage(content="B"),
+        AssistantMessage(content=[TextBlock(text="B-DONE")], model="m"),
+        _result(num_turns=2),
+    ]
+    events = _all_events(ClaudeCodeBackend(_Client(msgs)))
+    assert _names(events).count("TurnStartedEvent") == 1
+    assert _names(events).count("PromptAcceptedEvent") == 2
+    assert _names(events).count("TurnResultEvent") == 1
+
+
+def test_only_plain_string_user_messages_count_as_prompt_echoes():
+    msgs = [
+        _init(),
+        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="ok")]),
+        # The CLI's "[Request interrupted by user]" marker is a block list.
+        UserMessage(content=[TextBlock(text="[Request interrupted by user]")]),
+        UserMessage(content="subagent prompt", parent_tool_use_id="task-1"),
+        UserMessage(content="<task-notification>", origin={"kind": "task-notification"}),
+        UserMessage(content="typed by a human", origin={"kind": "human"}),
+        _result(),
+    ]
+    events = _all_events(ClaudeCodeBackend(_Client(msgs)))
+    assert sum(isinstance(e, PromptAcceptedEvent) for e in events) == 1
+
+
+def test_task_messages_between_turns_do_not_open_a_turn():
+    msgs = [_result(), _notification()]
+    events = _all_events(ClaudeCodeBackend(_Client(msgs)))
+    assert _names(events)[-1] == "TaskFinishedEvent"
+    assert _names(events).count("TurnStartedEvent") == 1  # the result's own turn
+    assert isinstance(events[-1], TaskFinishedEvent)
+
+
+def test_interrupted_turn_result_is_marked_cancelled():
+    msgs = [_init(), UserMessage(content="go"),
+            ResultMessage(subtype="error_during_execution", duration_ms=0,
+                          duration_api_ms=0, is_error=False, num_turns=2,
+                          session_id="s", terminal_reason="aborted_streaming")]
+    info = _result_info(_collect(ClaudeCodeBackend(_Client(msgs))))
+    assert info["cancelled"] is True
+
+
+def test_turn_state_resets_between_turns():
+    """Streamed text in one turn must not suppress the fallback emit in the next."""
+    msgs = [
+        _init(), _delta("Pong"),
+        AssistantMessage(content=[TextBlock(text="Pong")], model="m"), _result(),
+        _init(), AssistantMessage(content=[TextBlock(text="unstreamed")], model="m"),
+        _result(),
+    ]
+    events = _collect(ClaudeCodeBackend(_Client(msgs)))
+    assert TextBlockEvent("unstreamed") in events
+    assert TextBlockEvent("Pong") not in events
+    results = [e.info for e in events if isinstance(e, TurnResultEvent)]
+    assert [r["text"] for r in results] == ["Pong", "unstreamed"]
+
+
+def test_send_writes_the_prompt():
+    sent = []
+
+    class _C(_Client):
+        async def query(self, prompt):
+            sent.append(prompt)
+
+    asyncio.run(ClaudeCodeBackend(_C([])).send("hello"))
+    assert sent == ["hello"]

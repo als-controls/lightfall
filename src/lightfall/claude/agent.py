@@ -291,6 +291,8 @@ class QtClaudeAgent(QObject):
         error_occurred(str): Emitted when an error occurs
         query_completed(): Emitted when a query finishes successfully
         result_received(dict): Emitted with usage/cost information
+        turn_started(bool): A turn began; True when the session started it
+            itself (e.g. a background task finished while idle)
     """
 
     # Signals
@@ -302,6 +304,7 @@ class QtClaudeAgent(QObject):
     query_completed = Signal()
     query_cancelled = Signal()  # Emitted when a query is cancelled
     result_received = Signal(dict)
+    turn_started = Signal(bool)  # True: the session started this turn itself
     context_usage = Signal(dict)  # context-window usage after each turn
     cockpit_reset = Signal()  # title-bar cockpit should zero (new/reset session)
     session_id_changed = Signal(str)  # current SDK session id
@@ -674,6 +677,7 @@ class QtClaudeAgent(QObject):
         self._worker.query_completed.connect(self.query_completed)
         self._worker.query_cancelled.connect(self.query_cancelled)
         self._worker.result_received.connect(self.result_received)
+        self._worker.turn_started.connect(self.turn_started)
         self._worker.context_usage.connect(self.context_usage)
         self._worker.session_id_changed.connect(self.session_id_changed)
         self._attach_telemetry()

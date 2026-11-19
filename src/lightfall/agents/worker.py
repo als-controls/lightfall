@@ -2,11 +2,24 @@
 
 Owns the thread, event loop, query queue and cancel/stop flags, and maps the
 backend's neutral :mod:`lightfall.agents.backend` events onto Qt signals.
+
+Two drive modes, picked from the backend's shape:
+
+- turn-based (``run_turn``): one prompt at a time, each turn read to its end.
+- session-stream (``session_stream = True``): one reader consumes the
+  backend's event stream for the session's whole life and prompts are sent
+  as they arrive. The stream also carries turns the session starts itself
+  (background-task notifications), and a prompt sent mid-turn joins the
+  running turn, so prompts and results don't pair up. Busy/idle is derived
+  instead: busy while a turn runs or any sent prompt has not yet been taken
+  in (PromptAcceptedEvent); the "query finished" signals fire when a turn
+  ends with nothing of ours still waiting.
 """
 from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from queue import Empty, Queue
 from typing import Any
 
@@ -20,6 +33,7 @@ from lightfall.agents.backend import (
     PartialStartedEvent,
     PartialTextEvent,
     PartialThinkingEvent,
+    PromptAcceptedEvent,
     SessionIdEvent,
     TaskFinishedEvent,
     TaskProgressEvent,
@@ -31,8 +45,17 @@ from lightfall.agents.backend import (
     TurnCancelledEvent,
     TurnErrorEvent,
     TurnResultEvent,
+    TurnStartedEvent,
 )
 from lightfall.utils.logging import logger
+
+# Session-stream mode: how long after interrupt() the cancelled turn's result
+# may take before the worker declares the turn cancelled anyway.
+CANCEL_SETTLE_S = 3.0
+# Session-stream mode: a sent prompt the session neither took in nor started a
+# turn for within this long (stream silent throughout) is given up on, so the
+# UI can't stay busy forever. The CLI normally starts its turn within ~1 s.
+PROMPT_STALL_S = 60.0
 
 
 class AgentWorker(QThread):
@@ -55,6 +78,10 @@ class AgentWorker(QThread):
     result_received = Signal(dict)
     context_usage = Signal(dict)  # ContextUsageResponse after each turn
     session_id_changed = Signal(str)  # current session id from ResultMessage
+    # Session-stream mode: a turn began. True when no prompt of ours is
+    # waiting, i.e. the session started this turn itself (e.g. a background
+    # task finished while idle).
+    turn_started = Signal(bool)
     connected = Signal()
     # Partial streaming (content_block_* events from StreamEvent)
     partial_block_started = Signal(str, str)  # block_id, kind
@@ -95,6 +122,17 @@ class AgentWorker(QThread):
         self._connect_lock = threading.Lock()
         # set_effort requested mid-turn or before connect() finished
         self._pending_effort: tuple[str | None] | None = None
+        # Session-stream mode state (see module docstring). The pending count
+        # is bumped on the caller's thread in send_query, so is_processing
+        # never reads idle between "queued" and "sent".
+        self._session_mode = bool(getattr(backend, "session_stream", False))
+        self._pending_lock = threading.Lock()
+        self._pending_prompts = 0
+        self._in_turn = False
+        self._cancel_at: float | None = None  # monotonic time of cancel request
+        self._cancel_forced = False  # gave up waiting for the cancelled turn's result
+        self._session_ended = False
+        self._last_activity = time.monotonic()
         self._shutdown_event: asyncio.Event | None = None  # Created in run()
         self._processing_stopped = threading.Event()  # Signals when loop exits
 
@@ -119,7 +157,10 @@ class AgentWorker(QThread):
 
             # Process queries until stopped
             logger.debug("AgentWorker: Starting query processing loop...")
-            self._loop.run_until_complete(self._process_queries())
+            if self._session_mode:
+                self._loop.run_until_complete(self._run_session())
+            else:
+                self._loop.run_until_complete(self._process_queries())
 
         except Exception as e:
             import traceback
@@ -215,6 +256,158 @@ class AgentWorker(QThread):
             self._cancel_requested = False
             await self._apply_deferred()
 
+    # --- session-stream mode -------------------------------------------------
+
+    def _pending(self) -> int:
+        with self._pending_lock:
+            return self._pending_prompts
+
+    def _set_pending(self, n: int) -> None:
+        with self._pending_lock:
+            self._pending_prompts = max(0, n)
+
+    def _dec_pending(self) -> None:
+        with self._pending_lock:
+            self._pending_prompts = max(0, self._pending_prompts - 1)
+
+    def _clear_cancel(self) -> None:
+        self._cancel_at = None
+        self._cancel_forced = False
+        self._cancel_requested = False
+
+    async def _run_session(self) -> None:
+        """Send queued prompts as they come while one task reads the stream."""
+        reader = asyncio.ensure_future(self._read_session())
+        try:
+            while not self._should_stop:
+                try:
+                    prompt = self._query_queue.get_nowait()
+                except Empty:
+                    await self._session_watchdog()
+                    await asyncio.sleep(0.1)
+                    continue
+                self._last_activity = time.monotonic()
+                if self._session_ended:
+                    self._dec_pending()
+                    self.error_occurred.emit(
+                        "The agent session has ended; reset the conversation "
+                        "to start a new one."
+                    )
+                    continue
+                try:
+                    await self.backend.send(prompt)
+                except Exception as e:  # noqa: BLE001 - never kill the worker loop
+                    logger.exception("AgentWorker: backend send failed")
+                    self._dec_pending()
+                    self.error_occurred.emit(f"Could not send the message to the agent: {e}")
+        except asyncio.CancelledError:
+            pass  # Clean shutdown
+        finally:
+            reader.cancel()
+            try:
+                await reader
+            except BaseException:  # noqa: BLE001 - cancelled/failed reader at shutdown
+                pass
+            self._processing_stopped.set()
+
+    async def _read_session(self) -> None:
+        errored = False
+        try:
+            async for ev in self.backend.events(lambda: self._should_stop):
+                self._last_activity = time.monotonic()
+                if isinstance(ev, TurnErrorEvent):
+                    errored = True
+                await self._on_session_event(ev)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # backend bug: report, don't kill the worker
+            import traceback
+            logger.exception("AgentWorker: backend events() raised")
+            errored = True
+            self.error_occurred.emit(f"Agent stream error: {e}\n{traceback.format_exc()}")
+        if self._should_stop:
+            return
+        self._session_ended = True
+        self._reset_session_state()
+        if not errored:
+            logger.warning("AgentWorker: session stream ended")
+            self.error_occurred.emit(
+                "The agent's response stream ended (backend process exited)."
+            )
+
+    def _reset_session_state(self) -> None:
+        self._set_pending(0)
+        self._in_turn = False
+        self._clear_cancel()
+
+    async def _on_session_event(self, ev: AgentEvent) -> None:
+        if isinstance(ev, TurnStartedEvent):
+            self._in_turn = True
+            if self._cancel_forced:
+                # The abandoned turn's leftovers are over; this is a new one.
+                self._clear_cancel()
+            self.turn_started.emit(self._pending() == 0)
+        elif isinstance(ev, PromptAcceptedEvent):
+            self._dec_pending()
+            if self._cancel_forced:
+                # A new prompt joined the abandoned turn: show its output.
+                self._clear_cancel()
+        elif isinstance(ev, TurnResultEvent):
+            self._in_turn = False
+            if self._cancel_at is not None or ev.info.get("cancelled"):
+                forced = self._cancel_forced
+                self._clear_cancel()
+                if not forced:
+                    self.query_cancelled.emit()
+            else:
+                self.result_received.emit(ev.info)
+                if self._pending() == 0:
+                    self.query_completed.emit()
+            if not self.is_processing:
+                await self._apply_deferred()
+        elif isinstance(ev, TurnErrorEvent):
+            self._reset_session_state()
+            self.error_occurred.emit(ev.message)
+        elif isinstance(
+            ev, (SessionIdEvent, ContextUsageEvent,
+                 TaskStartedEvent, TaskProgressEvent, TaskFinishedEvent),
+        ):
+            self._emit(ev)
+        elif isinstance(ev, TurnCancelledEvent):
+            logger.warning("AgentWorker: TurnCancelledEvent in session mode ignored")
+        elif self._cancel_at is not None:
+            pass  # the cancelled turn's remaining output: drop it
+        else:
+            self._emit(ev)
+
+    async def _session_watchdog(self) -> None:
+        """Unstick the UI if the session never answers a cancel or a prompt."""
+        now = time.monotonic()
+        if self._cancel_at is not None:
+            if not self._cancel_forced and now - self._cancel_at > CANCEL_SETTLE_S:
+                logger.warning(
+                    "AgentWorker: no result {}s after interrupt; treating the turn "
+                    "as cancelled", CANCEL_SETTLE_S,
+                )
+                self._cancel_forced = True  # keep dropping its late output
+                self._in_turn = False
+                self._set_pending(0)
+                self.query_cancelled.emit()
+                await self._apply_deferred()
+        elif (
+            not self._in_turn
+            and self._pending() > 0
+            and now - self._last_activity > PROMPT_STALL_S
+        ):
+            logger.warning(
+                "AgentWorker: {} prompt(s) not taken in after {}s of silence; giving up",
+                self._pending(), PROMPT_STALL_S,
+            )
+            self._set_pending(0)
+            self.error_occurred.emit(
+                f"The agent did not start on the message within {PROMPT_STALL_S:.0f} s."
+            )
+
     async def _apply_deferred(self) -> None:
         """Apply set_model / set_effort requests held during a turn or the connect."""
         with self._connect_lock:
@@ -283,6 +476,9 @@ class AgentWorker(QThread):
         """
         if self._is_connected:
             logger.debug("Queuing query: {}...", prompt[:50])
+            if self._session_mode:
+                with self._pending_lock:
+                    self._pending_prompts += 1
             self._query_queue.put(prompt)
         else:
             logger.warning("Cannot send query — not connected!")
@@ -300,8 +496,10 @@ class AgentWorker(QThread):
         Returns:
             True if a query was being processed and cancel was requested.
         """
-        if self._is_processing:
+        if self.is_processing:
             self._cancel_requested = True
+            if self._session_mode and self._cancel_at is None:
+                self._cancel_at = time.monotonic()
             # Cancel any pending permission requests so we're not stuck
             # waiting for user approval on a query they want to cancel
             if self._permission_manager is not None:
@@ -347,7 +545,7 @@ class AgentWorker(QThread):
         applied when the turn ends / the connection is up.
         """
         with self._connect_lock:
-            if self._is_processing or not self._is_connected:
+            if self.is_processing or not self._is_connected:
                 logger.debug("set_model({}) deferred until the worker is idle", model)
                 self._pending_model = (model,)
                 return
@@ -361,7 +559,7 @@ class AgentWorker(QThread):
         has finished, is held until the turn ends / the connection is up.
         """
         with self._connect_lock:
-            if self._is_processing or not self._is_connected:
+            if self.is_processing or not self._is_connected:
                 logger.debug("set_effort({}) deferred until the worker is idle", effort)
                 self._pending_effort = (effort,)
                 return
@@ -369,7 +567,13 @@ class AgentWorker(QThread):
 
     @property
     def is_processing(self) -> bool:
-        """Check if a query is currently being processed."""
+        """True while a turn runs or a sent prompt awaits an answer."""
+        if self._session_mode:
+            return (
+                self._pending() > 0
+                or self._in_turn
+                or (self._cancel_at is not None and not self._cancel_forced)
+            )
         return self._is_processing
 
     def stop(self) -> None:
@@ -378,7 +582,7 @@ class AgentWorker(QThread):
         self._cancel_requested = True  # Also cancel any current query
         # If a query is in flight, send interrupt so receive_response()
         # unblocks promptly instead of waiting on the next CLI message.
-        if self._is_processing:
+        if self.is_processing:
             self._request_sdk_interrupt()
         # Signal the shutdown event if we have a loop
         if self._loop and self._shutdown_event:
