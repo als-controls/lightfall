@@ -23,6 +23,7 @@ from lightfall.acquire.plans.stubs import (
     IMAGE_MODE_CONTINUOUS,
     IMAGE_MODE_MULTIPLE,
     IMAGE_MODE_SINGLE,
+    image_mode_moves,
     set_image_mode,
     set_multiple_mode,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "scan_1d",
     "rel_scan_1d",
     # Shared plan stubs
+    "image_mode_moves",
     "set_image_mode",
     "set_multiple_mode",
     "IMAGE_MODE_SINGLE",

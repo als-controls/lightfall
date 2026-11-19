@@ -13,6 +13,11 @@ from typing import TYPE_CHECKING, Annotated, Any
 from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 
+from lightfall.acquire.plans.stubs import (
+    IMAGE_MODE_MULTIPLE,
+    IMAGE_MODE_SINGLE,
+    image_mode_moves,
+)
 from lightfall.ui.annotations import DeviceFilter, Range, Unit
 
 if TYPE_CHECKING:
@@ -145,10 +150,10 @@ def simple_acquire(
     if acquire_time is not None:
         yield from bps.mv(detector.cam.acquire_time, acquire_time)
 
-    yield from bps.mv(detector.cam.num_images, num_images)
-    # 0=Single, 1=Multiple (EPICS AreaDetector ImageMode enum)
-    image_mode = 1 if num_images > 1 else 0
-    yield from bps.mv(detector.cam.image_mode, image_mode)
+    # Map onto the camera's own ImageMode enum: ADAndor3 has ('Fixed',
+    # 'Continuous'), where index 1 would leave the camera free-running.
+    mode = IMAGE_MODE_MULTIPLE if num_images > 1 else IMAGE_MODE_SINGLE
+    yield from bps.mv(*image_mode_moves(detector.cam, mode, num_images=num_images))
 
     # open_run() (unlike bp.count) does not auto-populate the start doc, so
     # advertise the detector explicitly — downstream consumers (e.g. the XPCS
