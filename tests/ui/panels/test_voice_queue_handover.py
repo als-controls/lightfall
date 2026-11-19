@@ -258,6 +258,7 @@ def test_init_failure_discards_queue(qtbot, build_env, monkeypatch):
 class _FakeAgent(QObject):
     query_completed = Signal()
     query_cancelled = Signal()
+    turn_started = Signal(bool)
     error_occurred = Signal(str)
 
     def __init__(self, busy=False):

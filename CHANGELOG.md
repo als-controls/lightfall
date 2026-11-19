@@ -19,6 +19,7 @@
   heatmap, scan-map, adaptive heatmap, and export views no longer apply
   scattered per-widget `col-major` / `.T` transposes.
 - Assistant: cancelling a reply now finalises streamed text and subagent cards; Gemini no longer shows $0.0000 cost.
+- Assistant (Claude Code): a message sent while a background task's notification was pending no longer leaves the tab looking idle with the reply unread, and later replies no longer show up one turn late. The session's output is now read continuously, so turns the agent starts by itself (e.g. when a background task finishes) appear when they happen, shown as busy with a note saying why.
 
 ## 0.1.1 (2026-06-04)
 

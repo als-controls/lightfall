@@ -4,12 +4,13 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
 from claude_agent_sdk.types import ResultMessage, StreamEvent
+
 from lightfall.claude._internal.worker import PersistentClaudeWorker
+from tests.claude.session_stub import TurnScriptedStream
 
 
-class _StreamStubClient:
+class _StreamStubClient(TurnScriptedStream):
     """Stub client that yields StreamEvents then ResultMessage."""
 
     def __init__(self) -> None:
@@ -19,9 +20,6 @@ class _StreamStubClient:
         self._events = list(events)
 
     async def connect(self, prompt: str | None = None) -> None:
-        pass
-
-    async def query(self, prompt: str) -> None:
         pass
 
     async def receive_response(self):

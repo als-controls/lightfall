@@ -7,9 +7,10 @@ from claude_agent_sdk.types import ResultMessage
 
 from lightfall.claude._internal.worker import PersistentClaudeWorker
 from lightfall.ui.panels.claude.tool_registry import ToolRegistry
+from tests.claude.session_stub import TurnScriptedStream
 
 
-class _CtxStubClient:
+class _CtxStubClient(TurnScriptedStream):
     """Stub that yields one ResultMessage and reports context usage."""
 
     def __init__(self) -> None:
@@ -17,9 +18,6 @@ class _CtxStubClient:
                      "isAutoCompactEnabled": True, "percentage": 0.38}
 
     async def connect(self, prompt: str | None = None) -> None:
-        pass
-
-    async def query(self, prompt: str) -> None:
         pass
 
     async def receive_response(self):

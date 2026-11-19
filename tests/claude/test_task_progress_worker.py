@@ -2,17 +2,18 @@
 from __future__ import annotations
 
 import pytest
-
 from claude_agent_sdk.types import (
     ResultMessage,
     TaskNotificationMessage,
     TaskProgressMessage,
     TaskStartedMessage,
 )
+
 from lightfall.claude._internal.worker import PersistentClaudeWorker
+from tests.claude.session_stub import TurnScriptedStream
 
 
-class _TaskStubClient:
+class _TaskStubClient(TurnScriptedStream):
     def __init__(self) -> None:
         self._events: list = []
 
@@ -20,9 +21,6 @@ class _TaskStubClient:
         self._events = list(events)
 
     async def connect(self, prompt: str | None = None) -> None:
-        pass
-
-    async def query(self, prompt: str) -> None:
         pass
 
     async def receive_response(self):

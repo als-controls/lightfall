@@ -15,12 +15,13 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
 from claude_agent_sdk.types import ResultMessage
+
 from lightfall.claude._internal.worker import PersistentClaudeWorker
+from tests.claude.session_stub import TurnScriptedStream
 
 
-class _StubClient:
+class _StubClient(TurnScriptedStream):
     """Minimal ClaudeSDKClient stub.
 
     ``receive_response`` blocks until ``interrupt`` is called, then yields a
@@ -37,9 +38,6 @@ class _StubClient:
 
     async def connect(self, prompt: str | None = None) -> None:
         self._interrupted = asyncio.Event()
-
-    async def query(self, prompt: str) -> None:
-        self.query_calls.append(prompt)
 
     async def receive_response(self):
         assert self._interrupted is not None, "connect() not awaited"

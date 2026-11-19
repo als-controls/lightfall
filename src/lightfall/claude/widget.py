@@ -525,6 +525,7 @@ class ClaudeAssistantWidget(QWidget):
         self.agent.error_occurred.connect(self._on_error)
         self.agent.query_completed.connect(self._on_query_completed)
         self.agent.query_cancelled.connect(self._on_query_cancelled)
+        self.agent.turn_started.connect(self._on_turn_started)
 
         # AskUserQuestion is interactive, not a permission gate — always
         # connect, regardless of approval mode. In bypassPermissions the
@@ -1304,6 +1305,25 @@ class ClaudeAssistantWidget(QWidget):
         # Runs before _flush_bus_on_completion (connected later), so the
         # voice queue drains ahead of AgentBus messages.
         self._drain_voice_queue()
+
+    @Slot(bool)
+    def _on_turn_started(self, unprompted: bool) -> None:
+        """A turn began while the chat looked idle: show it as busy.
+
+        ``unprompted``: the session started the turn itself (e.g. a background
+        task finished), so say why output is appearing. Otherwise it is a
+        prompt that was still queued, e.g. one sent before a cancel.
+        """
+        if self._is_busy:
+            return
+        if unprompted:
+            self._append_system_message(
+                f"{self.speaker_name} is responding to a background event "
+                "(e.g. a background task finished)"
+            )
+        self._turn_errored = False
+        self._set_busy_state(True, f"{self.speaker_name} is working...")
+        self.query_started.emit()
 
     @Slot()
     def _on_query_cancelled(self) -> None:

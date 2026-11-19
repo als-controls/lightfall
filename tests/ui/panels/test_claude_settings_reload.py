@@ -284,6 +284,7 @@ def test_pick_model_live_switch_updates_active_config(panel, fake_prefs, monkeyp
 class _FakeAgent(QObject):
     query_completed = Signal()
     query_cancelled = Signal()
+    turn_started = Signal(bool)
     error_occurred = Signal(str)
 
     def __init__(self, busy: bool):

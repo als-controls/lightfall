@@ -83,6 +83,11 @@ def build_claude_options(
         # (AgentSpec, per-session plugin dir) are the extension mechanism,
         # not the CLI's setting_sources.
         "setting_sources": [],
+        # Echo each prompt back as a UserMessage when it joins the
+        # conversation. A prompt sent mid-turn joins the running turn (no
+        # result of its own), so the worker counts these echoes, not
+        # results, to know when everything it sent has been answered.
+        "extra_args": {"replay-user-messages": None},
     }
     agents = _agent_definitions(cfg)
     if agents:

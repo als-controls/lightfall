@@ -1,4 +1,4 @@
-"""ClaudeCodeBackend: the claude_agent_sdk turn loop behind the AgentBackend seam.
+"""ClaudeCodeBackend: the claude_agent_sdk session stream behind the AgentBackend seam.
 
 Moved from ``lightfall.claude._internal.worker.PersistentClaudeWorker``: this
 half talks to the SDK client and translates its stream into neutral
@@ -18,6 +18,7 @@ from lightfall.agents.backend import (
     PartialStartedEvent,
     PartialTextEvent,
     PartialThinkingEvent,
+    PromptAcceptedEvent,
     SessionIdEvent,
     TaskFinishedEvent,
     TaskProgressEvent,
@@ -26,9 +27,9 @@ from lightfall.agents.backend import (
     ThinkingBlockEvent,
     ToolCallEvent,
     ToolResultEvent,
-    TurnCancelledEvent,
     TurnErrorEvent,
     TurnResultEvent,
+    TurnStartedEvent,
 )
 from lightfall.utils.logging import logger
 
@@ -55,6 +56,21 @@ def _summarize_sdk_msg(msg: Any) -> dict[str, Any]:
     return info
 
 
+def _is_prompt_echo(msg: Any) -> bool:
+    """Is ``msg`` the CLI's replay of a prompt the host sent?
+
+    Host prompts go out as plain strings and come back that way. Tool results,
+    the CLI's own "[Request interrupted by user]" marker (a TextBlock list) and
+    injected messages (``origin`` set to a non-human kind) are not echoes.
+    """
+    if getattr(msg, "parent_tool_use_id", None) is not None:
+        return False
+    origin = getattr(msg, "origin", None)
+    if isinstance(origin, dict) and origin.get("kind") not in (None, "human"):
+        return False
+    return isinstance(getattr(msg, "content", None), str)
+
+
 class ClaudeCodeBackend:
     """AgentBackend driving a ``ClaudeSDKClient``."""
 
@@ -66,8 +82,8 @@ class ClaudeCodeBackend:
         """
         self.client = client
         self.initial_prompt = initial_prompt
-        self._saw_partial_events = False
-        self._current_message_id = ""
+        self._in_turn = False
+        self._begin_turn_state()
 
     async def connect(self) -> None:
         """Connect to Claude Agent SDK."""
@@ -94,22 +110,49 @@ class ClaudeCodeBackend:
         except Exception as exc:  # noqa: BLE001 - close must not raise
             logger.warning("Claude client disconnect failed: {}", exc)
 
-    async def run_turn(
-        self,
-        prompt: str,
-        cancelled: Callable[[], bool],
-        stopping: Callable[[], bool],
-    ) -> AsyncIterator[AgentEvent]:
-        """
-        Run a Claude query and yield neutral events for its responses.
+    # The worker drives send()/events() instead of run_turn(): the CLI's one
+    # stream interleaves our turns with ones it injects (background-task
+    # notifications, ...), so turns must be read for the session's whole life.
+    session_stream = True
+
+    async def send(self, prompt: str) -> None:
+        """Write ``prompt`` to the CLI. The CLI queues it if a turn is running."""
+        logger.info("[sdk-stream] prompt sent prompt_prefix={!r}", prompt[:80])
+        await self.client.query(prompt)
+
+    async def events(self, stopping: Callable[[], bool]) -> AsyncIterator[AgentEvent]:
+        """Translate the CLI's message stream into neutral events until it ends.
 
         Args:
-            prompt: The query to send
-            cancelled: True once the user asked to cancel this turn
             stopping: True once the worker is shutting down
         """
+        self._in_turn = False
+        self._begin_turn_state()
+        try:
+            async for msg in self.client.receive_messages():
+                logger.info("[sdk-stream] msg {}", _summarize_sdk_msg(msg))
+                if stopping():
+                    return
+                async for ev in self._handle(msg):
+                    yield ev
+            logger.warning("[sdk-stream] CLI message stream ended")
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            error_msg = str(e)
+            logger.exception("[sdk-stream] session stream error")
+            # Detect CLI process death (common on Windows)
+            if "stream closed" in error_msg.lower() or "0xC0000005" in error_msg:
+                yield TurnErrorEvent(
+                    "Claude CLI process terminated unexpectedly. "
+                    "This may be a transient issue — try sending another message."
+                )
+            else:
+                yield TurnErrorEvent(f"Agent stream error: {error_msg}\n{error_details}")
+
+    def _begin_turn_state(self) -> None:
         # Track whether the CLI actually streamed text/thinking blocks for
-        # this query. The AssistantMessage handler uses this to decide
+        # this turn. The AssistantMessage handler uses this to decide
         # whether to suppress its TextBlock/ThinkingBlock emit (avoiding
         # double-render) or fall back to emitting (so the chat doesn't go
         # blank if streaming silently failed for any reason).
@@ -127,201 +170,190 @@ class ClaudeCodeBackend:
         # only place the complete text survives. Keep the last contiguous
         # run of top-level text: a tool call starts a new run, and subagent
         # messages (parent_tool_use_id set) never count.
-        final_text: list[str] = []
-        tool_since_text = False
+        self._final_text: list[str] = []
+        self._tool_since_text = False
 
-        try:
-            from claude_agent_sdk.types import (
-                AssistantMessage,
-                ResultMessage,
-                StreamEvent,
-                TaskNotificationMessage,
-                TaskProgressMessage,
-                TaskStartedMessage,
-                TextBlock,
-                ThinkingBlock,
-                ToolResultBlock,
-                ToolUseBlock,
+    def _start_turn(self) -> Iterator[AgentEvent]:
+        """Open a turn unless one is open (yields TurnStartedEvent once)."""
+        if not self._in_turn:
+            self._in_turn = True
+            self._begin_turn_state()
+            yield TurnStartedEvent()
+
+    async def _handle(self, msg: Any) -> AsyncIterator[AgentEvent]:
+        """Translate one SDK message."""
+        from claude_agent_sdk.types import (
+            AssistantMessage,
+            ResultMessage,
+            StreamEvent,
+            SystemMessage,
+            TaskNotificationMessage,
+            TaskProgressMessage,
+            TaskStartedMessage,
+            TextBlock,
+            ThinkingBlock,
+            ToolResultBlock,
+            ToolUseBlock,
+            UserMessage,
+        )
+
+        # Task*Message subclass SystemMessage: test them first. They arrive
+        # between turns too (a background task finishing while idle), so they
+        # never open a turn.
+        if isinstance(msg, TaskStartedMessage):
+            yield TaskStartedEvent(msg.task_id, msg.description, msg.tool_use_id or "")
+        elif isinstance(msg, TaskProgressMessage):
+            yield TaskProgressEvent(
+                msg.task_id, msg.description,
+                dict(msg.usage) if msg.usage else {},
+                msg.last_tool_name or "",
+            )
+        elif isinstance(msg, TaskNotificationMessage):
+            yield TaskFinishedEvent(
+                msg.task_id, msg.status, msg.summary or "",
+                msg.output_file or "",
+                dict(msg.usage) if msg.usage else {},
             )
 
-            # Send the query
-            logger.info(
-                "[sdk-stream] PersistentWorker query sent prompt_prefix={!r}",
-                prompt[:80],
-            )
-            await self.client.query(prompt)
+        elif isinstance(msg, SystemMessage):
+            # The CLI opens every turn, ours or injected, with an init message.
+            if msg.subtype == "init":
+                for ev in self._start_turn():
+                    yield ev
 
-            exit_reason = "stream_exhausted"
-            # Receive and process responses
-            async for msg in self.client.receive_response():
-                logger.info("[sdk-stream] msg {}", _summarize_sdk_msg(msg))
-                # Check for stop or cancel
-                if stopping() or cancelled():
-                    if cancelled():
-                        # Drain remaining responses so the stream is clean
-                        # for the next query. Silently consume without emitting.
-                        logger.info("[sdk-stream] cancel_requested — draining")
-                        await self._drain_response_stream(stopping)
-                        yield TurnCancelledEvent()
-                        exit_reason = "cancel_requested"
-                    else:
-                        exit_reason = "should_stop"
-                    break
+        elif isinstance(msg, UserMessage):
+            for ev in self._start_turn():
+                yield ev
+            if _is_prompt_echo(msg):
+                # --replay-user-messages echo: one of our prompts joined the
+                # conversation (as its own turn, or mid-turn into a running one).
+                logger.info("[sdk-stream] prompt accepted")
+                yield PromptAcceptedEvent()
 
-                if isinstance(msg, AssistantMessage):
-                    top_level = getattr(msg, "parent_tool_use_id", None) is None
-                    for block in msg.content:
-                        # Check cancel between blocks too
-                        if cancelled():
-                            logger.info("[sdk-stream] cancel mid-block — draining")
-                            await self._drain_response_stream(stopping)
-                            yield TurnCancelledEvent()
-                            return
-
-                        if isinstance(block, TextBlock):
-                            if top_level and block.text:
-                                if tool_since_text:
-                                    final_text.clear()
-                                    tool_since_text = False
-                                final_text.append(block.text)
-                            # If we streamed content for this turn, the
-                            # widget already rendered it via partial_text.
-                            # Otherwise emit so the chat doesn't go blank.
-                            if self._saw_partial_events:
-                                logger.info(
-                                    "[sdk-stream] TextBlock len={} (streamed; skip)",
-                                    len(block.text or ""),
-                                )
-                            else:
-                                logger.info(
-                                    "[sdk-stream] TextBlock len={} (no stream; emit)",
-                                    len(block.text or ""),
-                                )
-                                yield TextBlockEvent(block.text)
-                        elif isinstance(block, ThinkingBlock):
-                            thinking_text = getattr(block, "thinking", "") or ""
-                            if self._saw_partial_events:
-                                logger.info(
-                                    "[sdk-stream] ThinkingBlock len={} (streamed; skip)",
-                                    len(thinking_text),
-                                )
-                            else:
-                                logger.info(
-                                    "[sdk-stream] ThinkingBlock len={} (no stream; emit)",
-                                    len(thinking_text),
-                                )
-                                yield ThinkingBlockEvent(thinking_text)
-                        elif isinstance(block, ToolUseBlock):
-                            if top_level:
-                                tool_since_text = True
-                            logger.info(
-                                "[sdk-stream] ToolUseBlock name={} id={}",
-                                block.name,
-                                getattr(block, "id", None),
-                            )
-                            yield ToolCallEvent(block.name, block.input)
-                        elif isinstance(block, ToolResultBlock):
-                            content_repr = repr(block.content)
-                            logger.info(
-                                "[sdk-stream] ToolResultBlock id={} is_error={} "
-                                "content_len={} content_preview={!s:.300}",
-                                getattr(block, "tool_use_id", None),
-                                block.is_error,
-                                len(content_repr),
-                                content_repr,
-                            )
-                            yield ToolResultEvent(
-                                block.tool_use_id,
-                                {"content": block.content, "is_error": block.is_error}
-                            )
-                        else:
-                            logger.info(
-                                "[sdk-stream] unknown block type={}",
-                                type(block).__name__,
-                            )
-
-                elif isinstance(msg, StreamEvent):
-                    for ev in self._dispatch_stream_event(msg):
-                        yield ev
-
-                elif isinstance(msg, TaskStartedMessage):
-                    yield TaskStartedEvent(
-                        msg.task_id, msg.description, msg.tool_use_id or "",
-                    )
-                elif isinstance(msg, TaskProgressMessage):
-                    yield TaskProgressEvent(
-                        msg.task_id, msg.description,
-                        dict(msg.usage) if msg.usage else {},
-                        msg.last_tool_name or "",
-                    )
-                elif isinstance(msg, TaskNotificationMessage):
-                    yield TaskFinishedEvent(
-                        msg.task_id, msg.status, msg.summary or "",
-                        msg.output_file or "",
-                        dict(msg.usage) if msg.usage else {},
-                    )
-
-                elif isinstance(msg, ResultMessage):
-                    logger.info(
-                        "[sdk-stream] ResultMessage stop_reason={} subtype={} -> ending turn",
-                        getattr(msg, "stop_reason", None),
-                        getattr(msg, "subtype", None),
-                    )
-                    usage = msg.usage or {}
-                    yield TurnResultEvent({
-                        "total_cost_usd": msg.total_cost_usd if hasattr(msg, 'total_cost_usd') else 0,
-                        "input_tokens": usage.get("input_tokens", 0),
-                        "output_tokens": usage.get("output_tokens", 0),
-                        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
-                        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
-                        "duration_ms": getattr(msg, "duration_ms", 0) or 0,
-                        "duration_api_ms": getattr(msg, "duration_api_ms", 0) or 0,
-                        "num_turns": getattr(msg, "num_turns", 0) or 0,
-                        "is_error": bool(getattr(msg, "is_error", False)),
-                        "session_id": getattr(msg, "session_id", "") or "",
-                        "text": "\n\n".join(final_text),
-                    })
-                    sid = getattr(msg, "session_id", "") or ""
-                    if sid:
-                        yield SessionIdEvent(sid)
-                    # Refresh context-window usage for the cockpit. Best-effort:
-                    # we are on the worker loop between turns, so we can await the
-                    # SDK control call directly. Bounded so a wedged CLI can't
-                    # stall the worker; never let it break the turn.
-                    try:
-                        ctx = await asyncio.wait_for(
-                            self.client.get_context_usage(), timeout=2.0
+        elif isinstance(msg, AssistantMessage):
+            for ev in self._start_turn():
+                yield ev
+            top_level = getattr(msg, "parent_tool_use_id", None) is None
+            for block in msg.content:
+                if isinstance(block, TextBlock):
+                    if top_level and block.text:
+                        if self._tool_since_text:
+                            self._final_text.clear()
+                            self._tool_since_text = False
+                        self._final_text.append(block.text)
+                    # If we streamed content for this turn, the
+                    # widget already rendered it via partial_text.
+                    # Otherwise emit so the chat doesn't go blank.
+                    if self._saw_partial_events:
+                        logger.info(
+                            "[sdk-stream] TextBlock len={} (streamed; skip)",
+                            len(block.text or ""),
                         )
-                        if ctx:
-                            yield ContextUsageEvent(dict(ctx))
-                    except Exception as exc:  # noqa: BLE001 - best-effort telemetry
-                        logger.debug("[sdk-stream] get_context_usage failed: {}", exc)
-                    exit_reason = "result_message"
-                    break
+                    else:
+                        logger.info(
+                            "[sdk-stream] TextBlock len={} (no stream; emit)",
+                            len(block.text or ""),
+                        )
+                        yield TextBlockEvent(block.text)
+                elif isinstance(block, ThinkingBlock):
+                    thinking_text = getattr(block, "thinking", "") or ""
+                    if self._saw_partial_events:
+                        logger.info(
+                            "[sdk-stream] ThinkingBlock len={} (streamed; skip)",
+                            len(thinking_text),
+                        )
+                    else:
+                        logger.info(
+                            "[sdk-stream] ThinkingBlock len={} (no stream; emit)",
+                            len(thinking_text),
+                        )
+                        yield ThinkingBlockEvent(thinking_text)
+                elif isinstance(block, ToolUseBlock):
+                    if top_level:
+                        self._tool_since_text = True
+                    logger.info(
+                        "[sdk-stream] ToolUseBlock name={} id={}",
+                        block.name,
+                        getattr(block, "id", None),
+                    )
+                    yield ToolCallEvent(block.name, block.input)
+                elif isinstance(block, ToolResultBlock):
+                    content_repr = repr(block.content)
+                    logger.info(
+                        "[sdk-stream] ToolResultBlock id={} is_error={} "
+                        "content_len={} content_preview={!s:.300}",
+                        getattr(block, "tool_use_id", None),
+                        block.is_error,
+                        len(content_repr),
+                        content_repr,
+                    )
+                    yield ToolResultEvent(
+                        block.tool_use_id,
+                        {"content": block.content, "is_error": block.is_error}
+                    )
                 else:
                     logger.info(
-                        "[sdk-stream] unhandled msg type={} — loop continues",
-                        type(msg).__name__,
+                        "[sdk-stream] unknown block type={}",
+                        type(block).__name__,
                     )
 
+        elif isinstance(msg, StreamEvent):
+            for ev in self._start_turn():
+                yield ev
+            for ev in self._dispatch_stream_event(msg):
+                yield ev
+
+        elif isinstance(msg, ResultMessage):
+            for ev in self._start_turn():  # a result always closes some turn
+                yield ev
+            self._in_turn = False
+            origin = getattr(msg, "origin", None) or {}
+            origin_kind = origin.get("kind", "") if isinstance(origin, dict) else ""
+            if origin_kind == "human":
+                origin_kind = ""
+            terminal_reason = getattr(msg, "terminal_reason", None) or ""
             logger.info(
-                "[sdk-stream] PersistentWorker loop exit reason={}", exit_reason
+                "[sdk-stream] ResultMessage stop_reason={} subtype={} origin={!r} "
+                "terminal_reason={!r} -> turn ends",
+                getattr(msg, "stop_reason", None),
+                getattr(msg, "subtype", None),
+                origin_kind,
+                terminal_reason,
             )
-
-        except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            error_msg = str(e)
-            logger.exception("[sdk-stream] PersistentWorker query error")
-
-            # Detect CLI process death (common on Windows)
-            if "stream closed" in error_msg.lower() or "0xC0000005" in error_msg:
-                yield TurnErrorEvent(
-                    "Claude CLI process terminated unexpectedly. "
-                    "This may be a transient issue — try sending another message."
-                )
-            else:
-                yield TurnErrorEvent(f"Query error: {error_msg}\n{error_details}")
+            usage = msg.usage or {}
+            yield TurnResultEvent({
+                "total_cost_usd": msg.total_cost_usd if hasattr(msg, 'total_cost_usd') else 0,
+                "input_tokens": usage.get("input_tokens", 0),
+                "output_tokens": usage.get("output_tokens", 0),
+                "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+                "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+                "duration_ms": getattr(msg, "duration_ms", 0) or 0,
+                "duration_api_ms": getattr(msg, "duration_api_ms", 0) or 0,
+                "num_turns": getattr(msg, "num_turns", 0) or 0,
+                "is_error": bool(getattr(msg, "is_error", False)),
+                "session_id": getattr(msg, "session_id", "") or "",
+                "text": "\n\n".join(self._final_text),
+                "origin": origin_kind,
+                "cancelled": terminal_reason.startswith("aborted"),
+            })
+            sid = getattr(msg, "session_id", "") or ""
+            if sid:
+                yield SessionIdEvent(sid)
+            # Refresh context-window usage for the cockpit. Best-effort:
+            # the SDK routes the control response on its own reader task, so
+            # awaiting here only delays (buffers) the stream. Bounded so a
+            # wedged CLI can't stall it; never let it break the session.
+            try:
+                ctx = await asyncio.wait_for(self.client.get_context_usage(), timeout=2.0)
+                if ctx:
+                    yield ContextUsageEvent(dict(ctx))
+            except Exception as exc:  # noqa: BLE001 - best-effort telemetry
+                logger.debug("[sdk-stream] get_context_usage failed: {}", exc)
+        else:
+            logger.info(
+                "[sdk-stream] unhandled msg type={} — loop continues",
+                type(msg).__name__,
+            )
 
     def _dispatch_stream_event(self, msg: Any) -> Iterator[AgentEvent]:
         """Parse a StreamEvent and yield per-block Partial*Events.
@@ -390,49 +422,3 @@ class ClaudeCodeBackend:
                     self._saw_partial_events = True
         elif event_type == "content_block_stop":
             yield PartialFinishedEvent(block_id)
-
-    async def _drain_response_stream(self, stopping: Callable[[], bool]) -> None:
-        """Drain remaining responses from the CLI after cancellation.
-
-        Consumes pending messages without emitting signals, so the stream
-        is clean for the next query. The whole drain is bounded by a
-        wall-clock timeout: if the CLI does not emit a terminating
-        ``ResultMessage`` after we sent ``interrupt()`` (e.g. it crashed
-        mid-turn), we still return control to the worker loop instead of
-        hanging the cancel path indefinitely.
-        """
-        drained = 0
-        # Tight enough that a stuck CLI can't make the UI feel frozen,
-        # generous enough to let a healthy CLI flush its terminating
-        # ResultMessage after an interrupt.
-        drain_timeout_s = 2.0
-        try:
-            from claude_agent_sdk.types import ResultMessage
-
-            async def _consume() -> None:
-                nonlocal drained
-                async for msg in self.client.receive_response():
-                    drained += 1
-                    logger.info(
-                        "[sdk-stream] drain msg {}", _summarize_sdk_msg(msg)
-                    )
-                    if isinstance(msg, ResultMessage) or stopping():
-                        return
-
-            await asyncio.wait_for(_consume(), timeout=drain_timeout_s)
-        except TimeoutError:
-            logger.warning(
-                "[sdk-stream] drain timed out after {}s ({} messages); "
-                "giving up to keep cancel responsive",
-                drain_timeout_s,
-                drained,
-            )
-        except Exception:
-            # Best-effort drain — log but don't crash on errors. Previously
-            # this was a bare ``pass`` which hid CLI subprocess death and
-            # JSON parse failures during cancellation.
-            logger.exception(
-                "[sdk-stream] drain exception after {} messages", drained
-            )
-        else:
-            logger.info("[sdk-stream] drain complete after {} messages", drained)
