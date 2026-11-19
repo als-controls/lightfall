@@ -285,9 +285,9 @@ class TiledService(QObject):
             if self._config.auth_mode == TiledAuthMode.API_KEY and self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
             elif self._config.auth_mode == TiledAuthMode.KEYCLOAK:
-                from lightfall.auth.service_key_auth import ServiceKeyAuth
+                from lightfall.auth.service_key_auth import tiled_service_key_auth
 
-                kwargs["auth"] = ServiceKeyAuth("tiled")
+                kwargs["auth"] = tiled_service_key_auth("tiled")
                 logger.debug("Using Keycloak authentication for Tiled (sync)")
             elif self._config.api_key:
                 kwargs["api_key"] = self._config.api_key
@@ -619,9 +619,9 @@ class TiledService(QObject):
         if auth_mode == TiledAuthMode.API_KEY and api_key:
             kwargs["api_key"] = api_key
         elif auth_mode == TiledAuthMode.KEYCLOAK:
-            from lightfall.auth.service_key_auth import ServiceKeyAuth
+            from lightfall.auth.service_key_auth import tiled_service_key_auth
 
-            kwargs["auth"] = ServiceKeyAuth("tiled")
+            kwargs["auth"] = tiled_service_key_auth("tiled")
             logger.debug("Using Keycloak authentication for Tiled")
 
         # Proxy setup
@@ -759,13 +759,13 @@ class TiledService(QObject):
 
             kwargs = {}
             if auth_mode == "keycloak":
-                from lightfall.auth.service_key_auth import ServiceKeyAuth
+                from lightfall.auth.service_key_auth import tiled_service_key_auth
 
                 # Check that we have a token before attempting
                 headers = self._get_auth_headers()
                 if not headers:
                     return False, "Not authenticated — log in to Keycloak first"
-                kwargs["auth"] = ServiceKeyAuth("tiled")
+                kwargs["auth"] = tiled_service_key_auth("tiled")
             elif api_key:
                 kwargs["api_key"] = api_key
 
