@@ -103,6 +103,11 @@ class PluginLoader(QObject):
         # Background loading state
         self._worker: QThreadFutureIterator | None = None
         self._is_loading = False
+        # Plugins already announced/registered by the background run. The
+        # generator yields each plugin twice (after import, after init); if
+        # the main thread is busy, both queued yields arrive once the plugin
+        # is ready, and without this guard it would register twice.
+        self._registered: set[str] = set()
 
         # Counters
         self._successful = 0
@@ -364,6 +369,7 @@ class PluginLoader(QObject):
             return
 
         self._is_loading = True
+        self._registered.clear()
         self._successful = 0
         self._failed = 0
 
@@ -424,6 +430,9 @@ class PluginLoader(QObject):
             plugin_info: The processed plugin.
         """
         if plugin_info.is_ready:
+            if plugin_info.unique_id in self._registered:
+                return
+            self._registered.add(plugin_info.unique_id)
             with startup_timeline.phase(f"register:{plugin_info.unique_id}"):
                 self.plugin_loaded.emit(plugin_info)
                 self._register_with_type_registry(plugin_info)

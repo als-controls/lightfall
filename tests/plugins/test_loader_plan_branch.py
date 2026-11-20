@@ -78,6 +78,48 @@ def test_plan_entry_registers_with_plan_registry():
     assert "sample_plan" in PlanRegistry.get_instance()
 
 
+def test_background_yields_register_a_ready_plugin_once():
+    """A ready plugin processed twice registers once, with no self-clash.
+
+    The background generator yields each plugin after import and again after
+    init. When the main thread is stalled, both queued yields are handled
+    after the plugin is ready; the second used to re-register the plan and
+    report "package kept, package not used".
+    """
+    from lightfall.content.clashes import ClashLog
+
+    ClashLog.reset_instance()
+    try:
+        manifest = PluginManifest(
+            name="test_pkg",
+            version="0.0.0",
+            description="",
+            plugins=[
+                PluginEntry(
+                    type_name="plan",
+                    name="sample_plan",
+                    import_path=f"{__name__}:_SamplePlan",
+                ),
+            ],
+        )
+        loader = PluginLoader()
+        loader.register_plugin_type("plan", PlanPlugin)
+        loader.load_manifest(manifest)
+        infos = list(loader._load_plugins_generator())  # import yield, init yield
+        assert len(infos) == 2 and all(i.is_ready for i in infos)
+
+        loaded = []
+        loader.plugin_loaded.connect(loaded.append)
+        for info in infos:
+            loader._on_plugin_processed(info)
+
+        assert len(loaded) == 1
+        assert "sample_plan" in PlanRegistry.get_instance()
+        assert ClashLog.get_instance().all() == []
+    finally:
+        ClashLog.reset_instance()
+
+
 def test_package_plan_displaces_user_plan_and_reports():
     """A package plan replaces a same-named local plan; the clash is logged."""
     from lightfall.content.clashes import Clash, ClashLog
