@@ -113,6 +113,15 @@ class ShusseboraMonitor(QObject):
 
     # -- lifecycle ----------------------------------------------------------
 
+    @property
+    def started(self) -> bool:
+        """Whether :meth:`start` has subscribed to the shussebora subjects."""
+        return self._started
+
+    def ipc(self):
+        """The IPC service used for subscriptions and requests (``None`` if absent)."""
+        return self._ipc()
+
     def start(self) -> bool:
         """Subscribe to the shussebora subjects. Idempotent."""
         if self._started:
