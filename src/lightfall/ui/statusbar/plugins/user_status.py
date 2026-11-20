@@ -8,11 +8,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-import qtawesome as qta
-
 from lightfall.auth.session import AuthState, SessionManager
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lightfall.ui.theme import ThemeManager
 
 
 class UserStatusPlugin(StatusBarPlugin):
@@ -65,7 +62,6 @@ class UserStatusPlugin(StatusBarPlugin):
         """Initialize the user status plugin."""
         super().__init__()
         self._session_manager: SessionManager | None = None
-        self._theme_manager: ThemeManager | None = None
 
     @property
     def name(self) -> str:
@@ -76,14 +72,9 @@ class UserStatusPlugin(StatusBarPlugin):
         """Update the button with the current user and auth state."""
         if self._session_manager is None:
             self._session_manager = SessionManager.get_instance()
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-
         state = self._session_manager.state
         user = self._session_manager.current_user
-        colors = self._theme_manager.colors
-
-        color = getattr(colors, self.STATE_COLOR.get(state, "text_secondary"))
+        role = self.STATE_COLOR.get(state, "text_secondary")
         icon_name = self.STATE_ICON.get(state, "mdi6.account")
 
         # Authenticating is transient and has no meaningful user yet; otherwise
@@ -97,21 +88,14 @@ class UserStatusPlugin(StatusBarPlugin):
         if tooltip is None:  # AUTHENTICATED
             tooltip = f"Logged in as {user.username}"
 
-        self.set_icon(qta.icon(icon_name, color=color))
-        self.set_text(text)
-        self.set_color(color)
-        self.set_tooltip(tooltip)
+        self.set_state(text, icon=icon_name, role=role, tooltip=tooltip)
 
     def connect_signals(self) -> None:
         """Connect to session manager and theme signals."""
         if self._session_manager is None:
             self._session_manager = SessionManager.get_instance()
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-
         self._session_manager.user_changed.connect(self._on_user_changed)
         self._session_manager.state_changed.connect(self._on_state_changed)
-        self._theme_manager.colors_changed.connect(self.update)
 
     def disconnect_signals(self) -> None:
         """Disconnect from session manager and theme signals."""
@@ -119,12 +103,6 @@ class UserStatusPlugin(StatusBarPlugin):
             try:
                 self._session_manager.user_changed.disconnect(self._on_user_changed)
                 self._session_manager.state_changed.disconnect(self._on_state_changed)
-            except RuntimeError:
-                pass
-
-        if self._theme_manager is not None:
-            try:
-                self._theme_manager.colors_changed.disconnect(self.update)
             except RuntimeError:
                 pass
 

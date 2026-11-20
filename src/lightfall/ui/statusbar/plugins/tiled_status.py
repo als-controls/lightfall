@@ -7,11 +7,9 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-import qtawesome as qta
 from PySide6.QtCore import Slot
 
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lightfall.ui.theme import ThemeManager
 from lightfall.utils.logging import logger
 
 
@@ -48,7 +46,6 @@ class TiledStatusPlugin(StatusBarPlugin):
         """Initialize the Tiled status plugin."""
         super().__init__()
         self._service = None
-        self._theme_manager: ThemeManager | None = None
 
     @property
     def name(self) -> str:
@@ -57,9 +54,6 @@ class TiledStatusPlugin(StatusBarPlugin):
 
     def update(self) -> None:
         """Update the button with current Tiled state."""
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-
         try:
             from lightfall.services.tiled_service import TiledConnectionState, TiledService
 
@@ -83,9 +77,6 @@ class TiledStatusPlugin(StatusBarPlugin):
 
     def connect_signals(self) -> None:
         """Connect to Tiled service signals."""
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-        self._theme_manager.colors_changed.connect(self.update)
 
         try:
             from lightfall.services.tiled_service import TiledService
@@ -102,12 +93,6 @@ class TiledStatusPlugin(StatusBarPlugin):
         if self._service is not None:
             try:
                 self._service.connection_changed.disconnect(self._on_connection_changed)
-            except RuntimeError:
-                pass
-
-        if self._theme_manager is not None:
-            try:
-                self._theme_manager.colors_changed.disconnect(self.update)
             except RuntimeError:
                 pass
 
@@ -134,19 +119,10 @@ class TiledStatusPlugin(StatusBarPlugin):
             except Exception:
                 self._update_display_disconnected()
 
-    @property
-    def _colors(self):
-        """Resolve theme colors, falling back to the singleton on first use."""
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-        return self._theme_manager.colors
 
-    def _set_state(self, text: str, color: str, tooltip: str) -> None:
-        """Apply text, the database icon (tinted to ``color``), and a tooltip."""
-        self.set_icon(qta.icon("mdi6.database", color=color))
-        self.set_text(text)
-        self.set_color(color)
-        self.set_tooltip(tooltip)
+    def _set_state(self, text: str, role: str, tooltip: str) -> None:
+        """Show ``text`` beside the database icon, tinted with theme ``role``."""
+        self.set_state(text, icon="mdi6.database", role=role, tooltip=tooltip)
 
     def _update_display_connected(self) -> None:
         client_v, server_v = self._tiled_versions()
@@ -154,8 +130,8 @@ class TiledStatusPlugin(StatusBarPlugin):
             # Warning color: connected but client/server tiled versions differ,
             # which can silently break writes (image arrays stored as 0 frames).
             self._set_state(
-                "v≠",
-                self._colors.warning,
+                "version?",
+                "warning",
                 f"Connected, but Tiled version mismatch: client {client_v}, "
                 f"server {server_v}. Writes can silently fail (image arrays "
                 "stored with 0 frames) — align the versions.",
@@ -163,7 +139,7 @@ class TiledStatusPlugin(StatusBarPlugin):
         else:
             # Icon only: the green color already signals "connected".
             suffix = f" (v{server_v})" if server_v else ""
-            self._set_state("", self._colors.success, f"Connected to Tiled server{suffix}")
+            self._set_state("", "success", f"Connected to Tiled server{suffix}")
 
     def _tiled_versions(self) -> tuple[str | None, str | None]:
         """Return ``(client tiled version, server tiled version)``; either may be None."""
@@ -184,21 +160,21 @@ class TiledStatusPlugin(StatusBarPlugin):
 
     def _update_display_connecting(self) -> None:
         self._set_state(
-            "Connecting...", self._colors.warning, "Connecting to Tiled server..."
+            "Connecting...", "warning", "Connecting to Tiled server..."
         )
 
     def _update_display_error(self, message: str = "") -> None:
         tooltip = f"Tiled error: {message}" if message else "Tiled connection error"
-        self._set_state("Error", self._colors.error, tooltip)
+        self._set_state("Error", "error", tooltip)
 
     def _update_display_disconnected(self) -> None:
         self._set_state(
-            "Disconnected", self._colors.text_secondary, "Disconnected from Tiled server"
+            "Disconnected", "text_secondary", "Disconnected from Tiled server"
         )
 
     def _update_display_disabled(self) -> None:
         self._set_state(
-            "Off", self._colors.text_secondary, "Tiled integration is disabled"
+            "Off", "text_secondary", "Tiled integration is disabled"
         )
 
     def get_introspection_data(self) -> dict[str, Any]:

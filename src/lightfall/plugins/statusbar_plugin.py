@@ -4,26 +4,53 @@ StatusBarPlugin is the plugin type for status bar indicators. Plugins
 implementing this interface provide widgets that appear in the main
 window's status bar.
 
-The base class provides a default flat-button widget and small helpers
-for the common cases (set text/tooltip/color, hide self) so subclasses
-typically only implement ``update()``, ``connect_signals()``,
-``disconnect_signals()`` and optionally ``on_clicked()``.
+The base class provides a default flat-button widget and one display call,
+:meth:`StatusBarPlugin.set_state`, which takes text, a qtawesome icon name
+and a theme color *role*. The base class builds the tinted icon, applies the
+color, and re-renders on theme changes. Subclasses never touch
+``ThemeManager`` or hex colors, and typically only implement ``update()``,
+``connect_signals()``, ``disconnect_signals()`` and optionally ``on_clicked()``.
+
+Style rules. At runtime a violation only logs a warning. For in-repo plugins,
+``tests/ui/statusbar/test_statusbar_style.py`` fails on them:
+
+- Icons come from qtawesome via ``set_state(icon=...)``, never from unicode
+  symbols or emoji in the label text.
+- Colors are theme roles (:data:`COLOR_ROLES`), never hex/CSS literals.
 """
 
 from __future__ import annotations
 
+import unicodedata
 from abc import abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QToolButton
 
 from lightfall.plugins.types import PluginType
+from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
+
+#: Theme color roles accepted by :meth:`StatusBarPlugin.set_state` (attribute
+#: names on the theme's ``ThemeColors``). ``None`` means the default text color.
+COLOR_ROLES: frozenset[str] = frozenset(
+    {"info", "success", "warning", "error", "text", "text_secondary", "primary", "secondary"}
+)
+
+#: Unicode categories of symbols used as icons (arrows, check marks, emoji,
+#: hourglasses, ...). Non-ASCII letters (micro sign) and punctuation
+#: (ellipsis, dashes, middle dot) are fine.
+_SYMBOL_CATEGORIES = frozenset({"So", "Sm", "Sk"})
+
+
+def icon_like_chars(text: str) -> list[str]:
+    """Non-ASCII symbol/emoji characters in ``text`` (which belong in an icon instead)."""
+    return [c for c in text if ord(c) > 127 and unicodedata.category(c) in _SYMBOL_CATEGORIES]
 
 
 @dataclass
@@ -52,6 +79,15 @@ class _StatusBarSignals(QObject):
 
     visibility_changed = Signal(bool)
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.theme_callback: Any = None
+
+    @Slot()
+    def relay_theme_changed(self) -> None:
+        if self.theme_callback is not None:
+            self.theme_callback()
+
 
 class StatusBarPlugin(PluginType):
     """Abstract base for status bar indicator plugins.
@@ -59,12 +95,15 @@ class StatusBarPlugin(PluginType):
     Default behaviour: each plugin renders as a flat ``QToolButton`` so
     every entry looks consistent and signals clickability. Subclasses
     drive their display by overriding ``update()`` and calling the
-    ``set_text`` / ``set_tooltip`` / ``set_color`` helpers. Override
+    :meth:`set_state` (text + qtawesome icon + theme color role) and
+    :meth:`set_tooltip`. Theme changes re-render the last state
+    automatically (see :meth:`on_theme_changed`). Override
     ``on_clicked()`` to react to button clicks.
 
     Subclasses that need a more complex widget (e.g. anchoring an
-    overlay) can override ``create_widget()`` — they must then also
-    assign ``self._widget`` themselves.
+    overlay) can override ``create_widget()``. They must then also
+    assign ``self._widget`` themselves, and can read :attr:`theme_colors`
+    and override :meth:`on_theme_changed` to stay themed.
 
     Class Attributes:
         type_name: "statusbar" - identifies this as a statusbar plugin.
@@ -93,8 +132,12 @@ class StatusBarPlugin(PluginType):
                 return "my_status"
 
             def update(self) -> None:
-                self.set_text("OK")
-                self.set_tooltip("Everything is fine")
+                if self._service.ok:
+                    self.set_state("OK", icon="mdi6.check-circle", role="success",
+                                   tooltip="Everything is fine")
+                else:
+                    self.set_state("Down", icon="mdi6.alert-circle", role="error",
+                                   tooltip=self._service.error)
 
             def connect_signals(self) -> None:
                 self._service.changed.connect(self.update)
@@ -117,7 +160,12 @@ class StatusBarPlugin(PluginType):
         self._widget: QWidget | None = None
         self._button: QToolButton | None = None
         self._signals = _StatusBarSignals()
+        self._signals.theme_callback = self.on_theme_changed
         self._visible: bool = True
+        self._theme_manager: Any = None
+        self._theme_attached = False
+        self._state: tuple[str, str | None, str | None] | None = None
+        self._style_warnings: set[str] = set()
 
     @property
     def description(self) -> str:
@@ -159,6 +207,7 @@ class StatusBarPlugin(PluginType):
         button.clicked.connect(self.on_clicked)
         self._button = button
         self._widget = button
+        self._attach_theme()
         return button
 
     @abstractmethod
@@ -229,11 +278,133 @@ class StatusBarPlugin(PluginType):
         self._signals.visibility_changed.emit(visible)
 
     # ------------------------------------------------------------------
+    # Theming
+    # ------------------------------------------------------------------
+
+    def _theme(self) -> Any:
+        if self._theme_manager is None:
+            try:
+                from lightfall.ui.theme import ThemeManager
+
+                self._theme_manager = ThemeManager.get_instance()
+            except Exception as e:  # noqa: BLE001 - no theme yet: fall back to defaults
+                logger.debug("Status bar plugin has no ThemeManager: {}", e)
+        return self._theme_manager
+
+    @property
+    def theme_colors(self) -> Any:
+        """The current theme's ``ThemeColors`` (defaults if no theme is available)."""
+        colors = getattr(self._theme(), "colors", None)
+        if colors is None:
+            from lightfall_utils.theming.manager import ThemeColors
+
+            colors = ThemeColors()
+        return colors
+
+    def theme_color(self, role: str | None) -> str | None:
+        """The current color for a theme ``role`` (see :data:`COLOR_ROLES`), or None."""
+        if role is None:
+            return None
+        if role not in COLOR_ROLES:
+            self._warn_style(f"role:{role}", "unknown color role {!r}; use one of {}",
+                             role, sorted(COLOR_ROLES))
+            return None
+        return getattr(self.theme_colors, role, None) or None
+
+    def _attach_theme(self) -> None:
+        """Re-render on theme changes (idempotent; the manager also calls this)."""
+        if self._theme_attached:
+            return
+        signal = getattr(self._theme(), "colors_changed", None)
+        if signal is None:
+            return
+        try:
+            signal.connect(self._signals.relay_theme_changed)
+            self._theme_attached = True
+        except (RuntimeError, TypeError) as e:
+            logger.debug("Could not follow theme changes: {}", e)
+
+    def _detach_theme(self) -> None:
+        if not self._theme_attached:
+            return
+        self._theme_attached = False
+        try:
+            self._theme_manager.colors_changed.disconnect(self._signals.relay_theme_changed)
+        except (RuntimeError, TypeError, AttributeError):
+            pass
+
+    def on_theme_changed(self) -> None:
+        """Called when the theme's colors change.
+
+        The default re-renders the last :meth:`set_state`. Plugins with
+        custom widgets override this to restyle them.
+        """
+        if self._state is not None:
+            self._render_state()
+
+    def _warn_style(self, key: str, message: str, *args: Any) -> None:
+        if key in self._style_warnings:
+            return
+        self._style_warnings.add(key)
+        logger.warning("Status bar plugin {}: " + message, self.metadata.id, *args)
+
+    # ------------------------------------------------------------------
     # Display helpers for subclasses (default-widget path)
     # ------------------------------------------------------------------
 
+    def set_state(
+        self,
+        text: str = "",
+        *,
+        icon: str | None = None,
+        role: str | None = None,
+        tooltip: str | None = None,
+    ) -> None:
+        """Show ``text`` with a qtawesome ``icon``, both in the theme color ``role``.
+
+        Args:
+            text: Label, which may be empty for an icon-only indicator. Use
+                no unicode symbols or emoji here; pass ``icon`` instead.
+            icon: qtawesome icon name, e.g. ``"mdi6.database"``.
+            role: Theme color role from :data:`COLOR_ROLES` (``"success"``,
+                ``"warning"``, ``"error"``, ``"info"``, ``"text_secondary"``,
+                ...), or None for the default text color.
+            tooltip: Optional tooltip to set at the same time.
+
+        The state is re-rendered with the new colors whenever the theme changes.
+        """
+        self._state = (text, icon, role)
+        self._render_state()
+        if tooltip is not None:
+            self.set_tooltip(tooltip)
+
+    def _render_state(self) -> None:
+        text, icon_name, role = self._state
+        color = self.theme_color(role)
+        self.set_text(text)
+        icon = None
+        if icon_name:
+            try:
+                import qtawesome as qta
+
+                icon = qta.icon(icon_name, color=color or self.theme_colors.text)
+            except Exception as e:  # noqa: BLE001 - a bad icon name must not break the bar
+                self._warn_style(f"icon:{icon_name}", "could not load icon {!r}: {}",
+                                 icon_name, e)
+        self.set_icon(icon)
+        self._apply_color(color)
+
     def set_text(self, text: str) -> None:
-        """Set the displayed text on the default button widget."""
+        """Set the displayed text on the default button widget.
+
+        Prefer :meth:`set_state`. Unicode symbols or emoji in ``text`` log a
+        warning; use a qtawesome icon instead.
+        """
+        symbols = icon_like_chars(text)
+        if symbols:
+            self._warn_style("glyph:" + "".join(sorted(set(symbols))),
+                             "label {!r} uses symbol characters {}; use a qtawesome "
+                             "icon via set_state(icon=...) instead", text, symbols)
         if self._button is not None:
             self._button.setText(text)
         self._update_toolbutton_style()
@@ -278,11 +449,18 @@ class StatusBarPlugin(PluginType):
             self._widget.setToolTip(tooltip)
 
     def set_color(self, color: str | None) -> None:
-        """Apply a foreground color to the default button widget.
+        """Apply a raw CSS foreground color to the default button widget.
 
-        Pass a CSS color string (e.g. theme ``colors.success``) or
-        ``None`` to clear styling.
+        Deprecated: use ``set_state(role=...)``, which follows theme changes.
+        A raw color stays fixed when the theme switches. Logs a warning
+        once per plugin.
         """
+        if color:
+            self._warn_style("set_color", "set_color({!r}) is deprecated; use "
+                             "set_state(role=...) so the color follows the theme", color)
+        self._apply_color(color)
+
+    def _apply_color(self, color: str | None) -> None:
         if self._button is None:
             return
         if color:
@@ -310,6 +488,9 @@ class StatusBarPlugin(PluginType):
             "module": self.__class__.__module__,
         }
 
+        if self._state is not None:
+            data["icon"] = self._state[1]
+            data["color_role"] = self._state[2]
         if self._button is not None:
             data["current_text"] = self._button.text()
             data["tooltip"] = self._button.toolTip()

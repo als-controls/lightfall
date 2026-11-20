@@ -42,15 +42,15 @@ def test_shows_rss_peak_and_pending_garbage(qtbot, monkeypatch):
 
 def test_backlog_turns_warning_color(qtbot, monkeypatch):
     plugin = make_plugin(qtbot, monkeypatch, 100 * 2**20)
-    colors = []
-    monkeypatch.setattr(plugin, "set_color", colors.append)
     monkeypatch.setattr(gc, "get_count", lambda: (10_000, 0, 0))
     monkeypatch.setattr(gc, "get_threshold", lambda: (700, 10, 10))
     plugin.update()
-    assert colors[-1] is not None
+    assert plugin._state[2] == "warning"
+    assert plugin.theme_colors.warning in plugin._button.styleSheet()
     monkeypatch.setattr(gc, "get_count", lambda: (5, 0, 0))
     plugin.update()
-    assert colors[-1] is None
+    assert plugin._state[2] is None
+    assert plugin._button.styleSheet() == ""
     plugin.disconnect_signals()
 
 

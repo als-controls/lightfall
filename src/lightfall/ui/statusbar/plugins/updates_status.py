@@ -63,14 +63,15 @@ class UpdatesStatusPlugin(StatusBarPlugin):
         count = result.update_count
         names = [r.name for r in result.repo_updates] + [p.name for p in result.pypi_updates]
         if count:
-            self.set_text(f"⬆ {count} update{'s' if count != 1 else ''}")
             tip = "Updates available:\n" + "\n".join(names)
             if self.checker.restart_pending:
                 tip += "\n\nRestart pending for updates already applied."
-            self.set_tooltip(tip + "\n\nClick to review and update.")
+            self.set_state(f"{count} update{'s' if count != 1 else ''}",
+                           icon="mdi6.arrow-up-circle", role="info",
+                           tooltip=tip + "\n\nClick to review and update.")
         elif self.checker.restart_pending:
-            self.set_text("⟳ Restart pending")
-            self.set_tooltip("Updates were applied. Click to restart Lightfall.")
+            self.set_state("Restart pending", icon="mdi6.restart", role="warning",
+                           tooltip="Updates were applied. Click to restart Lightfall.")
         self.set_visible(self.checker.active and (bool(count) or self.checker.restart_pending))
 
     def on_clicked(self) -> None:

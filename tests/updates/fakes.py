@@ -61,3 +61,29 @@ class FakeChecker(QObject):
     def publish(self, result: CheckResult) -> None:
         self.result = result
         self.result_changed.emit(result)
+
+
+class FakeTheme(QObject):
+    """A stand-in ThemeManager whose colors the test can swap."""
+
+    colors_changed = Signal()
+
+    def __init__(self, info: str = "#1e88e5", warning: str = "#fb8c00"):
+        super().__init__()
+        self.colors = _Colors(info, warning)
+
+    def switch(self, info: str, warning: str) -> None:
+        self.colors = _Colors(info, warning)
+        self.colors_changed.emit()
+
+
+class _Colors:
+    def __init__(self, info: str, warning: str):
+        self.info = info
+        self.warning = warning
+        self.success = "#43a047"
+        self.error = "#e53935"
+        self.text_secondary = "#888888"
+        self.text = "#222222"
+        self.primary = "#3949ab"
+        self.secondary = "#8e24aa"

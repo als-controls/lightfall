@@ -63,13 +63,13 @@ class GitStateStatusPlugin(StatusBarPlugin):
         repos = self.checker.result.noteworthy_repos
         if repos:
             n = len(repos)
-            self.set_text(f"⎇ {n} repo{'s' if n != 1 else ''}")
             lines = []
             for repo in repos:
                 state = describe_state(repo)
                 lines.append(f"{repo.name}: {repo.branch or 'detached'}"
                              + (f", {state}" if state else ""))
-            self.set_tooltip("\n".join(lines) + "\n\nClick for details.")
+            self.set_state(f"{n} repo{'s' if n != 1 else ''}", icon="mdi6.source-branch",
+                           role="info", tooltip="\n".join(lines) + "\n\nClick for details.")
         self.set_visible(bool(repos))
 
     def on_clicked(self) -> None:

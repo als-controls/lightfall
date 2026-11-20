@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import qtawesome as qta
 from PySide6.QtCore import QObject, Qt, QUrl, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
@@ -29,6 +30,7 @@ from lightfall.github.push import (
 from lightfall.github.session import GitHubSession, get_github_session, scrub
 from lightfall.ui.dialogs.base import LFDialog
 from lightfall.ui.dialogs.github_sign_in import start_sign_in
+from lightfall.ui.theme import ThemeManager
 from lightfall.updates.git import RepoState, run_git
 from lightfall.utils.crash_diagnostics import gui_thread_only
 from lightfall.utils.threads import QThreadFuture
@@ -36,6 +38,8 @@ from lightfall.utils.threads import QThreadFuture
 COLUMNS = ["Repo", "Branch", "State", "Path", "", ""]
 STATE_COL = 2
 PUSH_COL = len(COLUMNS) - 1
+#: Item data role on a State cell holding the push outcome (True/False) once finished.
+RESULT_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 def describe_state(repo: RepoState) -> str:
@@ -254,7 +258,12 @@ class GitStateDialog(LFDialog):
     def _finish_row(self, row: int, ok: bool, message: str) -> None:
         item = self.table.item(row, STATE_COL)
         if item is not None:
-            item.setText(f"{'✓' if ok else '✗'} {scrub(message)}")
+            colors = ThemeManager.get_instance().colors
+            icon = ("mdi6.check-circle", colors.success) if ok else ("mdi6.close-circle",
+                                                                     colors.error)
+            item.setIcon(qta.icon(icon[0], color=icon[1]))
+            item.setText(scrub(message))
+            item.setData(RESULT_ROLE, ok)
         button = self.table.cellWidget(row, PUSH_COL)
         if button is not None:
             button.setProperty("pushing", False)

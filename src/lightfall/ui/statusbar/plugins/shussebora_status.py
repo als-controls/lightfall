@@ -9,15 +9,13 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from PySide6.QtCore import Qt
-
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 from lightfall.services.shussebora_monitor import ShusseboraMonitor
 from lightfall.utils.logging import logger
 
 _STATE_TEXT = {"ok": "OK", "stale": "Stale", "dead": "Down", "unknown": ""}
-_FALLBACK_COLORS = {"ok": "#2ecc71", "stale": "#f39c12",
-                    "dead": "#e74c3c", "unknown": "#7f8c8d"}
+_STATE_ROLE = {"ok": "success", "stale": "warning", "dead": "error",
+               "unknown": "text_secondary"}
 
 
 class ShusseboraStatusPlugin(StatusBarPlugin):
@@ -42,7 +40,6 @@ class ShusseboraStatusPlugin(StatusBarPlugin):
     def __init__(self, monitor: ShusseboraMonitor | None = None) -> None:
         super().__init__()
         self._monitor = monitor
-        self._theme_manager = None
 
     @property
     def name(self) -> str:
@@ -53,22 +50,9 @@ class ShusseboraStatusPlugin(StatusBarPlugin):
             self._monitor = ShusseboraMonitor.get_instance()
         return self._monitor
 
-    def create_widget(self, parent=None):
-        button = super().create_widget(parent)
-        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        return button
-
     # -- wiring -------------------------------------------------------------
 
     def connect_signals(self) -> None:
-        try:
-            from lightfall.ui.theme import ThemeManager
-
-            self._theme_manager = ThemeManager.get_instance()
-            self._theme_manager.colors_changed.connect(self.update)
-        except Exception as e:
-            logger.debug("Could not connect ThemeManager: {}", e)
-
         monitor = self._get_monitor()
         monitor.start()
         monitor.sigStatus.connect(self._on_monitor_changed)
@@ -83,26 +67,10 @@ class ShusseboraStatusPlugin(StatusBarPlugin):
             monitor.sigDiskPressure.disconnect(self._on_monitor_changed)
         except RuntimeError:
             pass
-        if self._theme_manager is not None:
-            try:
-                self._theme_manager.colors_changed.disconnect(self.update)
-            except RuntimeError:
-                pass
-
     def _on_monitor_changed(self, *args) -> None:
         self.update()
 
     # -- display --------------------------------------------------------------
-
-    def _state_color(self, state: str) -> str:
-        try:
-            from lightfall.ui.theme import ThemeManager
-
-            colors = ThemeManager.get_instance().colors
-            return {"ok": colors.success, "stale": colors.warning,
-                    "dead": colors.error, "unknown": colors.text_secondary}[state]
-        except Exception:
-            return _FALLBACK_COLORS[state]
 
     def update(self) -> None:
         monitor = self._get_monitor()
@@ -112,15 +80,7 @@ class ShusseboraStatusPlugin(StatusBarPlugin):
             state_for_color = "stale"  # warning color
         else:
             state_for_color = state
-        color = self._state_color(state_for_color)
-
-        if self._button is not None:
-            try:
-                import qtawesome as qta
-
-                self._button.setIcon(qta.icon("mdi6.snail", color=color))
-            except Exception as e:
-                logger.debug("Could not set snail icon: {}", e)
+        role = _STATE_ROLE[state_for_color]
 
         instances = monitor.instances()
         queue_depth = 0
@@ -149,10 +109,9 @@ class ShusseboraStatusPlugin(StatusBarPlugin):
             text = f"{queue_depth} queued" if queue_depth else ""
         if pressure and state == "ok" and not text:
             text = "Disk"
-        self.set_text(text)
-        self.set_color(color)
-        self.set_tooltip("Shussebora data movement\n" + "\n".join(tooltip_lines)
-                         if tooltip_lines else "Shussebora: no instances seen on the bus")
+        self.set_state(text, icon="mdi6.snail", role=role,
+                       tooltip="Shussebora data movement\n" + "\n".join(tooltip_lines)
+                       if tooltip_lines else "Shussebora: no instances seen on the bus")
 
     # -- interaction -------------------------------------------------------------
 
