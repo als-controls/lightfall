@@ -83,13 +83,14 @@ class MemoryStatusPlugin(StatusBarPlugin):
             rss = self.rss()
         except (psutil.Error, OSError) as e:
             logger.debug("MemoryStatus: could not read RSS: {}", e)
-            self.set_text("? MB")
+            self.set_state("? MB", icon="mdi6.memory", role="text_secondary")
             return
         self._peak = max(self._peak, rss)
         counts = gc.get_count()
         thresholds = gc.get_threshold()
         collections = sum(s.get("collections", 0) for s in gc.get_stats())
-        self.set_text(format_bytes(rss))
+        self.set_state(format_bytes(rss), icon="mdi6.memory",
+                       role="warning" if self.backlogged() else None)
         lines = [
             f"Resident memory: {format_bytes(rss)} (peak {format_bytes(self._peak)})",
             "Pending garbage (gen 0/1/2): "
@@ -101,15 +102,6 @@ class MemoryStatusPlugin(StatusBarPlugin):
         if self._last_collect:
             lines.append(self._last_collect)
         self.set_tooltip("\n".join(lines))
-        self.set_color(self._warn_color() if self.backlogged() else None)
-
-    def _warn_color(self) -> str | None:
-        try:
-            from lightfall.ui.theme import ThemeManager
-
-            return ThemeManager.get_instance().colors.warning
-        except Exception:  # noqa: BLE001 - no theme yet
-            return "#e2a23b"
 
     def on_clicked(self) -> None:
         before = self.rss()

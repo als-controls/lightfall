@@ -7,12 +7,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import qtawesome as qta
 from PySide6.QtCore import QUrl, Slot
 from PySide6.QtGui import QDesktopServices
 
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lightfall.ui.theme import ThemeManager
 from lightfall.ui.toast import ToastManager
 from lightfall.utils.logging import logger
 
@@ -47,7 +45,6 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         super().__init__()
         self._service: ALSBeamStatusService | None = None
         self._last_beam_available: bool | None = None
-        self._theme_manager: ThemeManager | None = None
 
     @property
     def name(self) -> str:
@@ -60,9 +57,6 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
 
     def update(self) -> None:
         """Update the button with current beam status."""
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-
         try:
             from lightfall.services.als_beam_status import ALSBeamStatusService
 
@@ -85,9 +79,6 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
 
     def connect_signals(self) -> None:
         """Connect to beam status service signals."""
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-        self._theme_manager.colors_changed.connect(self.update)
 
         try:
             from lightfall.services.als_beam_status import ALSBeamStatusService
@@ -106,12 +97,6 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
             try:
                 self._service.status_changed.disconnect(self._on_status_changed)
                 self._service.connection_changed.disconnect(self._on_connection_changed)
-            except RuntimeError:
-                pass
-
-        if self._theme_manager is not None:
-            try:
-                self._theme_manager.colors_changed.disconnect(self.update)
             except RuntimeError:
                 pass
 
@@ -140,18 +125,13 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
         current_str = f"{data.beam_current:.1f} mA"
         lifetime_str = f"{data.lifetime:.1f}h"
 
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-        colors = self._theme_manager.colors
-        color = colors.success if data.beam_available else colors.error
-
-        self.set_icon(qta.icon("ri.camera-lens-line", color=color))
+        role = "success" if data.beam_available else "error"
         if data.beam_current < 450 or data.lifetime < 1 or not data.beam_available:
-            self.set_text(f"{current_str} | {lifetime_str}")
+            text = f"{current_str} | {lifetime_str}"
         else:
-            self.set_text("")
-        self.set_color(color)
-        self.set_tooltip(self._build_tooltip(data))
+            text = ""
+        self.set_state(text, icon="ri.camera-lens-line", role=role,
+                       tooltip=self._build_tooltip(data))
 
     def _notify_status_change(self, beam_available: bool) -> None:
         """Show a toast notification when ring status changes."""
@@ -173,18 +153,11 @@ class ALSBeamStatusPlugin(StatusBarPlugin):
 
     def _update_display_offline(self) -> None:
         """Update display for offline/error state."""
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-
-        secondary = self._theme_manager.colors.text_secondary
-        self.set_icon(qta.icon("ri.camera-lens-line", color=secondary))
-        self.set_text("Offline")
-        self.set_color(secondary)
-
         error_msg = ""
         if self._service and self._service.last_error:
             error_msg = f"\nError: {self._service.last_error}"
-        self.set_tooltip(f"ALS beam status unavailable{error_msg}")
+        self.set_state("Offline", icon="ri.camera-lens-line", role="text_secondary",
+                       tooltip=f"ALS beam status unavailable{error_msg}")
 
     def _build_tooltip(self, data: ALSBeamData) -> str:
         """Build detailed tooltip from beam data."""

@@ -271,6 +271,7 @@ class StatusBarManager:
             except (AttributeError, RuntimeError):
                 pass
 
+            plugin._attach_theme()  # also for custom create_widget overrides
             plugin.connect_signals()
             plugin.update()
 
@@ -314,6 +315,7 @@ class StatusBarManager:
                 pass
 
             plugin.disconnect_signals()
+            plugin._detach_theme()
 
             if widget is not None:
                 self._layout.removeWidget(widget)

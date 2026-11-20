@@ -15,6 +15,41 @@ Use `StatusBarPlugin` when you want to:
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 ```
 
+## Style Rules
+
+Every indicator in the bar looks the same way: a **qtawesome icon** plus a
+short label, both tinted with a **theme color role**. One call does all of it:
+
+```python
+self.set_state("3 queued", icon="mdi6.snail", role="warning", tooltip="...")
+```
+
+- **Icons are qtawesome names** passed as `icon=`. Never put unicode symbols
+  or emoji in the label (no `⬆ 2 updates`, `⏳ 3 tasks`, `✓ done`). They
+  render inconsistently across fonts, can't be tinted, and ignore the theme.
+- **Colors are theme roles** passed as `role=`, never hex/CSS literals. A raw
+  color stays fixed when the user switches theme; a role is re-applied.
+- **Never touch `ThemeManager` for the indicator itself.** The base class
+  re-renders the last `set_state()` when the theme changes.
+
+| Role | Use for |
+|------|---------|
+| `"success"` | Connected / healthy / active |
+| `"warning"` | Degraded, pending, needs attention soon |
+| `"error"` | Down, failed, blocked |
+| `"info"` | Neutral news (updates available, work in progress) |
+| `"text_secondary"` | Idle, off, not configured |
+| `None` (default) | Plain text color |
+| `"text"`, `"primary"`, `"secondary"` | Rarely needed |
+
+Browse icon names with `qta-browser` (installed with qtawesome); Lightfall
+uses the `mdi6.` set.
+
+Enforcement: at runtime, a label containing symbol characters, a raw
+`set_color()`, an unknown role, or a bad icon name logs a warning once per
+plugin; the bar is never broken by it. For plugins in this repo,
+`tests/ui/statusbar/test_statusbar_style.py` fails on the same patterns.
+
 ## Class Attributes
 
 | Attribute | Value | Description |
@@ -41,16 +76,12 @@ class StatusBarPluginMetadata:
 ## Default Widget
 
 The base class provides a default widget: a flat ``QToolButton`` whose
-``clicked`` signal is wired to ``on_clicked()``. The button shares a
-single horizontal layout with neighbouring plugins (no Qt separator
-notches between items), so every entry looks consistent and signals
-clickability. Plugins typically just override ``update()``,
-``connect_signals()``, ``disconnect_signals()``, and (optionally)
-``on_clicked()``.
-
-For complex needs (anchoring a popup, embedding non-button widgets),
-override ``create_widget()``; you are then responsible for setting
-``self._widget`` and any click wiring.
+``clicked`` signal is wired to ``on_clicked()``. It shows icon-only, text-only
+or icon-beside-text depending on what ``set_state()`` was given. The button
+shares a single horizontal layout with neighbouring plugins, so every entry
+looks consistent and signals clickability. Plugins typically just override
+``update()``, ``connect_signals()``, ``disconnect_signals()``, and
+(optionally) ``on_clicked()``.
 
 ## Required Methods
 
@@ -66,19 +97,25 @@ def name(self) -> str:
 
 ### update()
 
-Update the displayed state. Use the inherited helpers to drive the
-default button:
+Read the current state and show it with ``set_state()``:
 
 ```python
 def update(self) -> None:
-    self.set_text("OK")
-    self.set_tooltip("Everything is fine")
-    self.set_color(self._theme.colors.success)
+    if self._service.ok:
+        self.set_state("", icon="mdi6.database", role="success",
+                       tooltip="Connected")
+    else:
+        self.set_state("Error", icon="mdi6.database", role="error",
+                       tooltip=self._service.error)
 ```
+
+An empty label gives an icon-only indicator; let the icon and color carry
+the meaning when the state is the normal one.
 
 ### connect_signals() / disconnect_signals()
 
-Wire up (and tear down) the service signals that drive ``update()``.
+Wire up (and tear down) the service signals that drive ``update()``. Do not
+connect to the theme here; the base class handles theme changes.
 
 ```python
 def connect_signals(self) -> None:
@@ -102,22 +139,36 @@ def on_clicked(self) -> None:
     QDesktopServices.openUrl(QUrl("https://example.com"))
 ```
 
+### on_theme_changed()
+
+Called when the theme's colors change. The default re-renders the last
+``set_state()``, which is all a default-widget plugin needs. Override it only
+to restyle a custom widget (call ``super().on_theme_changed()`` too if you
+also use ``set_state()``).
+
 ### create_widget(parent)
 
-Override only when the default button is not enough (e.g., custom popup
-anchor). You must assign ``self._widget`` and ``self._button`` (if
-applicable) yourself.
+Override only when the default button is not enough (e.g. embedding
+non-button widgets). Prefer calling ``super().create_widget(parent)`` and
+adding to it (as ``thread_status`` does for its popup overlay). If you build
+your own widget, assign ``self._widget`` (and ``self._button`` if it is a
+button) yourself, read colors from ``self.theme_colors`` /
+``self.theme_color(role)``, and override ``on_theme_changed()`` to restyle.
 
 ## Helpers
 
 | Helper | Purpose |
 |--------|---------|
-| `set_text(str)` | Set the button label text |
-| `set_tooltip(str)` | Set the tooltip |
-| `set_color(str \| None)` | Apply a CSS color string (`None` clears) |
+| `set_state(text, icon=, role=, tooltip=)` | Show a label with a qtawesome icon, tinted with a theme role. **Use this.** |
+| `set_tooltip(str)` | Set the tooltip on its own |
 | `set_visible(bool)` | Show or hide the plugin's widget in the status bar |
+| `theme_colors` | The current theme's `ThemeColors` (for custom widgets) |
+| `theme_color(role)` | The current color for a role (for custom widgets) |
 | `is_visible` | Current visibility flag |
 | `visibility_changed` | Qt signal emitted with the new visibility |
+| `set_text(str)` | Low-level: label only. Prefer `set_state` |
+| `set_icon(QIcon)` | Low-level: not re-tinted on theme change. Prefer `set_state` |
+| `set_color(str)` | **Deprecated**: raw CSS color, logs a warning. Use `role=` |
 
 When a plugin calls ``set_visible(False)`` the widget is hidden and the
 side container's layout collapses around it — no leftover gap, no
@@ -126,11 +177,14 @@ trailing separator.
 ## Lifecycle
 
 1. Plugin is instantiated on load
-2. `StatusBarManager` calls `create_widget()` to get the widget
+2. `StatusBarManager` calls `create_widget()` to get the widget, and
+   subscribes the plugin to theme changes
 3. `connect_signals()` is called to wire up state handlers
 4. `update()` is called to set initial state
-5. During runtime, signals trigger `update()` calls
-6. On cleanup, `disconnect_signals()` is called
+5. During runtime, signals trigger `update()` calls; theme changes call
+   `on_theme_changed()`
+6. On cleanup, `disconnect_signals()` is called and the theme subscription
+   is dropped
 
 ## Complete Example
 
@@ -140,7 +194,6 @@ trailing separator.
 from typing import ClassVar
 
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lightfall.ui.theme import ThemeManager
 
 
 class DeviceConnectionStatus(StatusBarPlugin):
@@ -157,7 +210,6 @@ class DeviceConnectionStatus(StatusBarPlugin):
     def __init__(self) -> None:
         super().__init__()
         self._device_manager = None
-        self._theme: ThemeManager | None = None
 
     @property
     def name(self) -> str:
@@ -166,27 +218,18 @@ class DeviceConnectionStatus(StatusBarPlugin):
     def update(self) -> None:
         if not self._device_manager:
             return
-        if self._theme is None:
-            self._theme = ThemeManager.get_instance()
-        colors = self._theme.colors
-
         connected = self._device_manager.connected_count
         total = self._device_manager.total_count
+        tooltip = f"Connected: {connected}\nDisconnected: {total - connected}"
 
         if connected == total:
-            self.set_text(f"Devices: {total} connected")
-            self.set_color(colors.success)
+            self.set_state("", icon="mdi6.lan-connect", role="success", tooltip=tooltip)
         elif connected == 0:
-            self.set_text(f"Devices: {total} disconnected")
-            self.set_color(colors.error)
+            self.set_state(f"{total} down", icon="mdi6.lan-disconnect", role="error",
+                           tooltip=tooltip)
         else:
-            self.set_text(f"Devices: {connected}/{total}")
-            self.set_color(colors.warning)
-
-        self.set_tooltip(
-            f"Connected: {connected}\n"
-            f"Disconnected: {total - connected}"
-        )
+            self.set_state(f"{connected}/{total}", icon="mdi6.lan-pending", role="warning",
+                           tooltip=tooltip)
 
     def connect_signals(self) -> None:
         from lightfall.devices.manager import DeviceManager
@@ -223,8 +266,8 @@ class ExternalLinkStatus(StatusBarPlugin):
         return "docs_link"
 
     def update(self) -> None:
-        self.set_text("Docs")
-        self.set_tooltip("Open documentation")
+        self.set_state("Docs", icon="mdi6.book-open-variant",
+                       tooltip="Open documentation")
 
     def connect_signals(self) -> None:
         pass
@@ -236,41 +279,40 @@ class ExternalLinkStatus(StatusBarPlugin):
         QDesktopServices.openUrl(QUrl("https://example.com/docs"))
 ```
 
-## Custom Widget (icon-based, popup anchor, etc.)
+## Custom Widget (popup anchor, etc.)
 
-Override ``create_widget`` only when the default button is not enough.
+Extend the default button rather than replacing it, so ``set_state()`` and
+theming keep working:
 
 ```python
-import qtawesome as qta
-from PySide6.QtCore import QSize
-from PySide6.QtWidgets import QToolButton, QWidget
+from PySide6.QtWidgets import QFrame, QWidget
 
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 
 
-class IconStatusPlugin(StatusBarPlugin):
-    metadata = StatusBarPluginMetadata(
-        id="my_package.statusbar.icon",
-        name="Network",
-        priority=30,
-    )
+class PopupStatusPlugin(StatusBarPlugin):
+    metadata = StatusBarPluginMetadata(id="my_package.statusbar.popup", name="Jobs")
 
     @property
     def name(self) -> str:
-        return "icon_status"
+        return "popup_status"
 
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
-        button = QToolButton(parent)
-        button.setAutoRaise(True)
-        button.setIcon(qta.icon("mdi.wifi"))
-        button.setIconSize(QSize(14, 14))
-        button.clicked.connect(self.on_clicked)
-        self._button = button
-        self._widget = button
+        button = super().create_widget(parent)
+        self._popup = QFrame()
+        self._restyle_popup()
         return button
 
+    def on_theme_changed(self) -> None:
+        super().on_theme_changed()  # re-render the button's set_state
+        self._restyle_popup()
+
+    def _restyle_popup(self) -> None:
+        self._popup.setStyleSheet(
+            f"QFrame {{ border: 1px solid {self.theme_color('text_secondary')}; }}")
+
     def update(self) -> None:
-        ...
+        self.set_state("2 jobs", icon="mdi6.progress-clock", role="info")
 
     def connect_signals(self) -> None:
         ...
@@ -323,7 +365,7 @@ def update(self) -> None:
         self.set_visible(False)
         return
     self.set_visible(True)
-    self.set_text(self._render())
+    self.set_state(self._render(), icon="mdi6.bell", role="info")
 ```
 
 Hidden plugins are removed from the layout flow — the surrounding items
@@ -337,5 +379,11 @@ Lightfall includes these status bar plugins:
 |--------|-------------|
 | `thread_status` | Background tasks and scan progress (hides when idle) |
 | `user_status` | Current user and authentication state |
+| `nats_status` | NATS IPC bus connection and peers |
 | `tiled_status` | Tiled data service status |
+| `caproxy_lease_status` | Caproxy attested-lease state |
 | `als_beam_status` | ALS synchrotron beam current and availability |
+| `shussebora_status` | Data-movement daemon health |
+| `git_state_status` | Source checkouts on a feature branch or with local changes |
+| `updates_status` | Available Lightfall updates / restart pending |
+| `memory_status` | Developer indicator: process memory and pending garbage |

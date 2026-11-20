@@ -309,7 +309,12 @@ and, if they override `__init__`, call `super().__init__()`.
 | `connect_signals()` / `disconnect_signals()` | abstract methods | **Required.** Wire/unwire the service signals that trigger `update()`. |
 | `on_clicked()` | method | React to a click on the default button. Default no-op. |
 | `create_widget(parent)` | method | Override for a custom widget; you must assign `self._widget` and handle click wiring yourself. |
-| `set_text` / `set_icon` / `set_tooltip` / `set_color` | helpers | Drive the default button. |
+| `set_state(text, icon=, role=, tooltip=)` | helper | **The display call.** A label with a qtawesome icon, tinted with a theme color role (`COLOR_ROLES`); re-rendered on theme changes. No unicode symbols/emoji in `text`, no hex colors. See the [style rules](../developer-guide/plugins/plugin-types/statusbar.md#style-rules). |
+| `on_theme_changed()` | method | Called on theme changes; default re-renders the last `set_state()`. Override to restyle a custom widget. |
+| `theme_colors` / `theme_color(role)` | helpers | Current theme colors, for custom widgets. |
+| `set_tooltip` | helper | Set the tooltip on its own. |
+| `set_text` / `set_icon` | low-level helpers | Prefer `set_state`. A symbol character in `set_text` logs a warning. |
+| `set_color` | deprecated | Raw CSS color that ignores theme changes; logs a warning. Use `role=`. |
 | `set_visible(visible)` / `is_visible` / `visibility_changed` | visibility | Hidden widgets are removed from the layout flow. |
 
 ```{eval-rst}

@@ -9,10 +9,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-import qtawesome as qta
-
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lightfall.ui.theme import ThemeManager
 from lightfall.utils.logging import logger
 
 
@@ -31,23 +28,11 @@ class UpdatesStatusPlugin(StatusBarPlugin):
     def __init__(self, checker: Any | None = None) -> None:
         super().__init__()
         self._checker = checker
-        self._theme_manager: ThemeManager | None = None
         self.set_visible(False)
 
     @property
     def name(self) -> str:
         return "updates_status"
-
-    @property
-    def _colors(self) -> Any:
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-        return self._theme_manager.colors
-
-    def _set_state(self, text: str, color: str, icon_name: str) -> None:
-        self.set_icon(qta.icon(icon_name, color=color))
-        self.set_text(text)
-        self.set_color(color)
 
     @property
     def checker(self) -> Any:
@@ -60,9 +45,6 @@ class UpdatesStatusPlugin(StatusBarPlugin):
     def connect_signals(self) -> None:
         self.checker.result_changed.connect(self._on_changed)
         self.checker.restart_pending_changed.connect(self._on_changed)
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-        self._theme_manager.colors_changed.connect(self._on_changed)
         self.checker.refresh_gate()
         self.update()
 
@@ -70,11 +52,6 @@ class UpdatesStatusPlugin(StatusBarPlugin):
         for signal in (self.checker.result_changed, self.checker.restart_pending_changed):
             try:
                 signal.disconnect(self._on_changed)
-            except (RuntimeError, TypeError):
-                pass
-        if self._theme_manager is not None:
-            try:
-                self._theme_manager.colors_changed.disconnect(self._on_changed)
             except (RuntimeError, TypeError):
                 pass
 
@@ -86,15 +63,15 @@ class UpdatesStatusPlugin(StatusBarPlugin):
         count = result.update_count
         names = [r.name for r in result.repo_updates] + [p.name for p in result.pypi_updates]
         if count:
-            self._set_state(f"{count} update{'s' if count != 1 else ''}",
-                            self._colors.info, "mdi6.arrow-up-circle")
             tip = "Updates available:\n" + "\n".join(names)
             if self.checker.restart_pending:
                 tip += "\n\nRestart pending for updates already applied."
-            self.set_tooltip(tip + "\n\nClick to review and update.")
+            self.set_state(f"{count} update{'s' if count != 1 else ''}",
+                           icon="mdi6.arrow-up-circle", role="info",
+                           tooltip=tip + "\n\nClick to review and update.")
         elif self.checker.restart_pending:
-            self._set_state("Restart pending", self._colors.warning, "mdi6.restart")
-            self.set_tooltip("Updates were applied. Click to restart Lightfall.")
+            self.set_state("Restart pending", icon="mdi6.restart", role="warning",
+                           tooltip="Updates were applied. Click to restart Lightfall.")
         self.set_visible(self.checker.active and (bool(count) or self.checker.restart_pending))
 
     def on_clicked(self) -> None:

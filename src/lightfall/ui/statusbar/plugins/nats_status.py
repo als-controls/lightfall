@@ -11,17 +11,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, ClassVar
 
-import qtawesome as qta
-
 from lightfall.ipc.service import IPCService, get_ipc_service
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
 from lightfall.utils.logging import logger
-
-_FALLBACK_COLORS = {
-    "connected": "#2ecc71",
-    "disconnected": "#e74c3c",
-    "off": "#7f8c8d",
-}
 
 _ERROR_HEALTH = {"down", "unauthorized", "incompatible"}
 
@@ -48,7 +40,6 @@ class NatsStatusPlugin(StatusBarPlugin):
         super().__init__()
         self._ipc = ipc
         self._services = services
-        self._theme_manager = None
         self._peers: list[dict] = []
         self._last_refreshed: str | None = None
         self._icon_name: str = "mdi6.message-outline"
@@ -79,14 +70,6 @@ class NatsStatusPlugin(StatusBarPlugin):
 
     def connect_signals(self) -> None:
         self._alive = True
-        try:
-            from lightfall.ui.theme import ThemeManager
-
-            self._theme_manager = ThemeManager.get_instance()
-            self._theme_manager.colors_changed.connect(self.update)
-        except Exception as e:
-            logger.debug("NatsStatus: could not connect ThemeManager: {}", e)
-
         # The manager re-emits services_changed on every client state_changed.
         services = self._get_services()
         if services is not None:
@@ -111,12 +94,6 @@ class NatsStatusPlugin(StatusBarPlugin):
                 ipc.sigConnectionChanged.disconnect(self._on_connection_changed)
             except RuntimeError:
                 pass
-        if self._theme_manager is not None:
-            try:
-                self._theme_manager.colors_changed.disconnect(self.update)
-            except RuntimeError:
-                pass
-
     def _on_connection_changed(self, connected: bool) -> None:
         if connected:
             self._refresh_peers()
@@ -146,18 +123,12 @@ class NatsStatusPlugin(StatusBarPlugin):
 
     # -- display --------------------------------------------------------------
 
-    def _color(self, key: str) -> str:
-        try:
-            from lightfall.ui.theme import ThemeManager
-
-            colors = ThemeManager.get_instance().colors
-            return {
-                "connected": colors.success,
-                "disconnected": colors.error,
-                "off": colors.text_secondary,
-            }[key]
-        except Exception:
-            return _FALLBACK_COLORS[key]
+    #: display state -> theme color role
+    _ROLES: ClassVar[dict[str, str]] = {
+        "connected": "success",
+        "disconnected": "error",
+        "off": "text_secondary",
+    }
 
     def update(self) -> None:
         ipc = self._get_ipc()
@@ -178,14 +149,8 @@ class NatsStatusPlugin(StatusBarPlugin):
         self._apply("connected", text, self._build_tooltip(ipc))
 
     def _apply(self, color_key: str, text: str, tooltip: str) -> None:
-        color = self._color(color_key)
-        try:
-            self.set_icon(qta.icon(self._icon_name, color=color))
-        except Exception as e:
-            logger.debug("NatsStatus: could not set icon {}: {}", self._icon_name, e)
-        self.set_text(text)
-        self.set_color(color)
-        self.set_tooltip(tooltip + self._services_section())
+        self.set_state(text, icon=self._icon_name, role=self._ROLES[color_key],
+                       tooltip=tooltip + self._services_section())
 
     def _services_section(self) -> str:
         services = self._get_services()

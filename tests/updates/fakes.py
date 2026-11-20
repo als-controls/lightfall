@@ -84,3 +84,6 @@ class _Colors:
         self.success = "#43a047"
         self.error = "#e53935"
         self.text_secondary = "#888888"
+        self.text = "#222222"
+        self.primary = "#3949ab"
+        self.secondary = "#8e24aa"

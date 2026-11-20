@@ -12,9 +12,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
-    QApplication,
     QFrame,
     QLabel,
     QProgressBar,
@@ -27,6 +25,9 @@ from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginM
 from lightfall.ui.theme import ThemeManager, scaled_px
 from lightfall.utils.logging import logger
 from lightfall.utils.threads import QThreadFuture, thread_manager
+
+#: qtawesome icon shown while tasks or a scan are running.
+_BUSY_ICON = "mdi6.progress-clock"
 
 
 class _ProgressOverlay(QFrame):
@@ -294,12 +295,8 @@ class _ProgressOverlay(QFrame):
 
     @staticmethod
     def _subdued_text_color() -> str:
-        """Return a palette-derived subdued text color string for stylesheets."""
-        app = QApplication.instance()
-        if app is not None:
-            palette = app.palette()
-            return palette.color(QPalette.ColorRole.PlaceholderText).name()
-        return "#888"
+        """The theme's secondary text color, for stylesheets."""
+        return ThemeManager.get_instance().colors.text_secondary
 
     # ------------------------------------------------------------------
     # Separator management
@@ -363,7 +360,6 @@ class ThreadStatusPlugin(StatusBarPlugin):
     def __init__(self) -> None:
         super().__init__()
         self._overlay: _ProgressOverlay | None = None
-        self._theme_manager: ThemeManager | None = None
         self._tracked: set[int] = set()
         self._scanning: bool = False
         self._scan_uid: str | None = None
@@ -378,7 +374,6 @@ class ThreadStatusPlugin(StatusBarPlugin):
     def create_widget(self, parent: QWidget | None = None) -> QWidget:
         """Create the default flat button, plus the lazy overlay."""
         widget = super().create_widget(parent)
-        self._theme_manager = ThemeManager.get_instance()
         self._overlay = _ProgressOverlay()
         return widget
 
@@ -401,8 +396,7 @@ class ThreadStatusPlugin(StatusBarPlugin):
         scanning = self._scanning
 
         if count == 0 and not scanning:
-            self.set_text("")
-            self.set_tooltip("")
+            self.set_state("", tooltip="")
             self.set_visible(False)
             return
 
@@ -414,15 +408,15 @@ class ThreadStatusPlugin(StatusBarPlugin):
         )
 
         if scanning and count == 0:
-            self.set_text(f"⏳ {scan_label}")
-            self.set_tooltip(scan_tooltip)
+            self.set_state(scan_label, icon=_BUSY_ICON, role="info", tooltip=scan_tooltip)
         elif scanning and count > 0:
             task_suffix = f"{count} task{'s' if count != 1 else ''}"
-            self.set_text(f"⏳ {scan_label} + {task_suffix}")
-            self.set_tooltip(f"{scan_tooltip}, {task_suffix}")
+            self.set_state(f"{scan_label} + {task_suffix}", icon=_BUSY_ICON, role="info",
+                           tooltip=f"{scan_tooltip}, {task_suffix}")
         else:
-            self.set_text(f"⏳ {count} task{'s' if count != 1 else ''}")
-            self.set_tooltip(f"{count} background task{'s' if count != 1 else ''} running")
+            self.set_state(f"{count} task{'s' if count != 1 else ''}", icon=_BUSY_ICON,
+                           role="info",
+                           tooltip=f"{count} background task{'s' if count != 1 else ''} running")
         self.set_visible(True)
 
     def connect_signals(self) -> None:

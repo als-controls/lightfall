@@ -10,10 +10,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-import qtawesome as qta
-
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lightfall.ui.theme import ThemeManager
 from lightfall.utils.logging import logger
 
 
@@ -32,18 +29,11 @@ class GitStateStatusPlugin(StatusBarPlugin):
     def __init__(self, checker: Any | None = None) -> None:
         super().__init__()
         self._checker = checker
-        self._theme_manager: ThemeManager | None = None
         self.set_visible(False)
 
     @property
     def name(self) -> str:
         return "git_state_status"
-
-    @property
-    def _colors(self) -> Any:
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-        return self._theme_manager.colors
 
     @property
     def checker(self) -> Any:
@@ -55,9 +45,6 @@ class GitStateStatusPlugin(StatusBarPlugin):
 
     def connect_signals(self) -> None:
         self.checker.result_changed.connect(self._on_changed)
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-        self._theme_manager.colors_changed.connect(self._on_changed)
         self.checker.refresh_gate()
         self.update()
 
@@ -66,11 +53,6 @@ class GitStateStatusPlugin(StatusBarPlugin):
             self.checker.result_changed.disconnect(self._on_changed)
         except (RuntimeError, TypeError):
             pass
-        if self._theme_manager is not None:
-            try:
-                self._theme_manager.colors_changed.disconnect(self._on_changed)
-            except (RuntimeError, TypeError):
-                pass
 
     def _on_changed(self, *args: Any) -> None:
         self.update()
@@ -81,16 +63,13 @@ class GitStateStatusPlugin(StatusBarPlugin):
         repos = self.checker.result.noteworthy_repos
         if repos:
             n = len(repos)
-            color = self._colors.info
-            self.set_icon(qta.icon("mdi6.source-branch", color=color))
-            self.set_text(f"{n} repo{'s' if n != 1 else ''}")
-            self.set_color(color)
             lines = []
             for repo in repos:
                 state = describe_state(repo)
                 lines.append(f"{repo.name}: {repo.branch or 'detached'}"
                              + (f", {state}" if state else ""))
-            self.set_tooltip("\n".join(lines) + "\n\nClick for details.")
+            self.set_state(f"{n} repo{'s' if n != 1 else ''}", icon="mdi6.source-branch",
+                           role="info", tooltip="\n".join(lines) + "\n\nClick for details.")
         self.set_visible(bool(repos))
 
     def on_clicked(self) -> None:

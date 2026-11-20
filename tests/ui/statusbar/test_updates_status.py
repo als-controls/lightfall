@@ -95,8 +95,11 @@ def test_restart_pending_uses_warning_color(qtbot):
     assert "#fb8c00" in plugin._button.styleSheet()
 
 
-def test_disconnect_detaches_theme(qtbot):
+def test_detach_theme_stops_rerendering(qtbot):
     checker = FakeChecker()
     plugin = themed(qtbot, checker)
+    checker.publish(TWO)
     plugin.disconnect_signals()
-    assert plugin._theme_manager.receivers("2colors_changed()") == 0
+    plugin._detach_theme()  # the StatusBarManager does this on removal
+    plugin._theme_manager.switch(info="#90caf9", warning="#ffcc80")
+    assert "#1e88e5" in plugin._button.styleSheet()

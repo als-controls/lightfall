@@ -10,11 +10,9 @@ from __future__ import annotations
 import time
 from typing import Any, ClassVar
 
-import qtawesome as qta
 from PySide6.QtCore import QTimer, Slot
 
 from lightfall.plugins.statusbar_plugin import StatusBarPlugin, StatusBarPluginMetadata
-from lightfall.ui.theme import ThemeManager
 from lightfall.utils.logging import logger
 
 # Countdown re-render cadence between service polls.
@@ -59,7 +57,6 @@ class CaproxyLeaseStatusPlugin(StatusBarPlugin):
         """Initialize the caproxy lease status plugin."""
         super().__init__()
         self._service = None
-        self._theme_manager: ThemeManager | None = None
         self._leases: list[dict[str, Any]] = []
         self._poll_error: str | None = None
         self._timer = QTimer()
@@ -77,9 +74,6 @@ class CaproxyLeaseStatusPlugin(StatusBarPlugin):
 
     def connect_signals(self) -> None:
         """Connect to the CaproxyLeaseService singleton and start polling."""
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-        self._theme_manager.colors_changed.connect(self.update)
 
         try:
             from lightfall.services.caproxy_lease_service import CaproxyLeaseService
@@ -112,12 +106,6 @@ class CaproxyLeaseStatusPlugin(StatusBarPlugin):
             except Exception as e:
                 logger.debug("Could not stop caproxy lease polling: {}", e)
 
-        if self._theme_manager is not None:
-            try:
-                self._theme_manager.colors_changed.disconnect(self.update)
-            except RuntimeError:
-                pass
-
     # ------------------------------------------------------------------
     # Signal handlers
     # ------------------------------------------------------------------
@@ -144,18 +132,7 @@ class CaproxyLeaseStatusPlugin(StatusBarPlugin):
     # Display
     # ------------------------------------------------------------------
 
-    @property
-    def _colors(self):
-        """Resolve theme colors, falling back to the singleton on first use."""
-        if self._theme_manager is None:
-            self._theme_manager = ThemeManager.get_instance()
-        return self._theme_manager.colors
 
-    def _set_state(self, text: str, color: str, icon_name: str, tooltip: str) -> None:
-        self.set_icon(qta.icon(icon_name, color=color))
-        self.set_text(text)
-        self.set_color(color)
-        self.set_tooltip(tooltip)
 
     def update(self) -> None:
         """Recompute the display from the last known lease snapshot."""
@@ -174,16 +151,14 @@ class CaproxyLeaseStatusPlugin(StatusBarPlugin):
             self._update_display_idle()
 
     def _update_display_idle(self) -> None:
-        self._set_state("", self._colors.text_secondary, "mdi6.lock-outline", "No active leases")
+        self.set_state("", icon="mdi6.lock-outline", role="text_secondary", tooltip="No active leases")
 
     def _update_display_pending(self, pending: list[dict[str, Any]]) -> None:
         patterns = [", ".join(r.get("pv_patterns", []) or []) for r in pending]
         tooltip = "Lease pending approval:\n" + "\n".join(patterns) if patterns else (
             "Lease pending approval"
         )
-        self._set_state(
-            "lease pending", self._colors.warning, "mdi6.lock-clock", tooltip
-        )
+        self.set_state("lease pending", icon="mdi6.lock-clock", role="warning", tooltip=tooltip)
 
     def _update_display_active(self, active: list[dict[str, Any]]) -> None:
         now = time.time()
@@ -198,15 +173,13 @@ class CaproxyLeaseStatusPlugin(StatusBarPlugin):
             lines.append(f"{patterns} (expires in {expires_in})")
         tooltip = "Active leases:\n" + "\n".join(lines) if lines else "Active lease"
 
-        self._set_state(
-            countdown, self._colors.success, "mdi6.lock-open-variant", tooltip
-        )
+        self.set_state(countdown, icon="mdi6.lock-open-variant", role="success", tooltip=tooltip)
 
     def _update_display_error(self, message: str) -> None:
         tooltip = f"Caproxy lease poll error: {message}" if message else (
             "Caproxy lease poll error"
         )
-        self._set_state("lease ?", self._colors.error, "mdi6.lock-alert", tooltip)
+        self.set_state("lease ?", icon="mdi6.lock-alert", role="error", tooltip=tooltip)
 
     # ------------------------------------------------------------------
     # Interaction
