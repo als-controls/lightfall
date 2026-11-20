@@ -22,6 +22,10 @@ _RELAUNCH_LOCK = threading.Lock()
 #: The environment Lightfall was started with, before a session mode or the CA
 #: tunnel rewrote EPICS variables in it; the relaunched process gets this one.
 _LAUNCH_ENV: dict[str, str] | None = None
+#: Builds a command to run once this process exits (e.g. the deferred-reinstall
+#: helper). It is passed the argv to relaunch, or None for a plain quit, and
+#: takes over the relaunch when it returns a command.
+_EXIT_COMMAND: Callable[[list[str] | None], list[str] | None] | None = None
 
 
 def remember_launch_env() -> None:
@@ -52,13 +56,35 @@ def cancel_restart() -> None:
     _RESTART_REQUESTED = False
 
 
+def set_exit_command(build: Callable[[list[str] | None], list[str] | None] | None) -> None:
+    """Run ``build(relaunch_argv_or_None)``'s command, detached, when Lightfall exits."""
+    global _EXIT_COMMAND
+    _EXIT_COMMAND = build
+
+
 def relaunch_if_requested() -> bool:
-    """Relaunch once if a restart was requested; safe to call from several places."""
-    global _RELAUNCHED
+    """At exit: start the exit command and/or relaunch, once; safe to call from several places.
+
+    With an exit command set, it runs whether or not a restart was asked for,
+    and it is responsible for relaunching.
+    """
+    global _RELAUNCHED, _EXIT_COMMAND
     with _RELAUNCH_LOCK:
-        if not _RESTART_REQUESTED or _RELAUNCHED:
-            return False
-        _RELAUNCHED = True
+        build, _EXIT_COMMAND = _EXIT_COMMAND, None
+        want = _RESTART_REQUESTED and not _RELAUNCHED
+        if want:
+            _RELAUNCHED = True
+    if build is not None:
+        try:
+            command = build(list(sys.orig_argv) if want else None)
+        except Exception as exc:
+            logger.error("Could not prepare the exit command: {}", exc)
+            command = None
+        if command:
+            logger.info("Starting exit command (relaunch={}): {}", want, command)
+            return relaunch(command) and want
+    if not want:
+        return False
     return relaunch()
 
 

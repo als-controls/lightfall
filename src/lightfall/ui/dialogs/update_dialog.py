@@ -20,7 +20,9 @@ from PySide6.QtWidgets import (
 )
 
 from lightfall.ui.dialogs.base import LFDialog
+from lightfall.updates import deferred
 from lightfall.updates.apply import ItemResult, UpdateBlocked, apply_updates, scan_running
+from lightfall.updates.deferred import PendingInstall
 from lightfall.updates.git import RepoState
 from lightfall.updates.model import CheckResult
 from lightfall.updates.pypi import PypiState
@@ -37,12 +39,41 @@ def ask_restart(parent: QWidget | None) -> bool:
     """Ask whether to restart now; True for "Restart now"."""
     box = QMessageBox(parent)
     box.setWindowTitle("Lightfall updates")
-    box.setText("Lightfall needs to restart to use the updates.")
+    text = "Lightfall needs to restart to use the updates."
+    if deferred.pending():
+        text += ("\n\nSome packages are reinstalled after Lightfall closes; it starts "
+                 "again once they import cleanly.")
+    box.setText(text)
     restart = box.addButton("Restart now", QMessageBox.ButtonRole.AcceptRole)
     box.addButton("Later", QMessageBox.ButtonRole.RejectRole)
     box.setDefaultButton(restart)
     box.exec()
     return box.clickedButton() is restart
+
+
+def report_failure(parent: QWidget | None, text: str, details: str) -> None:
+    """Show that some updates failed, with the pip/git output as details."""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setWindowTitle("Lightfall updates")
+    box.setText(text)
+    if details:
+        box.setDetailedText(details)
+    box.exec()
+
+
+def failure_text(failed: list[ItemResult]) -> str:
+    """The message for failed updates: what failed, and how to repair a broken install."""
+    lines = ["Some updates failed:"]
+    lines += [f"  • {r.name}: {r.message}" for r in failed]
+    fixes = list(dict.fromkeys(r.manual_fix for r in failed if r.install_failed and r.manual_fix))
+    if fixes:
+        lines += ["", "The Python environment may be broken. Do not restart Lightfall until "
+                  "you have run:", *[f"  {fix}" for fix in fixes]]
+    else:
+        lines += ["", "Lightfall was not restarted. Updates that succeeded take effect "
+                  "at the next restart."]
+    return "\n".join(lines)
 
 
 class UpdateDialog(LFDialog):
@@ -57,12 +88,16 @@ class UpdateDialog(LFDialog):
         apply: Callable[..., list[ItemResult]] = apply_updates,
         busy: Callable[[], bool] = scan_running,
         ask_restart: Callable[[QWidget], bool] | None = None,
+        report_failure: Callable[[QWidget, str, str], None] | None = None,
+        schedule_install: Callable[[list[PendingInstall]], None] = deferred.schedule,
     ) -> None:
         super().__init__(parent)
         self._checker = checker
         self._apply = apply
         self._busy = busy
         self._ask_restart = ask_restart or _default_ask_restart
+        self._report_failure = report_failure or _default_report_failure
+        self._schedule_install = schedule_install
         self._items: list[RepoState | PypiState] = []
         self._applying = False
         self._applied = False
@@ -260,11 +295,32 @@ class UpdateDialog(LFDialog):
                 continue
             if not result.ok:
                 text = f"Failed: {result.message}"
+            elif result.pending_install is not None:
+                text = "Updated (reinstalls at restart)"
             else:
                 text = "Updated" if result.changed else "Already current"
             self._set_status(result.name, text)
+        pending = [r.pending_install for r in results
+                   if r.ok and r.pending_install is not None]
+        if pending:
+            self._schedule_install(pending)
         self._refresh_busy()
-        if any(r.changed for r in results):
+        failed = [r for r in results if not r.ok]
+        if failed:
+            # Never offer "Restart now" after a failure: a failed reinstall can
+            # leave the venv unable to import Lightfall at all.
+            text = failure_text(failed)
+            details = "\n\n".join(f"== {r.name}: {r.message} ==\n{r.output.rstrip()}"
+                                  for r in failed)
+            self._log.appendPlainText(text)
+            self._log_toggle.setChecked(True)
+            logger.warning("Lightfall update failed:\n{}\n{}", text, details)
+            self._report_failure(self, text, details)
+            if (any(r.changed for r in results)
+                    and not any(r.install_failed for r in failed)):
+                # Code changed and the env is intact: restarting later is safe.
+                self._checker.mark_restart_pending()
+        elif any(r.changed for r in results):
             if self._ask_restart(self) and not self._busy():
                 request_restart()
             else:
@@ -273,3 +329,4 @@ class UpdateDialog(LFDialog):
 
 
 _default_ask_restart = ask_restart
+_default_report_failure = report_failure
