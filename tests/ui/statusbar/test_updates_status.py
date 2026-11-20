@@ -30,7 +30,7 @@ def test_shown_with_count(qtbot):
     plugin = make(qtbot, checker)
     checker.publish(TWO)
     assert plugin.is_visible
-    assert plugin._button.text() == "⬆ 2 updates"
+    assert plugin._button.text() == "2 updates"
     assert "lightfall" in plugin._button.toolTip()
     assert "lightfall-saxs" in plugin._button.toolTip()
     checker.publish(CheckResult.EMPTY)
@@ -39,7 +39,7 @@ def test_shown_with_count(qtbot):
 
 def test_singular_label(qtbot):
     checker = FakeChecker(CheckResult(repos=(repo("lightfall", behind=1),)))
-    assert make(qtbot, checker)._button.text() == "⬆ 1 update"
+    assert make(qtbot, checker)._button.text() == "1 update"
 
 
 def test_restart_pending_shows(qtbot):
@@ -47,7 +47,7 @@ def test_restart_pending_shows(qtbot):
     plugin = make(qtbot, checker)
     checker.mark_restart_pending()
     assert plugin.is_visible
-    assert plugin._button.text() == "⟳ Restart pending"
+    assert plugin._button.text() == "Restart pending"
     plugin.disconnect_signals()
 
 
@@ -64,3 +64,39 @@ def test_restart_pending_hidden_after_logout(qtbot, monkeypatch):
     monkeypatch.setattr(restart, "request_restart", lambda: calls.append(1))
     plugin.on_clicked()
     assert calls == []
+
+
+def themed(qtbot, checker):
+    from tests.updates.fakes import FakeTheme
+
+    plugin = UpdatesStatusPlugin(checker=checker)
+    plugin._theme_manager = FakeTheme()
+    qtbot.addWidget(plugin.create_widget())
+    plugin.connect_signals()
+    return plugin
+
+
+def test_uses_themed_icon_not_glyphs(qtbot):
+    checker = FakeChecker()
+    plugin = themed(qtbot, checker)
+    checker.publish(TWO)
+    assert not plugin._button.icon().isNull()
+    assert plugin._button.text().isascii()
+    assert "#1e88e5" in plugin._button.styleSheet()
+    plugin._theme_manager.switch(info="#90caf9", warning="#ffcc80")
+    assert "#90caf9" in plugin._button.styleSheet()
+
+
+def test_restart_pending_uses_warning_color(qtbot):
+    checker = FakeChecker()
+    plugin = themed(qtbot, checker)
+    checker.mark_restart_pending()
+    assert not plugin._button.icon().isNull()
+    assert "#fb8c00" in plugin._button.styleSheet()
+
+
+def test_disconnect_detaches_theme(qtbot):
+    checker = FakeChecker()
+    plugin = themed(qtbot, checker)
+    plugin.disconnect_signals()
+    assert plugin._theme_manager.receivers("2colors_changed()") == 0

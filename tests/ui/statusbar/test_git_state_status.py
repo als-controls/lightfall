@@ -29,7 +29,7 @@ def test_shows_feature_branch_and_dirty(qtbot):
         repo("lightfall"),
     )))
     assert plugin.is_visible
-    assert plugin._button.text() == "⎇ 2 repos"
+    assert plugin._button.text() == "2 repos"
     tip = plugin._button.toolTip()
     assert "lightfall-deck: feat/x, uncommitted changes" in tip
     assert "lightfall-voice: master, ahead 2" in tip
@@ -39,7 +39,7 @@ def test_shows_feature_branch_and_dirty(qtbot):
 def test_detached_head_label(qtbot):
     checker = FakeChecker(CheckResult(repos=(repo("lightfall", branch=None),)))
     plugin = make(qtbot, checker)
-    assert plugin._button.text() == "⎇ 1 repo"
+    assert plugin._button.text() == "1 repo"
     assert "lightfall: detached" in plugin._button.toolTip()
 
 
@@ -92,3 +92,20 @@ def test_git_state_dialog_frees_itself(qtbot):
     dlg = GitStateDialog([repo("lightfall", dirty=True)])
     qtbot.addWidget(dlg)
     assert dlg.testAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+
+
+def test_uses_themed_icon_not_glyphs(qtbot):
+    from tests.updates.fakes import FakeTheme
+
+    checker = FakeChecker()
+    plugin = GitStateStatusPlugin(checker=checker)
+    plugin._theme_manager = FakeTheme()
+    qtbot.addWidget(plugin.create_widget())
+    plugin.connect_signals()
+    checker.publish(CheckResult(repos=(repo("lightfall-deck", branch="feat/x"),)))
+    assert plugin.is_visible
+    assert not plugin._button.icon().isNull()
+    assert plugin._button.text() == "1 repo"
+    assert "#1e88e5" in plugin._button.styleSheet()
+    plugin._theme_manager.switch(info="#90caf9", warning="#ffcc80")
+    assert "#90caf9" in plugin._button.styleSheet()

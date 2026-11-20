@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QMessageBox
 from lightfall.github.push import PushResult, PushTarget
 from lightfall.github.session import GitHubCredential, GitHubSession
 from lightfall.ui.dialogs import git_state_dialog as gsd
-from lightfall.ui.dialogs.git_state_dialog import PUSH_COL, STATE_COL, GitStateDialog
+from lightfall.ui.dialogs.git_state_dialog import PUSH_COL, RESULT_ROLE, STATE_COL, GitStateDialog
 from tests.updates.fakes import FakeChecker, repo
 
 
@@ -101,7 +101,7 @@ def test_push_confirm_yes_runs_and_rechecks(qtbot, signed_in, monkeypatch):
     dlg = make(qtbot, signed_in, push=fake_push, checker=checker)
     assert button(dlg).text() == "Push"
     button(dlg).click()
-    qtbot.waitUntil(lambda: dlg.table.item(0, STATE_COL).text().startswith("✓"))
+    qtbot.waitUntil(lambda: dlg.table.item(0, STATE_COL).data(RESULT_ROLE) is True)
     assert asked == ["Push feat/x @ abc123def456 of lightfall to "
                      "github.com/als-controls/lightfall as octo?"]
     assert pushed == [("feat/x", "octo", {"expected_head": HEAD})]
@@ -126,7 +126,7 @@ def _push_with(qtbot, signed_in, monkeypatch, *, during_confirm=None, target=goo
     checker = checker if checker is not None else FakeChecker()
     dlg = make(qtbot, signed_in, push=fake_push, checker=checker, target=target)
     button(dlg).click()
-    qtbot.waitUntil(lambda: dlg.table.item(0, STATE_COL).text()[:1] in "✓✗")
+    qtbot.waitUntil(lambda: dlg.table.item(0, STATE_COL).data(RESULT_ROLE) is not None)
     return dlg, pushed, checker
 
 
@@ -170,8 +170,9 @@ def test_head_read_failure_asks_nothing(qtbot, signed_in, monkeypatch):
 
     dlg = make(qtbot, signed_in, push=lambda *a, **k: 1 / 0, head=bad_head)
     button(dlg).click()
-    text = dlg.table.item(0, STATE_COL).text()
-    assert asked == [] and text.startswith("✗") and "github_pat_SECRET" not in text
+    item = dlg.table.item(0, STATE_COL)
+    assert asked == [] and item.data(RESULT_ROLE) is False
+    assert not item.icon().isNull() and "github_pat_SECRET" not in item.text()
 
 
 def test_rechecker_is_released_after_result(qtbot, signed_in, monkeypatch):
@@ -191,7 +192,7 @@ def test_push_failure_shows_cross(qtbot, signed_in, monkeypatch):
     dlg = make(qtbot, signed_in, checker=checker,
                push=lambda t, c, **kw: PushResult(False, "rejected", t, None, None))
     button(dlg).click()
-    qtbot.waitUntil(lambda: dlg.table.item(0, STATE_COL).text().startswith("✗"))
+    qtbot.waitUntil(lambda: dlg.table.item(0, STATE_COL).data(RESULT_ROLE) is False)
     assert checker.checks == []
 
 
@@ -277,7 +278,7 @@ def test_push_exception_shows_scrubbed_message(qtbot, signed_in, monkeypatch):
 
     dlg = make(qtbot, signed_in, push=boom)
     button(dlg).click()
-    qtbot.waitUntil(lambda: dlg.table.item(0, STATE_COL).text().startswith("✗"))
+    qtbot.waitUntil(lambda: dlg.table.item(0, STATE_COL).data(RESULT_ROLE) is False)
     text = dlg.table.item(0, STATE_COL).text()
     assert "github_pat_SECRET" not in text
     assert "***" in text
