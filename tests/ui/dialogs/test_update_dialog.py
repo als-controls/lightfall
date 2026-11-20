@@ -19,6 +19,8 @@ RESULT = CheckResult(
 def make(qtbot, checker=None, **kw):
     kw.setdefault("busy", lambda: False)
     kw.setdefault("ask_restart", lambda parent: False)
+    kw.setdefault("report_failure", lambda parent, text, details: None)
+    kw.setdefault("schedule_install", lambda installs: None)
     dlg = UpdateDialog(checker or FakeChecker(RESULT), **kw)
     qtbot.addWidget(dlg)
     return dlg
@@ -60,7 +62,7 @@ def test_check_now_button(qtbot):
     assert checker.checks == [True]
 
 
-def test_partial_failure_shown_and_restart_offered(qtbot):
+def test_partial_failure_shown_and_no_restart_offered(qtbot):
     checker = FakeChecker(RESULT)
     seen = {}
 
@@ -71,16 +73,63 @@ def test_partial_failure_shown_and_restart_offered(qtbot):
         return [ItemResult("lightfall", True, True, "updated"),
                 ItemResult("lightfall-saxs", False, False, "pip upgrade failed", "boom")]
 
-    asked = []
-    dlg = make(qtbot, checker, apply=apply, ask_restart=lambda p: asked.append(p) or False)
+    asked, reported = [], []
+    dlg = make(qtbot, checker, apply=apply, ask_restart=lambda p: asked.append(p) or False,
+               report_failure=lambda p, text, details: reported.append((text, details)))
     dlg._update_button.click()
     qtbot.waitUntil(lambda: status(dlg, "lightfall") == "Updated", timeout=5000)
     assert seen == {"repos": ["lightfall"], "pypi": ["lightfall-saxs"]}
     assert status(dlg, "lightfall-saxs") == "Failed: pip upgrade failed"
-    assert asked == [dlg]
-    assert checker.restart_pending
+    assert asked == []  # any failure: no plain "Restart now"
+    [(text, details)] = reported
+    assert "lightfall-saxs: pip upgrade failed" in text and "boom" in details
+    assert checker.restart_pending  # env intact: restarting later is fine
     assert checker.checks == [False]
     assert "$ git pull" in dlg._log.toPlainText()
+
+
+def test_reinstall_failure_no_restart_and_manual_fix_shown(qtbot):
+    # 2026-11-20: pip -e failed mid-way, the dialog still offered "Restart now",
+    # and the relaunch died with ModuleNotFoundError.
+    checker = FakeChecker(RESULT)
+    fix = "py -m pip install -e /src/lightfall"
+
+    def apply(repos, pypi, log=lambda s: None):
+        return [ItemResult("lightfall", False, True, "reinstall failed", "ERROR: in use",
+                           install_failed=True, manual_fix=fix)]
+
+    asked, reported = [], []
+    dlg = make(qtbot, checker, apply=apply, ask_restart=lambda p: asked.append(p) or True,
+               report_failure=lambda p, text, details: reported.append((text, details)))
+    dlg._update_button.click()
+    qtbot.waitUntil(lambda: bool(reported), timeout=5000)
+    assert asked == []
+    assert status(dlg, "lightfall") == "Failed: reinstall failed"
+    text, details = reported[0]
+    assert fix in text and "environment may be broken" in text
+    assert "ERROR: in use" in details
+    assert not checker.restart_pending
+    assert fix in dlg._log.toPlainText()
+
+
+def test_deferred_reinstall_scheduled_then_restart_offered(qtbot):
+    from pathlib import Path
+
+    from lightfall.updates.deferred import PendingInstall
+
+    pending = PendingInstall(Path("/src/lightfall"), ("lightfall",))
+    scheduled, asked = [], []
+
+    def apply(repos, pypi, log=lambda s: None):
+        return [ItemResult("lightfall", True, True, "updated; reinstalls at restart",
+                           pending_install=pending)]
+
+    dlg = make(qtbot, apply=apply, schedule_install=scheduled.append,
+               ask_restart=lambda p: asked.append(p) or False)
+    dlg._update_button.click()
+    qtbot.waitUntil(lambda: bool(asked), timeout=5000)
+    assert scheduled == [[pending]]
+    assert status(dlg, "lightfall") == "Updated (reinstalls at restart)"
 
 
 def test_restart_requested_when_accepted(qtbot, monkeypatch):

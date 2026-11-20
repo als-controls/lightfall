@@ -20,15 +20,28 @@ from .conftest import commit, git, make_clone
 
 
 class FakeRun:
-    """Records pip invocations; returns success unless told otherwise."""
+    """Records pip and import-check invocations; returns success unless told otherwise."""
 
-    def __init__(self, returncode: int = 0):
+    def __init__(self, returncode: int = 0, verify_returncode: int = 0):
         self.calls: list[list[str]] = []
         self.returncode = returncode
+        self.verify_returncode = verify_returncode
 
     def __call__(self, cmd, **kwargs):
         self.calls.append(list(cmd))
+        if cmd[1] == "-c":
+            return subprocess.CompletedProcess(
+                cmd, self.verify_returncode, stdout="",
+                stderr="" if self.verify_returncode == 0 else "ModuleNotFoundError: lightfall")
         return subprocess.CompletedProcess(cmd, self.returncode, stdout="pip output", stderr="")
+
+    @property
+    def pip_calls(self) -> list[list[str]]:
+        return [c for c in self.calls if c[1:3] == ["-m", "pip"]]
+
+    @property
+    def verify_calls(self) -> list[list[str]]:
+        return [c for c in self.calls if c[1] == "-c"]
 
 
 @pytest.fixture(autouse=True)
@@ -54,19 +67,55 @@ def test_apply_pulls_and_skips_reinstall_without_pyproject_change(clone, git_rem
     assert not any("pip" in c for call in run.calls for c in call)
 
 
-def test_apply_reinstalls_on_pyproject_change(clone, git_remote, tmp_path):
+def test_reinstall_deferred_to_exit_by_default(clone, git_remote, tmp_path):
+    # pip must not run inside the live process (Windows holds its files open).
     advance(git_remote, tmp_path, "pyproject.toml")
     run = FakeRun()
     [result] = apply_updates([fetched(clone)], [], python="py", run=run)
-    assert result.ok
-    assert run.calls == [["py", "-m", "pip", "install", "-e", str(clone)]]
+    assert run.calls == []
+    assert result.ok and result.changed and result.restart_safe
+    assert result.pending_install is not None
+    assert result.pending_install.root == clone
+    assert result.pending_install.dists == ("lightfall",)
+    assert str(clone) in result.manual_fix
+
+
+def test_apply_reinstalls_now_and_verifies_import(clone, git_remote, tmp_path):
+    advance(git_remote, tmp_path, "pyproject.toml")
+    run = FakeRun()
+    [result] = apply_updates([fetched(clone)], [], python="py", run=run, defer_install=False)
+    assert result.ok and result.pending_install is None
+    assert run.pip_calls == [["py", "-m", "pip", "install", "-e", str(clone)]]
+    [verify] = run.verify_calls
+    assert verify[0] == "py" and verify[3:] == ["lightfall", "lightfall"]
 
 
 def test_failed_reinstall_is_reported(clone, git_remote, tmp_path):
     advance(git_remote, tmp_path, "pyproject.toml")
-    [result] = apply_updates([fetched(clone)], [], run=FakeRun(returncode=1))
+    [result] = apply_updates([fetched(clone)], [], run=FakeRun(returncode=1),
+                             defer_install=False)
     assert not result.ok and result.changed
+    assert result.install_failed and not result.restart_safe
+    assert result.message == "reinstall failed"
     assert "pip output" in result.output
+    assert "pip install -e" in result.manual_fix
+
+
+def test_failed_import_check_after_reinstall_is_reported(clone, git_remote, tmp_path):
+    # pip said OK but the venv cannot import the package (e.g. the .pth went missing).
+    advance(git_remote, tmp_path, "pyproject.toml")
+    [result] = apply_updates([fetched(clone)], [], run=FakeRun(verify_returncode=1),
+                             defer_install=False)
+    assert not result.ok and result.install_failed
+    assert result.message == "reinstalled package does not import"
+    assert "ModuleNotFoundError" in result.output
+
+
+def test_failed_import_check_after_pypi_upgrade_is_reported():
+    run = FakeRun(verify_returncode=1)
+    [result] = apply_updates([], [PypiState("lightfall-a", "1.0", "1.1")], python="py", run=run)
+    assert not result.ok and result.install_failed
+    assert result.message == "upgraded package does not import"
 
 
 def test_apply_rechecks_blockers(clone, git_remote, tmp_path):
@@ -97,7 +146,9 @@ def test_pypi_single_upgrade_call():
         [], [PypiState("lightfall-a", "1.0", "1.1"), PypiState("lightfall-b", "2.0", "2.1")],
         python="py", run=run,
     )
-    assert run.calls == [["py", "-m", "pip", "install", "--upgrade", "lightfall-a", "lightfall-b"]]
+    assert run.pip_calls == [
+        ["py", "-m", "pip", "install", "--upgrade", "lightfall-a", "lightfall-b"]]
+    assert [c[3] for c in run.verify_calls] == ["lightfall-a", "lightfall-b"]
     assert [(r.name, r.ok, r.changed) for r in results] == [
         ("lightfall-a", True, True), ("lightfall-b", True, True)]
 
@@ -105,8 +156,27 @@ def test_pypi_single_upgrade_call():
 def test_log_receives_commands(clone, git_remote, tmp_path):
     advance(git_remote, tmp_path, "pyproject.toml")
     lines: list[str] = []
-    apply_updates([fetched(clone)], [], run=FakeRun(), log=lines.append)
+    apply_updates([fetched(clone)], [], run=FakeRun(), log=lines.append, defer_install=False)
     assert any("pip install -e" in line for line in lines)
+    assert any("pip output" in line for line in lines)
+
+
+def test_log_lines_reach_app_logger(clone, git_remote, tmp_path):
+    # Persisted so a failure can be diagnosed after a restart.
+    from lightfall.utils.logging import logger
+
+    advance(git_remote, tmp_path, "pyproject.toml")
+    records: list[str] = []
+    sink = logger.add(lambda m: records.append(m.record["message"]), level="INFO")
+    try:
+        apply_updates([fetched(clone)], [], run=FakeRun(returncode=1), defer_install=False)
+    finally:
+        logger.remove(sink)
+    text = "\n".join(records)
+    assert "[update] $ git -C" in text
+    assert "pip install -e" in text
+    assert "pip output" in text
+    assert "reinstall failed" in text
 
 
 def test_blocked_while_scan_running(monkeypatch):
