@@ -72,6 +72,10 @@ class DeviceTreeItem:
         # Cache for display values (updated by background thread)
         self._cached_value: str = ""
         self._status_cache: str = ""
+        # Outcome of the last value read, for top-level devices only (see
+        # _get_value): None when nothing was read (e.g. an area detector with
+        # no top-level readback), else (ok, error message).
+        self.read_outcome: tuple[bool, str] | None = None
 
     def append_child(self, child: DeviceTreeItem) -> None:
         """Add a child item."""
@@ -210,9 +214,14 @@ class DeviceTreeItem:
         - Signals (leaf nodes)
         - Devices with a 'readback' component (shows the readback value)
         """
+        self.read_outcome = None
         if self.ophyd_obj is None:
             return ""
 
+        # Only a top-level device's own read says anything about the device's
+        # health; a failing child signal can be a single broken PV.
+        top_level = self.device_info is not None
+        reading = False
         try:
             # For signals, show their value directly
             if self.node_type == NodeType.SIGNAL:
@@ -227,7 +236,9 @@ class DeviceTreeItem:
                 # and blocks the value-poll thread.
                 signals = getattr(self.ophyd_obj, "_signals", {})
                 if "readback" in signals:
+                    reading = True
                     val = self._safe_get(signals["readback"])
+                    self._note_read_ok(top_level)
                     if val is not None:
                         return self._format_value(val)
                 # Check for position (motors) — refresh via sync ZMQ call
@@ -242,17 +253,28 @@ class DeviceTreeItem:
                                 )
                         except Exception:
                             pass
-                    return self._format_value(self.ophyd_obj.position)
+                    reading = True
+                    position = self.ophyd_obj.position
+                    self._note_read_ok(top_level)
+                    return self._format_value(position)
                 # Fallback: if the device itself is signal-like (e.g. EpicsSignal)
                 elif hasattr(self.ophyd_obj, "get") and not hasattr(
                     self.ophyd_obj, "component_names"
                 ):
+                    reading = True
                     val = self._safe_get(self.ophyd_obj)
+                    self._note_read_ok(top_level)
                     if val is not None:
                         return self._format_value(val)
-        except Exception:
-            pass
+                # Otherwise (e.g. an area detector): nothing to read at the top level.
+        except Exception as e:
+            if top_level and reading:
+                self.read_outcome = (False, str(e) or type(e).__name__)
         return ""
+
+    def _note_read_ok(self, top_level: bool) -> None:
+        if top_level:
+            self.read_outcome = (True, "")
 
     def _get_type_string(self) -> str:
         """Get type description (device class name).
@@ -640,16 +662,65 @@ class DeviceTreeModel(QAbstractItemModel):
             if not self._value_future.done():
                 return  # Still working, skip this tick
             # Fetch completed — emit dataChanged for value column
-            self._value_future = None
+            future, self._value_future = self._value_future, None
+            self._report_read_outcomes(future)
             self._emit_value_changed()
 
         # Start a new background fetch
         if self._root.children:
-            self._value_future = self._value_pool.submit(self._fetch_all_values)
+            expanded = (
+                self._expanded_rows_provider()
+                if self._expanded_rows_provider is not None
+                else None
+            )
+            self._value_future = self._value_pool.submit(self._fetch_all_values, expanded)
 
-    def _fetch_all_values(self) -> None:
-        """Background thread: refresh cached values on all tree items."""
-        self._fetch_item_values(self._root)
+    def _fetch_all_values(self, expanded: set[int] | None = None) -> list[tuple[str, bool, str]]:
+        """Background thread: refresh cached values; return top-level read outcomes.
+
+        Top-level devices are always refreshed. Their children (signals) are
+        read only when the device is expanded in the view: reading every
+        instantiated signal of every device each tick polled hardware nobody
+        was looking at (and, for lazily-opened detectors, tried to open the
+        hardware). ``expanded=None`` (no view provider, e.g. headless) reads all.
+
+        Returns:
+            ``(device_id, ok, error)`` for each top-level device that read something.
+        """
+        outcomes: list[tuple[str, bool, str]] = []
+        for row, item in enumerate(list(self._root.children)):
+            try:
+                item.refresh_cached_value()
+            except Exception:
+                pass
+            if item.read_outcome is not None and item.device_info is not None:
+                ok, error = item.read_outcome
+                outcomes.append((str(item.device_info.id), ok, error))
+            if expanded is None or row in expanded:
+                for child in item.children:
+                    self._fetch_item_values(child)
+        return outcomes
+
+    def _report_read_outcomes(self, future: Future) -> None:
+        """Main thread: feed the poll's top-level read results to the catalog."""
+        try:
+            outcomes = future.result()
+        except Exception:
+            return
+        if not outcomes:
+            return
+        record_failure = getattr(self._catalog, "record_read_failure", None)
+        record_success = getattr(self._catalog, "record_read_success", None)
+        if record_failure is None or record_success is None:
+            return
+        for device_id, ok, error in outcomes:
+            try:
+                if ok:
+                    record_success(device_id)
+                else:
+                    record_failure(device_id, error)
+            except Exception as e:
+                logger.debug("Could not record read outcome for {}: {}", device_id, e)
 
     def _fetch_item_values(self, item: DeviceTreeItem) -> None:
         """Recursively refresh cached values for an item and its children."""
