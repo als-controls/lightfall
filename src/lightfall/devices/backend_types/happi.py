@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from PySide6.QtWidgets import QFileDialog, QFormLayout, QHBoxLayout, QLineEdit, QPushButton, QWidget
@@ -53,6 +54,12 @@ class HappiBackendType(BackendType):
 
     def create_editor(self, config: dict[str, Any], parent: QWidget | None = None) -> BackendEditor:
         return _HappiEditor(config, parent)
+
+    def source_key(self, config: dict[str, Any]) -> str | None:
+        path = str(config.get("path") or "").strip()
+        if not path:
+            return None  # $HAPPI_CFG: resolved at build time
+        return os.path.normcase(os.path.abspath(os.path.expanduser(path)))
 
     def build(self, config: dict[str, Any], name: str, ctx: BuildContext) -> HappiBackend:
         return HappiBackend(

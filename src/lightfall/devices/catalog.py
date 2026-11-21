@@ -87,6 +87,13 @@ class DeviceCatalog(QObject):
         self._device_cache: dict[UUID, DeviceInfo] = {}
         self._name_index: dict[str, UUID] = {}
         self._scope_backend_map: dict[str, str] = {}
+        # Backend names whose load pipeline is in flight / has completed, so a
+        # backend added early (plugin loader) isn't loaded again by
+        # connect_backends() at startup.
+        self._loading_backends: set[str] = set()
+        self._loaded_backends: set[str] = set()
+        # device_id -> consecutive read failures (see record_read_failure)
+        self._read_failures: dict[UUID, int] = {}
 
     @classmethod
     def get_instance(cls) -> DeviceCatalog:
@@ -150,6 +157,10 @@ class DeviceCatalog(QObject):
         """
         if self._backend is None:
             self._backend = backend  # first one becomes primary
+        if self._backends.get(backend.name) is not backend:
+            # A different object under this name hasn't been loaded yet.
+            self._loading_backends.discard(backend.name)
+            self._loaded_backends.discard(backend.name)
         self._backends[backend.name] = backend
         logger.info("Added device backend: {}", backend.name)
 
@@ -180,7 +191,19 @@ class DeviceCatalog(QObject):
         Step 3 (still main thread): DeviceConnectionManager.connect_devices drives
         per-device CONNECTING → CONNECTED/FAILED via the existing
         _on_device_connected/_on_device_failed handlers.
+
+        Idempotent per backend: a backend that is already loading or loaded is
+        skipped. Loading twice rebuilt the backend's DeviceInfo objects with new
+        UUIDs while the catalog kept the first set, so the backend and the
+        catalog disagreed about which object was the live device.
         """
+        if backend.name in self._loading_backends or backend.name in self._loaded_backends:
+            logger.debug(
+                "Device backend '{}' already loading/loaded; skipping reload", backend.name
+            )
+            return
+        self._loading_backends.add(backend.name)
+
         def _worker() -> list[DeviceInfo]:
             """Run on a background thread: connect backend (if needed) + load metadata.
 
@@ -205,6 +228,10 @@ class DeviceCatalog(QObject):
             kick connect_devices.  Called even for an empty list (backend connected but
             has no devices) -- the key invariant is that NO exception was raised.
             """
+            self._loading_backends.discard(backend.name)
+            if self._backends.get(backend.name) is not backend:
+                return  # removed (or replaced) while loading
+            self._loaded_backends.add(backend.name)
             # Register each info into the catalog structures; track which ones
             # actually made it into the cache (skipped on name/id conflict).
             registered: list[DeviceInfo] = []
@@ -272,6 +299,7 @@ class DeviceCatalog(QObject):
             A backend whose load_metadata() raised must NOT emit backend_connected
             and must NOT register any devices -- the pre-refactor contract.
             """
+            self._loading_backends.discard(backend.name)  # retryable
             logger.error(
                 "Backend \'{}\' failed to load: {}",
                 backend.name,
@@ -297,6 +325,8 @@ class DeviceCatalog(QObject):
             name: Backend name to remove.
         """
         backend = self._backends.pop(name, None)
+        self._loading_backends.discard(name)
+        self._loaded_backends.discard(name)
         if backend is None:
             return
         if backend.is_connected:
@@ -330,12 +360,15 @@ class DeviceCatalog(QObject):
 
         Returns:
             True if at least one backend is registered (workers enqueued).
+
+        Backends already loading or loaded (e.g. added earlier with
+        :meth:`add_and_connect_backend`) are skipped.
         """
         if not self._backends:
             logger.error("No backend configured")
             return False
 
-        for backend in self._backends.values():
+        for backend in list(self._backends.values()):
             self._load_and_connect_backend(backend)
 
         logger.info("Device catalog connect() enqueued {} backend(s)", len(self._backends))
@@ -357,6 +390,9 @@ class DeviceCatalog(QObject):
 
         self._backends.clear()
         self._backend = None
+        self._loading_backends.clear()
+        self._loaded_backends.clear()
+        self._read_failures.clear()
         self._device_cache.clear()
         self._name_index.clear()
         self._device_backend_map.clear()
@@ -805,6 +841,32 @@ class DeviceCatalog(QObject):
             return self._backends.get(name)
         return self._backend
 
+    def _merged_devices(self) -> list[DeviceInfo]:
+        """Every device, one per name, as the catalog holds it.
+
+        Devices registered in the catalog cache come first (these are the live
+        objects with ophyd instances and state). Devices a connected backend
+        holds that the catalog hasn't registered (e.g. a backend added with
+        :meth:`add_backend` but not yet loaded) are appended, except when a
+        device of the same name is already present: that is a duplicate the
+        load pipeline skipped (same happi file configured twice, or a stale
+        copy from a second load) and listing it shows a phantom device with no
+        state.
+        """
+        results: list[DeviceInfo] = list(self._device_cache.values())
+        seen_names = {d.name for d in results}
+        seen_ids = set(self._device_cache.keys())
+        for backend in list(self._backends.values()):
+            if not backend.is_connected:
+                continue
+            for device in backend.get_all_devices():
+                if device.id in seen_ids or device.name in seen_names:
+                    continue
+                seen_ids.add(device.id)
+                seen_names.add(device.name)
+                results.append(device)
+        return results
+
     def list_devices(
         self,
         category: DeviceCategory | None = None,
@@ -813,7 +875,8 @@ class DeviceCatalog(QObject):
     ) -> list[DeviceInfo]:
         """List devices with optional filtering.
 
-        Merges results from all connected backends.
+        Merges results from all connected backends, one entry per device
+        name (see :meth:`_merged_devices`).
 
         Args:
             category: Filter by device category.
@@ -824,15 +887,14 @@ class DeviceCatalog(QObject):
             List of matching devices.
         """
         results: list[DeviceInfo] = []
-        for backend in self._backends.values():
-            if backend.is_connected:
-                results.extend(
-                    backend.list_devices(
-                        category=category,
-                        beamline=beamline,
-                        active_only=active_only,
-                    )
-                )
+        for d in self._merged_devices():
+            if active_only and not d.active:
+                continue
+            if category and d.category != category:
+                continue
+            if beamline and d.beamline != beamline:
+                continue
+            results.append(d)
         return results
 
     def search_devices(self, query: str) -> list[DeviceInfo]:
@@ -842,25 +904,17 @@ class DeviceCatalog(QObject):
             query: Search string.
 
         Returns:
-            List of matching devices.
+            List of matching devices, one per device name.
         """
-        results: list[DeviceInfo] = []
-        for backend in self._backends.values():
-            if backend.is_connected:
-                results.extend(backend.search_devices(query))
-        return results
+        return [d for d in self._merged_devices() if d.matches_search(query)]
 
     def get_all_devices(self) -> list[DeviceInfo]:
-        """Get all devices from all backends.
+        """Get all devices from all backends, one per device name.
 
         Returns:
             List of all devices.
         """
-        results: list[DeviceInfo] = []
-        for backend in self._backends.values():
-            if backend.is_connected:
-                results.extend(backend.get_all_devices())
-        return results
+        return self._merged_devices()
 
     # === Device Management ===
 
@@ -1136,8 +1190,71 @@ class DeviceCatalog(QObject):
             device._state = state
             self.device_state_changed.emit(str(device_id), state)
 
+    #: Consecutive failed reads after which a device is marked ERROR.
+    READ_FAILURE_THRESHOLD = 3
+
+    def record_read_failure(
+        self, device_id: UUID | str, error: BaseException | str
+    ) -> DeviceState | None:
+        """Note a failed hardware read; mark the device ERROR after repeated failures.
+
+        ophyd's ``connected`` only says the device object is usable. A device
+        whose hardware is absent can report connected while every read raises
+        (e.g. a lazily-opened camera that is unplugged). Callers that read
+        hardware report the outcome here so the status reflects reality.
+
+        Returns:
+            The new state if this failure crossed the threshold (or the device
+            was already ERROR from reads), else None.
+        """
+        if isinstance(device_id, str):
+            device_id = UUID(device_id)
+        device = self._device_cache.get(device_id)
+        if device is None:
+            return None
+        count = self._read_failures.get(device_id, 0) + 1
+        self._read_failures[device_id] = count
+        if count < self.READ_FAILURE_THRESHOLD:
+            return None
+        if count == self.READ_FAILURE_THRESHOLD:
+            logger.warning(
+                "Device '{}' failed {} consecutive reads; marking ERROR: {}",
+                device.name,
+                count,
+                error,
+            )
+        state = DeviceState(
+            device_id=device.id,
+            status=DeviceStatus.ERROR,
+            connected=False,
+            additional={
+                "read_error": str(error),
+                "consecutive_read_failures": count,
+            },
+        )
+        device._state = state
+        self.device_state_changed.emit(str(device.id), state)
+        return state
+
+    def record_read_success(self, device_id: UUID | str) -> None:
+        """Note a successful hardware read; clears an ERROR set by read failures."""
+        if isinstance(device_id, str):
+            device_id = UUID(device_id)
+        count = self._read_failures.pop(device_id, 0)
+        device = self._device_cache.get(device_id)
+        if device is None or count < self.READ_FAILURE_THRESHOLD:
+            return
+        state = device._state
+        if state is not None and "consecutive_read_failures" in state.additional:
+            logger.info("Device '{}' readable again; marking ONLINE", device.name)
+            device._state = DeviceState(device_id=device.id, status=DeviceStatus.ONLINE, connected=True)
+            self.device_state_changed.emit(str(device.id), device._state)
+
     def refresh_device_state(self, device_id: UUID | str) -> DeviceState | None:
         """Refresh device state from the actual device.
+
+        A read that raises counts toward :meth:`record_read_failure` instead of
+        being reported as ONLINE.
 
         Args:
             device_id: Device ID.
@@ -1149,31 +1266,26 @@ class DeviceCatalog(QObject):
         if device is None or device.ophyd_device is None:
             return None
 
+        ophyd_dev = device.ophyd_device
         try:
-            ophyd_dev = device.ophyd_device
+            position = ophyd_dev.position if hasattr(ophyd_dev, "position") else None
+            value = ophyd_dev.get() if hasattr(ophyd_dev, "get") else None
+        except Exception as e:
+            logger.debug("Read failed refreshing state for {}: {}", device.name, e)
+            return self.record_read_failure(device.id, e) or device.state
 
-            # Build state from ophyd device
+        try:
+            self.record_read_success(device.id)
             state = DeviceState(
                 device_id=device.id,
                 status=DeviceStatus.ONLINE,
                 connected=True,
             )
-
-            # Get position for positioners
-            if hasattr(ophyd_dev, "position"):
-                state.position = ophyd_dev.position
-
-            # Get value for signals
-            if hasattr(ophyd_dev, "get"):
-                try:
-                    state.value = ophyd_dev.get()
-                except Exception:
-                    pass
-
+            state.position = position
+            state.value = value
             device._state = state
             self.device_state_changed.emit(str(device.id), state)
             return state
-
         except Exception as e:
             logger.error("Error refreshing device state for {}: {}", device.name, e)
             return None

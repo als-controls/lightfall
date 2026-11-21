@@ -112,3 +112,26 @@ def test_exclusive_row_suppresses_others(registry, qtbot):
     rows = [BackendRow("mock", "mock"), BackendRow("excl", "sim", config={"addr": "127.0.0.1"})]
     catalog, _ = _install(rows, registry, FakeSession(True))
     assert [b.name for b in catalog.added] == ["sim"]
+
+
+def test_rows_pointing_at_same_happi_file_load_once(registry, qtbot, tmp_path):
+    """Same file spelled differently (slashes, and case on Windows) is one source."""
+    import os
+
+    db = tmp_path / "bcs.json"
+    spelled_differently = str(db).replace("\\", "/")
+    if os.name == "nt":
+        spelled_differently = spelled_differently.upper()
+    rows = [
+        BackendRow("happi", "bcs-12021-chipps", config={"path": str(db)}),
+        BackendRow("happi", "happi", config={"path": spelled_differently}),
+        BackendRow("happi", "other", config={"path": str(tmp_path / "other.json")}),
+    ]
+    catalog, _ = _install(rows, registry, FakeSession(authenticated=True))
+    assert [b.name for b in catalog.added] == ["bcs-12021-chipps", "other"]
+
+
+def test_happi_rows_without_path_are_not_deduplicated():
+    from lightfall.devices.backend_types.happi import HappiBackendType
+
+    assert HappiBackendType().source_key({"path": ""}) is None

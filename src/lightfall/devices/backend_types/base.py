@@ -63,6 +63,15 @@ class BackendType(ABC):
     def build(self, config: dict[str, Any], name: str, ctx: BuildContext) -> DeviceBackend:
         """Construct the device backend for a row, keyed ``name`` in the catalog."""
 
+    def source_key(self, config: dict[str, Any]) -> str | None:
+        """Identity of the device source ``config`` points at, or None if unknown.
+
+        Two enabled rows of the same type with equal keys would load the same
+        devices twice; the installer keeps the first and skips the rest.
+        Computed from ``config`` alone: no I/O.
+        """
+        return None
+
     def session_env(self, config: dict[str, Any]) -> dict[str, str]:
         """Environment an exclusive row's session needs (e.g. EPICS addresses).
 

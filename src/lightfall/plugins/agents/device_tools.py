@@ -374,8 +374,11 @@ class DeviceToolsAgent(ToolPlugin):
                                 }
                             else:
                                 result["readings"][key] = val
+                        catalog.record_read_success(device.id)
                     except Exception as e:
                         logger.warning("Failed to read device {}: {}", device_name, e)
+                        result["read_error"] = str(e)
+                        catalog.record_read_failure(device.id, e)
 
                 # Include unit if available
                 if hasattr(ophyd_dev, "egu"):

@@ -38,6 +38,14 @@ def _build(backend_type: BackendType, row: BackendRow, ctx: BuildContext) -> Any
     return backend
 
 
+def _source_key(backend_type: BackendType, row: BackendRow) -> tuple[str, str] | None:
+    try:
+        key = backend_type.source_key(row.config)
+    except Exception:
+        return None
+    return None if key is None else (row.type, key)
+
+
 def _fingerprint(row: BackendRow) -> str:
     """What makes a built backend stale: its type, name or config changed."""
     return json.dumps([row.type, row.name, row.config], sort_keys=True, default=str)
@@ -111,6 +119,7 @@ class BackendInstaller:
 
     def _wanted(self, rows: list[BackendRow]) -> dict[str, tuple[BackendType, BackendRow]]:
         wanted: dict[str, tuple[BackendType, BackendRow]] = {}
+        sources: dict[tuple[str, str], BackendRow] = {}  # (type, source key) -> first row
         exclusive = exclusive_row(rows, self._registry)
         if exclusive is not None:
             rows = [exclusive]  # an exclusive row is the session's only source
@@ -128,6 +137,18 @@ class BackendInstaller:
                     row.type,
                 )
                 continue
+            key = _source_key(backend_type, row)
+            if key is not None and key in sources:
+                logger.warning(
+                    "Device backend '{}' reads the same source as '{}' ({}); skipping it."
+                    " Disable or remove one of these rows in Settings -> Devices.",
+                    row.name,
+                    sources[key].name,
+                    backend_type.summary(row.config),
+                )
+                continue
+            if key is not None:
+                sources[key] = row
             wanted[row.id] = (backend_type, row)
         return wanted
 
