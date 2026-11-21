@@ -130,7 +130,7 @@ class ClaudeCodeBackend:
         self._begin_turn_state()
         try:
             async for msg in self.client.receive_messages():
-                logger.info("[sdk-stream] msg {}", _summarize_sdk_msg(msg))
+                logger.debug("[sdk-stream] msg {}", _summarize_sdk_msg(msg))
                 if stopping():
                     return
                 async for ev in self._handle(msg):
