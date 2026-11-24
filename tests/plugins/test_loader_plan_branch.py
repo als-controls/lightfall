@@ -152,3 +152,93 @@ def test_package_plan_displaces_user_plan_and_reports():
         ]
     finally:
         ClashLog.reset_instance()
+
+
+class _IconPlan(_SamplePlan):
+    @property
+    def name(self) -> str:
+        return "icon_plan"
+
+    @property
+    def category(self) -> str:
+        return "rixs"  # not in PLAN_CATEGORY_ICONS
+
+    @property
+    def display_name(self) -> str:
+        return "Fancy Icon Plan"
+
+    @property
+    def icon(self) -> tuple[str, str]:
+        return ("#3F51B5", "Q")
+
+
+def _load_single(import_name: str, plan_name: str) -> None:
+    manifest = PluginManifest(
+        name="test_pkg",
+        version="0.0.0",
+        description="",
+        plugins=[
+            PluginEntry(
+                type_name="plan",
+                name=plan_name,
+                import_path=f"{__name__}:{import_name}",
+            ),
+        ],
+    )
+    loader = PluginLoader()
+    loader.register_plugin_type("plan", PlanPlugin)
+    loader.load_manifest(manifest)
+    assert loader.load_all_sync() == (1, 0)
+
+
+def test_plugin_icon_and_display_name_reach_registry():
+    """icon/display_name declared on a PlanPlugin survive registration."""
+    _load_single("_IconPlan", "icon_plan")
+
+    info = PlanRegistry.get_instance().get_plan("icon_plan")
+    assert info.get_icon() == ("#3F51B5", "Q")
+    assert info.get_display_name() == "Fancy Icon Plan"
+
+
+def test_plugin_without_icon_uses_category_default():
+    _load_single("_SamplePlan", "sample_plan")
+
+    info = PlanRegistry.get_instance().get_plan("sample_plan")
+    assert info.icon is None
+    assert info.get_icon() == ("#4CAF50", "S")  # "scan" category default
+    assert info.get_display_name() == "Sample Plan"
+
+
+@pytest.mark.parametrize("bad", ["#fff", ("#fff",), ("#fff", ""), ("#fff", 1)])
+def test_invalid_icon_raises(bad):
+    class _BadIcon(_SamplePlan):
+        @property
+        def icon(self):
+            return bad
+
+    with pytest.raises(ValueError, match="icon must be"):
+        _BadIcon().get_plan_info()
+
+
+class _DescribedPlan(_SamplePlan):
+    @property
+    def name(self) -> str:
+        return "described_plan"
+
+    @property
+    def plan_description(self) -> str:
+        return "Overridden description."
+
+
+def test_plan_description_override_reaches_registry():
+    _load_single("_DescribedPlan", "described_plan")
+
+    info = PlanRegistry.get_instance().get_plan("described_plan")
+    assert info.description == "Overridden description."
+
+
+def test_default_plan_description_uses_docstring_first_paragraph():
+    _load_single("_SamplePlan", "sample_plan")
+
+    info = PlanRegistry.get_instance().get_plan("sample_plan")
+    assert info.description == "A sample plan."

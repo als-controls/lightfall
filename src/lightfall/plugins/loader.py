@@ -633,6 +633,13 @@ class PluginLoader(QObject):
                         plan_info.category,
                         source="package",
                     )
+                    # register_ranked rebuilds PlanInfo from the function, so
+                    # carry the plugin's display metadata over if it won.
+                    registered = plan_registry.get_plan(plan_info.name)
+                    if registered is not None and registered.func is plan_info.func:
+                        registered.display_name = plan_info.display_name
+                        registered.icon = plan_info.icon
+                        registered.description = plan_info.description
                     if clash is None:
                         logger.debug(
                             "Registered plan '{}' with PlanRegistry",

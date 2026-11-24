@@ -65,9 +65,39 @@ def category(self) -> str:
     return "alignment"  # or "scan", "calibration", etc.
 ```
 
+### display_name (property)
+
+Name shown in the plans panel. Default: `None`, which derives a title-cased
+name from `name` (`"my_scan"` → `"My Scan"`).
+
+```python
+@property
+def display_name(self) -> str | None:
+    return "QERLIN Focus Scan"
+```
+
+### icon (property)
+
+Plans-panel icon as a `(color, letter)` tuple: a filled circle of `color`
+with `letter` drawn in white. Default: `None`, which uses the category
+default from `PLAN_CATEGORY_ICONS`. Categories not in that table (anything
+other than `scan`, `count`, `alignment`, `fly`, `calibration`, `user`) get
+the gray "G" `general` icon, so set this if you use a custom category.
+
+```python
+@property
+def icon(self) -> tuple[str, str] | None:
+    return ("#3F51B5", "Q")  # indigo circle, white "Q"
+```
+
+A value that is not a 2-tuple of non-empty strings raises `ValueError`
+when the plan is registered.
+
 ### plan_description (property)
 
-Description for UI display. Defaults to the plan function's docstring.
+Description for UI display. If you override it and return a non-empty
+string, that string is shown in the plans panel. Otherwise the first
+paragraph of the plan function's docstring is used.
 
 ```python
 @property
