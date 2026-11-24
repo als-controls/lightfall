@@ -103,3 +103,50 @@ class TestIconTinting:
         calls = self._button_color_calls(docking, monkeypatch)
         ThemeManager.get_instance().colors_changed.emit()
         assert any(c[0] == "test.p1" for c in calls)
+
+
+def _foreign_status_enum():
+    """A second PanelStatus class, as importlib.reload of panels.base makes.
+
+    Re-executing the module creates a new Enum class with the same names and
+    values; its members are neither ``is`` nor ``==`` to the originals, so the
+    DockingManager (which imported the first class) cannot match them.
+    """
+    from enum import Enum
+
+    return Enum("PanelStatus", [(m.name, m.value) for m in PanelStatus])
+
+
+class TestForeignStatusEnum:
+    """LIGHTFALL-M: statuses from a reloaded copy of PanelStatus."""
+
+    def test_theme_change_with_foreign_uninitialized_does_not_raise(self, docking, monkeypatch):
+        foreign = _foreign_status_enum()
+        _register_deferred(docking, "test.p1")
+        docking._instantiate_deferred_panel("test.p1")
+        docking.set_panel_status("test.p1", foreign.UNINITIALIZED)
+        calls = TestIconTinting()._button_color_calls(docking, monkeypatch)
+        ThemeManager.get_instance().colors_changed.emit()
+        assert ("test.p1", "", "") in calls
+        assert docking.get_panel_status("test.p1") is PanelStatus.UNINITIALIZED
+
+    def test_foreign_status_maps_to_its_theme_color(self, docking, monkeypatch):
+        foreign = _foreign_status_enum()
+        _register_deferred(docking, "test.p1")
+        docking._instantiate_deferred_panel("test.p1")
+        calls = TestIconTinting()._button_color_calls(docking, monkeypatch)
+        docking.set_panel_status("test.p1", foreign.WARNING)
+        warning = ThemeManager.get_instance().colors.warning
+        assert calls[-1] == ("test.p1", "", warning)
+        assert docking.get_panel_status("test.p1") is PanelStatus.WARNING
+
+    def test_panel_built_after_base_reload_marks_success(self, docking, monkeypatch):
+        # After a reload, panels.base's global PanelStatus is the new class,
+        # so BasePanel.__init__ starts the panel at the new UNINITIALIZED.
+        foreign = _foreign_status_enum()
+        monkeypatch.setattr("lightfall.ui.panels.base.PanelStatus", foreign)
+        _register_deferred(docking, "test.p1")
+        panel = docking._instantiate_deferred_panel("test.p1")
+        assert panel.status is foreign.UNINITIALIZED
+        assert docking.get_panel_status("test.p1") is PanelStatus.SUCCESS
+        ThemeManager.get_instance().colors_changed.emit()  # must not raise
