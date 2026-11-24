@@ -122,7 +122,16 @@ class _ChatInput(QPlainTextEdit):
 
     def _viewport_content_height(self, lines: int) -> int:
         # The text lines plus the document margin Qt reserves inside the viewport.
-        return lines * self._line_height() + 2 * int(self.document().documentMargin())
+        # The trailing +1 matches QPlainTextEdit's scroll-range math, which
+        # treats the visible height as ``viewport - margin - 1``. Without it
+        # the last line looks 1px clipped, Qt allows scrolling by one line,
+        # and the field can scroll its only line out of view (text typed but
+        # invisible).
+        return (
+            lines * self._line_height()
+            + 2 * int(self.document().documentMargin())
+            + 1
+        )
 
     def _frame_overhead(self) -> int:
         # Space the frame/border/padding occupy *outside* the scroll viewport.
@@ -148,6 +157,9 @@ class _ChatInput(QPlainTextEdit):
             if doc_lines > self._MAX_LINES
             else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
+        if doc_lines <= self._MAX_LINES:
+            # Everything fits: make sure no stale scroll offset hides content.
+            self.verticalScrollBar().setValue(0)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
