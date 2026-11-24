@@ -56,7 +56,7 @@ LANDMARKS = frozenset({"window", "dialog", "dock", "tabs", "tab", "group", "menu
 
 #: Roles a person can operate (the audit requires these to have names).
 INTERACTIVE = frozenset({"button", "toggle", "checkbox", "radio", "combo", "field", "list",
-                         "table", "tree", "slider", "tab", "item"})
+                         "table", "tree", "slider", "tab", "item", "menuitem"})
 
 #: Roles whose child widgets are implementation detail (an editor inside a spin box).
 LEAVES = frozenset({"button", "toggle", "checkbox", "radio", "combo", "field", "slider",
@@ -74,7 +74,9 @@ def role_of(w: QWidget) -> str | None:
     if isinstance(w, QDialog):
         return "dialog"
     if isinstance(w, QMainWindow):
-        return "window"
+        # Lightfall nests an inner QMainWindow to host the docks; only a top-level one
+        # is a window to a person.
+        return "window" if w.isWindow() else None
     if isinstance(w, QDockWidget):
         return "dock"
     if isinstance(w, QMenu):
