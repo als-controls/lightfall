@@ -9,6 +9,8 @@ Provides application-wide toast notifications with:
 from __future__ import annotations
 
 import threading
+import time
+from collections import deque
 from typing import TYPE_CHECKING
 
 from pyqttoast import Toast, ToastPosition, ToastPreset
@@ -21,6 +23,13 @@ from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
+
+_PRESET_KINDS = {
+    ToastPreset.SUCCESS: "success", ToastPreset.SUCCESS_DARK: "success",
+    ToastPreset.WARNING: "warning", ToastPreset.WARNING_DARK: "warning",
+    ToastPreset.ERROR: "error", ToastPreset.ERROR_DARK: "error",
+    ToastPreset.INFORMATION: "info", ToastPreset.INFORMATION_DARK: "info",
+}
 
 
 class ToastManager(QObject):
@@ -53,6 +62,9 @@ class ToastManager(QObject):
         super().__init__(parent)
         self._theme_manager = ThemeManager.get_instance()
         self._parent_widget: QWidget | None = None
+        # Recent toasts (title/text/kind/time) so an agent can see one that already
+        # faded (lightfall.ui.surface reads it).
+        self._recent: deque[dict] = deque(maxlen=50)
 
         # Configure global toast settings
         Toast.setPosition(self.DEFAULT_POSITION)
@@ -166,6 +178,8 @@ class ToastManager(QObject):
         Returns:
             The Toast instance.
         """
+        self._recent.append({"t": time.monotonic(), "title": title, "text": text,
+                             "kind": _PRESET_KINDS.get(preset, "info")})
         parent = self._get_parent() if parent is None else self._durable_parent(parent)
         toast = Toast(parent)
 
@@ -193,6 +207,10 @@ class ToastManager(QObject):
         logger.debug("Showing toast: {}{}", title, f" — {text}" if text else "")
 
         return toast
+
+    def recent(self, since: float = 0.0) -> list[dict]:
+        """Toasts shown at or after ``since`` (``time.monotonic()``), oldest first."""
+        return [dict(t) for t in self._recent if t["t"] >= since]
 
     def success(self, title: str, text: str = "", duration: int | None = None) -> Toast:
         """Show a success toast.

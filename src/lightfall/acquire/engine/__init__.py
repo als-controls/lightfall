@@ -54,10 +54,16 @@ __all__ = [
     "MockEngine",
     # Singleton
     "get_engine",
+    "peek_engine",
 ]
 
 # Module-level singleton
 _engine: BaseEngine | None = None
+
+
+def peek_engine() -> BaseEngine | None:
+    """The engine if one has been created, without creating it (no side effects)."""
+    return _engine
 
 
 def get_engine(engine_type: str | None = None, **kwargs: Any) -> BaseEngine:
