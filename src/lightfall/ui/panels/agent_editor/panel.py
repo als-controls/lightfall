@@ -85,12 +85,15 @@ class AgentEditorPanel(BasePanel):
         # panels never get a sidebar button (DockingManager._on_panel_registered
         # early-returns) and an empty icon draws an invisible one -- see the
         # sidebar-visibility gotchas in docs/developer-guide/plugins/
-        # plugin-types/panel.md (commit 507177d). "left" + an icon keeps the
-        # panel reachable.
+        # plugin-types/panel.md (commit 507177d). A sidebar area + an icon
+        # keeps the panel reachable. Bottom section, directly below the
+        # Assistant (sidebar_order=-2).
         icon="mdi.robot-outline",
-        category="development",
+        category="Assistant",
+        menu_order=30,
         singleton=True,
-        default_area="left",
+        default_area="bottom",
+        sidebar_order=-1,
         proactive_init=False,
     )
 

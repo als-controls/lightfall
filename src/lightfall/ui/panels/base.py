@@ -38,6 +38,20 @@ class PanelStatus(Enum):
     INFO = "info"
 
 
+#: View > Panels submenus, in menu order. Categories outside this list (e.g.
+#: from older plugins) are listed after these, alphabetically.
+PANEL_CATEGORIES: tuple[str, ...] = (
+    "Acquisition",
+    "Beamline",
+    "Data",
+    "Pipelines",
+    "Analysis",
+    "Logbook",
+    "Assistant",
+    "Developer",
+)
+
+
 @dataclass
 class PanelMetadata:
     """Metadata describing a panel type.
@@ -53,7 +67,12 @@ class PanelMetadata:
         name: Human-readable panel name.
         description: Detailed description of the panel's purpose.
         icon: Icon name or path.
-        category: Panel category for grouping (e.g., "Device", "Data", "Admin").
+        category: View > Panels submenu this panel is listed under. Use one of
+            ``PANEL_CATEGORIES`` (Acquisition, Beamline, Data, Pipelines,
+            Analysis, Logbook, Assistant, Developer); other values get their
+            own submenu after those.
+        menu_order: Sort key within the category submenu (lower = higher);
+            ties sort by name.
         required_permission: Permission needed to access this panel.
         singleton: Whether only one instance can exist.
         closable: Whether the panel can be closed by the user.
@@ -62,6 +81,9 @@ class PanelMetadata:
         sidebar_group: Sidebar group within the area ("top", "bottom").
         auto_hide: Whether panel starts in auto-hide sidebar mode.
         sidebar_order: Order within sidebar group (lower = higher).
+        in_default_sidebar: Whether the panel gets a sidebar icon by default.
+            When False, the panel starts out removed from the sidebar (once
+            per installation); opening it from View > Panels restores it.
         proactive_init: Whether to eagerly instantiate this panel during
             the post-startup proactive init sweep. Set False for heavy
             panels that should stay fully lazy.
@@ -76,6 +98,7 @@ class PanelMetadata:
     description: str = ""
     icon: str = ""
     category: str = "General"
+    menu_order: int = 100
     required_permission: Permission | None = None
     singleton: bool = True
     closable: bool = True
@@ -86,6 +109,7 @@ class PanelMetadata:
     sidebar_group: str = "top"
     auto_hide: bool = True
     sidebar_order: int = 0
+    in_default_sidebar: bool = True
     proactive_init: bool = True
     warmup_import: str = ""
 

@@ -44,5 +44,5 @@ ideas before committing to a persistent plugin.
 ### Plugin Management
 
 - `lightfall_list_user_plugins`: See all loaded user plugins and their status
-- `lightfall_reload_plugin`: Force reload after external edits
+- `lightfall_reload_plugin`: Reload after edits. Works for user plugins and for installed or core plugins (manifest name, `manifest:entry`, or panel id). Installed plugins: only panels and settings pages are reloaded; other kinds need a restart
 - `lightfall_unload_plugin`: Remove a plugin from the registry

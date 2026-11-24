@@ -189,7 +189,8 @@ class IPythonPanel(BasePanel):
         name="IPython Console",
         description="Interactive Python console with access to application objects",
         icon="terminal",
-        category="Tools",
+        category="Developer",
+        menu_order=10,
         singleton=True,
         closable=True,
         keywords=["ipython", "console", "python", "scripting", "repl", "terminal"],
@@ -197,6 +198,7 @@ class IPythonPanel(BasePanel):
         warmup_import="qtconsole.inprocess",
         # Docking preferences - tool panel, bottom area
         default_area="bottom",
+        in_default_sidebar=False,  # not on the default bar; View > Panels adds it
         sidebar_group="top",
         auto_hide=True,
         sidebar_order=0,

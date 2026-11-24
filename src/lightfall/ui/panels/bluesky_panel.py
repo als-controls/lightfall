@@ -116,10 +116,11 @@ class BlueskyPanel(BasePanel):
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
         id="lightfall.panels.bluesky",
-        name="Bluesky",
+        name="Plans",
         description="Select and execute Bluesky plans",
         icon="play",
         category="Acquisition",
+        menu_order=10,
         singleton=True,
         closable=True,
         keywords=["scan", "plan", "bluesky", "runengine", "acquisition"],

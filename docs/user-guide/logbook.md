@@ -100,7 +100,7 @@ remote changes are pulled. Sync behavior worth knowing:
 - Let the automatic record do the bookkeeping and spend your typing on
   *interpretation* — why you changed the slit width, what the peak shape
   suggests — interleaved at the moment it happened.
-- Paste a screenshot of the Visualization panel next to the run fragment it
+- Paste a screenshot of the Plots panel next to the run fragment it
   belongs to; image + run record together make results reproducible.
 - Use the fragment **Claude** button on a failed run's fragment to start a
   troubleshooting conversation with the context already attached.

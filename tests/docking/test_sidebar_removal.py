@@ -131,3 +131,41 @@ class TestTheaterInteractions:
         widget = docking.get_dock_widget("test.a")
         assert widget.proxy.currentWidget() is panel
         assert widget.isVisible()
+
+
+def _hidden_by_default(panel_id):
+    import dataclasses
+
+    cls = make_panel_class(panel_id)
+    cls.panel_metadata = dataclasses.replace(
+        cls.panel_metadata, in_default_sidebar=False
+    )
+    return cls
+
+
+class TestInDefaultSidebar:
+    def test_starts_off_sidebar(self, qtbot, docking):
+        cls = _hidden_by_default("test.hidden")
+        docking.register_deferred_panel("test.hidden", cls.panel_metadata, "left")
+        assert docking.is_panel_removed_from_sidebar("test.hidden")
+        assert "test.hidden" not in docking.icon_sidebar.ordered_panel_ids()
+        # Still registered, so View > Panels can open it
+        assert docking.is_panel_deferred("test.hidden")
+
+    def test_runtime_registration_starts_off_sidebar(self, qtbot, docking):
+        cls = _hidden_by_default("test.hidden")
+        docking._on_panel_registered("test.hidden", cls.panel_metadata)
+        assert "test.hidden" not in docking.icon_sidebar.ordered_panel_ids()
+
+    def test_restore_sticks_across_restart(self, qtbot, docking):
+        cls = _hidden_by_default("test.hidden")
+        docking.register_deferred_panel("test.hidden", cls.panel_metadata, "left")
+        assert docking.restore_panel_to_sidebar("test.hidden") is True
+
+        window2 = QMainWindow()
+        qtbot.addWidget(window2)
+        manager2 = DockingManager(window2)
+        manager2.initialize()
+        manager2.register_deferred_panel("test.hidden", cls.panel_metadata, "left")
+        assert not manager2.is_panel_removed_from_sidebar("test.hidden")
+        assert "test.hidden" in manager2.icon_sidebar.ordered_panel_ids()

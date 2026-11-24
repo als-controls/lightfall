@@ -103,10 +103,11 @@ class VisualizationPanel(BasePanel):
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
         id="lightfall.panels.visualization",
-        name="Visualization",
+        name="Plots",
         description="Live data visualization during scans",
         icon="chart-line",
-        category="Acquisition",
+        category="Data",
+        menu_order=10,
         singleton=True,
         closable=True,
         keywords=["plot", "chart", "graph", "visualization", "live", "data"],

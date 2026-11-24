@@ -136,10 +136,11 @@ class PipelineTriggersDockPanel(BasePanel):
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
         id="lightfall.panels.pipeline_triggers",
-        name="Pipeline Triggers",
+        name="Triggers",
         description="Manage automatic pipeline submissions on engine events",
         icon="zap",
-        category="Acquisition",
+        category="Pipelines",
+        menu_order=20,
         singleton=True,
         closable=True,
         keywords=["pipeline", "trigger", "automatic", "runengine"],

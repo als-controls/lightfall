@@ -39,6 +39,10 @@ class PlanPlugin(PluginType):
             def category(self) -> str:
                 return "custom"
 
+            @property
+            def icon(self) -> tuple[str, str]:
+                return ("#3F51B5", "M")  # indigo circle, white "M"
+
             def get_plan_function(self) -> Callable:
                 return self._my_scan_impl
 
@@ -96,11 +100,38 @@ class PlanPlugin(PluginType):
         return "general"
 
     @property
+    def display_name(self) -> str | None:
+        """Human-readable name shown in the plans panel.
+
+        Returns:
+            Display name, or None to derive one from ``name``
+            (``"my_scan"`` -> ``"My Scan"``).
+        """
+        return None
+
+    @property
+    def icon(self) -> tuple[str, str] | None:
+        """Plans-panel icon as a ``(color, letter)`` tuple.
+
+        The icon is drawn as a filled circle of ``color`` (any string
+        ``QColor`` accepts, e.g. ``"#3F51B5"``) with ``letter`` in white.
+        Keep ``letter`` to one or two characters.
+
+        Returns:
+            Icon spec, or None to use the category default from
+            ``PLAN_CATEGORY_ICONS`` (gray "G" for unknown categories).
+        """
+        return None
+
+    @property
     def plan_description(self) -> str:
         """Plan description for UI display.
 
-        Override this to provide a custom description. By default,
-        returns the docstring of the plan function.
+        Override this to provide a custom description. An override that
+        returns a non-empty string replaces the description shown in the
+        plans panel; otherwise the first paragraph of the plan function's
+        docstring is used. By default, returns the docstring of the plan
+        function.
 
         Returns:
             Description text.
@@ -129,11 +160,31 @@ class PlanPlugin(PluginType):
         """
         from lightfall.acquire.plans.registry import PlanInfo
 
-        return PlanInfo.from_function(
+        plan_info = PlanInfo.from_function(
             name=self.name,
             func=self.get_plan_function(),
             category=self.category,
         )
+        plan_info.display_name = self.display_name
+        # The default plan_description is the raw docstring; from_function
+        # already extracted its first paragraph, so only an override applies.
+        if type(self).plan_description is not PlanPlugin.plan_description:
+            description = self.plan_description
+            if description:
+                plan_info.description = description
+        icon = self.icon
+        if icon is not None:
+            if (
+                not isinstance(icon, (tuple, list))
+                or len(icon) != 2
+                or not all(isinstance(part, str) and part for part in icon)
+            ):
+                raise ValueError(
+                    f"Plan '{self.name}': icon must be a (color, letter) "
+                    f"tuple of non-empty strings, got {icon!r}"
+                )
+            plan_info.icon = (icon[0], icon[1])
+        return plan_info
 
     def get_introspection_data(self) -> dict[str, Any]:
         """Get introspection data for MCP tools.
@@ -146,6 +197,8 @@ class PlanPlugin(PluginType):
             "type": self.type_name,
             "name": self.name,
             "category": self.category,
+            "display_name": plan_info.get_display_name(),
+            "icon": list(plan_info.get_icon()),
             "description": plan_info.description,
             "class": self.__class__.__name__,
             "module": self.__class__.__module__,

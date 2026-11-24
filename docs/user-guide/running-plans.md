@@ -5,17 +5,17 @@ procedure — move motors, trigger detectors, record data — executed by the
 RunEngine. This page covers selecting and configuring plans, controlling
 execution, and writing your own.
 
-## The Bluesky panel
+## The Plans panel
 
-Open the **Bluesky** panel from the left sidebar (or **View → Panels →
-Acquisition → Bluesky**). It is organized as tabs:
+Open the **Plans** panel from the left sidebar (or **View → Panels →
+Acquisition → Plans**). It is organized as tabs:
 
 - **Plans** — browse the registered plans, with a search box and category
   filter. Selecting a plan shows its description.
 - **Config: \<plan\>** — opens when you select a plan; holds the parameter
   form and the **Run**, **Reset**, and **Edit** buttons.
 
-> 🖼️ **Image placeholder** — *Screenshot: Bluesky panel Plans tab with the plan list and search box*
+> 🖼️ **Image placeholder** — *Screenshot: Plans panel Plans tab with the plan list and search box*
 
 ## Built-in plans
 
@@ -102,7 +102,7 @@ filename (without `.py`) becomes the plan name.
 
 ### Creating a plan
 
-1. In the Bluesky panel title bar, click **New Plan**.
+1. In the Plans panel title bar, click **New Plan**.
 2. Name it; Lightfall creates the file from a template and opens it in your
    configured editor (VSCode or PyCharm — set under **File → Settings →
    External Tools**).
@@ -136,7 +136,7 @@ so annotated parameters get proper device dropdowns and numeric fields.
 
 ### Reloading
 
-After editing a plan file, click **Refresh** in the Bluesky panel title bar
+After editing a plan file, click **Refresh** in the Plans panel title bar
 to reload user plans from disk. The third title-bar button opens the plans
 folder in your file manager.
 

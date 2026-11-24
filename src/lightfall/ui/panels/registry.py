@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QObject, Signal
 
-from lightfall.ui.panels.base import BasePanel, PanelMetadata
+from lightfall.ui.panels.base import PANEL_CATEGORIES, BasePanel, PanelMetadata
 from lightfall.utils.logging import logger
 
 if TYPE_CHECKING:
@@ -351,26 +351,37 @@ class PanelRegistry(QObject):
         self,
         user: User | None = None,
     ) -> dict[str, list[PanelMetadata]]:
-        """List panels grouped by category.
+        """List panels grouped by category, in View > Panels menu order.
+
+        Categories are matched case-insensitively, so "analysis" and
+        "Analysis" share one group under the canonical spelling. The
+        returned dict is ordered by ``PANEL_CATEGORIES`` first, then any
+        other categories alphabetically; panels within a category are
+        sorted by ``(menu_order, name)``.
 
         Args:
             user: Optional user for permission filtering.
 
         Returns:
-            Dictionary mapping category to list of panels.
+            Ordered dictionary mapping category to list of panels.
         """
         if user:
             panels = self.list_available(user)
         else:
             panels = self.list_all()
 
-        by_category: dict[str, list[PanelMetadata]] = {}
+        canonical = {c.lower(): c for c in PANEL_CATEGORIES}
+        groups: dict[str, list[PanelMetadata]] = {}
         for meta in panels:
-            if meta.category not in by_category:
-                by_category[meta.category] = []
-            by_category[meta.category].append(meta)
+            category = canonical.setdefault(meta.category.lower(), meta.category)
+            groups.setdefault(category, []).append(meta)
 
-        return by_category
+        rank = {c: i for i, c in enumerate(PANEL_CATEGORIES)}
+        ordered = sorted(groups, key=lambda c: (rank.get(c, len(rank)), c.lower()))
+        return {
+            c: sorted(groups[c], key=lambda m: (m.menu_order, m.name.lower()))
+            for c in ordered
+        }
 
     def list_by_area(
         self,

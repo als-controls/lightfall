@@ -37,8 +37,10 @@ class CheckpointsPanel(BasePanel):
         name="Checkpoints",
         description="Saved positioner positions: compare with now and restore.",
         icon="history",
-        category="Control",
-        default_area="right",
+        category="Acquisition",
+        menu_order=30,
+        default_area="left",
+        sidebar_order=100,  # last icon in the top section
         proactive_init=False,
     )
 

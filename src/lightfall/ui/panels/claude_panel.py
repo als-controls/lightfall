@@ -209,7 +209,8 @@ class ClaudePanel(BasePanel):
         name="Assistant",
         description="AI assistant for interacting with the control system",
         icon="mdi6.robot",
-        category="Tools",
+        category="Assistant",
+        menu_order=10,
         singleton=True,
         closable=True,
         keywords=["claude", "ai", "assistant", "llm", "chat", "help"],
@@ -217,7 +218,7 @@ class ClaudePanel(BasePanel):
         default_area="bottom",
         sidebar_group="top",
         auto_hide=True,
-        sidebar_order=0,
+        sidebar_order=-2,
         # claude_agent_sdk import chain is heavy (~300ms+); warm it in
         # the background while earlier panels initialize
         warmup_import="lightfall.claude",

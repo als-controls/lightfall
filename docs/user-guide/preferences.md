@@ -60,8 +60,7 @@ reaching EPICS Channel Access across networks.
 
 ## Tiled Data Catalog
 
-Connection to the Tiled data server that backs the Data Browser and
-Visualization panels and receives acquired runs:
+Connection to the Tiled data server that backs the Data Browser and Plots panels and receives acquired runs:
 
 - **Enable** toggle and **server URL**
 - **Authentication mode** — none, API key, or Keycloak (reuses your
@@ -105,7 +104,7 @@ pages, which appear in this dialog alongside the built-in ones.
 
 ## Visualization
 
-Defaults for the Visualization panel: automatic visualization-type selection
+Defaults for the Plots panel: automatic visualization-type selection
 (or a fixed default type), performance limits (decimation threshold, update
 rate), and plot appearance (default colormap, grid).
 

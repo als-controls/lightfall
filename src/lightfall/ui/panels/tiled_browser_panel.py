@@ -59,6 +59,7 @@ class TiledBrowserPanel(BasePanel):
         description="Browse and search data stored in Tiled server",
         icon="database",
         category="Data",
+        menu_order=20,
         required_permission=None,
         singleton=True,
         closable=True,
@@ -300,7 +301,7 @@ class TiledBrowserPanel(BasePanel):
         copy_scan_id_action = menu.addAction("Copy Scan ID")
         copy_scan_id_action.setEnabled(record.scan_id is not None)
         menu.addSeparator()
-        show_viz_action = menu.addAction("Show Visualization")
+        show_viz_action = menu.addAction("Show in Plots")
         show_docs_action = menu.addAction("Show Documents")
         run_pipeline_action = menu.addAction("Run pipeline...")
         run_pipeline_action.setEnabled(self._pipeline_client() is not None)

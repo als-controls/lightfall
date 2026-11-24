@@ -71,7 +71,8 @@ class SynopticPanel(BasePanel):
         name="Synoptic",
         description="2D visualization of beamline hardware layout",
         icon="mdi.laser-pointer",
-        category="Core",
+        category="Beamline",
+        menu_order=20,
         required_permission=None,  # View is open to all authenticated
         singleton=True,
         closable=True,

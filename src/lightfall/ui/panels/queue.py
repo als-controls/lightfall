@@ -206,11 +206,13 @@ class QueuePanel(BasePanel):
         description="Manage the RunEngine queue and view execution history",
         icon="human-queue",
         category="Acquisition",
+        menu_order=20,
         singleton=True,
         closable=True,
         keywords=["queue", "pending", "history", "recent", "runengine", "bluesky"],
         # Docking preferences - bottom sidebar
         default_area="bottom",
+        in_default_sidebar=False,  # not on the default bar; View > Panels adds it
         sidebar_group="bottom",
         auto_hide=True,
         sidebar_order=3,

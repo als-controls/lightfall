@@ -85,7 +85,7 @@ class MyPanel(BasePanel):
         id="my_package.panels.my_panel",      # Unique identifier
         name="My Panel",                       # Display name
         description="Description of my panel", # Tooltip
-        category="tools",                      # Category for menu
+        category="Analysis",                   # View > Panels submenu
         icon="mdi.wrench",                    # Icon name (qtawesome)
         singleton=True,                        # Only one instance allowed?
     )
@@ -106,7 +106,7 @@ class MyPanel(BasePanel):
         id="my_package.panels.data_viewer",
         name="Data Viewer",
         description="View and analyze data",
-        category="analysis",
+        category="Analysis",
         icon="mdi.chart-line",
         singleton=False,  # Allow multiple instances
     )
@@ -142,7 +142,7 @@ class MonitorPanel(BasePanel):
         id="my_package.panels.monitor",
         name="Device Monitor",
         description="Real-time device value monitoring",
-        category="devices",
+        category="Beamline",
         icon="mdi.monitor-eye",
         singleton=True,
     )
@@ -248,7 +248,8 @@ Common categories for organizing panels:
 | `id` | `str` | Yes | Unique identifier (e.g., "my.panels.viewer") |
 | `name` | `str` | Yes | Display name in menus |
 | `description` | `str` | No | Tooltip description |
-| `category` | `str` | No | Menu category (default: "tools") |
+| `category` | `str` | No | View > Panels submenu. Use one of `PANEL_CATEGORIES`: Acquisition, Beamline, Data, Pipelines, Analysis, Logbook, Assistant, Developer (matched case-insensitively; any other value gets its own submenu after these). Default: "General" |
+| `menu_order` | `int` | No | Position within the category submenu, lower first; ties sort by name (default: 100) |
 | `icon` | `str` | No* | Icon name (qtawesome format). *Effectively required for plugin panels — see Sidebar visibility below.* |
 | `singleton` | `bool` | No | Allow only one instance? (default: True) |
 | `default_area` | `str` | No | Dock area: `"left"` (default) or `"bottom"` for sidebar panels. **Do not use `"center"` for plugin panels — see below.** |
