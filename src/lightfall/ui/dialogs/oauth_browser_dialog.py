@@ -375,45 +375,51 @@ class OAuthBrowserDialog(LFDialog):
                 logger.warning("OAuth dialog: page load failed")
 
     def _on_url_changed(self, url: QUrl) -> None:
-        """Handle URL changes to intercept the callback.
+        """Fallback callback interception for Qt without navigationRequested.
+
+        By the time urlChanged reports the callback, Chromium has already
+        tried the (serverless) callback host and committed its
+        connection-error page, so this path is only used when the navigation
+        could not be rejected up front.
 
         Args:
             url: The new URL being navigated to.
         """
-        url_str = url.toString()
-        parsed = urlparse(url_str)
-
+        parsed = urlparse(url.toString())
         self._note_broker(parsed.path)
+        if not self._completed and self._is_callback(parsed):
+            self._web_view.stop()
+            self._handle_callback(parsed)
 
-        # Check if this is the callback URL
-        if parsed.netloc == self._callback_host and parsed.path == self._callback_path:
-            logger.debug("OAuth dialog: intercepted callback URL")
-            self._completed = True
+    def _is_callback(self, parsed) -> bool:
+        return parsed.netloc == self._callback_host and parsed.path == self._callback_path
 
-            # Parse query parameters
-            params = parse_qs(parsed.query)
+    def _handle_callback(self, parsed) -> None:
+        """Extract the code or error from the intercepted callback URL."""
+        logger.debug("OAuth dialog: intercepted callback URL")
+        self._completed = True
 
-            if "error" in params:
-                error = params["error"][0]
-                error_desc = params.get("error_description", ["Unknown error"])[0]
-                logger.warning("OAuth error: {} - {}", error, error_desc)
-                self.auth_error.emit(f"{error}: {error_desc}")
-                self.reject()
+        # Parse query parameters
+        params = parse_qs(parsed.query)
 
-            elif "code" in params:
-                code = params["code"][0]
-                state = params.get("state", [None])[0]
-                logger.debug("OAuth dialog: received authorization code")
-                self._pending_code = (code, state or "")
-                # The callback host has no server behind it; don't render the
-                # connection-error page while the SSO cookies settle.
-                self._web_view.stop()
-                QTimer.singleShot(self.COOKIE_SETTLE_MS, self._finish_success)
+        if "error" in params:
+            error = params["error"][0]
+            error_desc = params.get("error_description", ["Unknown error"])[0]
+            logger.warning("OAuth error: {} - {}", error, error_desc)
+            self.auth_error.emit(f"{error}: {error_desc}")
+            self.reject()
 
-            else:
-                logger.warning("OAuth dialog: callback missing code parameter")
-                self.auth_error.emit("Invalid callback - missing authorization code")
-                self.reject()
+        elif "code" in params:
+            code = params["code"][0]
+            state = params.get("state", [None])[0]
+            logger.debug("OAuth dialog: received authorization code")
+            self._pending_code = (code, state or "")
+            QTimer.singleShot(self.COOKIE_SETTLE_MS, self._finish_success)
+
+        else:
+            logger.warning("OAuth dialog: callback missing code parameter")
+            self.auth_error.emit("Invalid callback - missing authorization code")
+            self.reject()
 
     def _note_broker(self, path: str) -> None:
         broker = _BROKER_PATH.search(path)
@@ -421,8 +427,20 @@ class OAuthBrowserDialog(LFDialog):
             self._broker_alias = broker.group(1)
 
     def _on_navigation_requested(self, request) -> None:
-        # Observe only; leaving the request untouched lets it proceed.
-        self._note_broker(request.url().path())
+        """Note broker hops; catch the callback before Chromium loads it.
+
+        Navigation requests include server redirects, so Keycloak's final
+        302 to the callback URL arrives here first. Nothing listens on the
+        callback host in the embedded flow, so letting it load would show a
+        "refused to connect" error page during the cookie-settle delay even
+        though the login succeeded. Rejecting it keeps Keycloak's page up.
+        """
+        parsed = urlparse(request.url().toString())
+        self._note_broker(parsed.path)
+        if not self._completed and self._is_callback(parsed):
+            request.reject()
+            self._handle_callback(parsed)
+        # Anything else is left untouched, which lets it proceed.
 
     def _finish_success(self) -> None:
         """Report the authorization code once the SSO cookies have settled."""
