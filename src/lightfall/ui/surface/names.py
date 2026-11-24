@@ -12,9 +12,13 @@ from lightfall.ui.surface.roles import role_of
 MAX_NAME = 80
 
 
-def clean(text: str) -> str:
-    """Drop mnemonic ampersands (keeping a literal ``&&``) and collapse whitespace."""
-    text = text.replace("&&", "\0").replace("&", "").replace("\0", "&")
+def clean(text: str, mnemonic: bool = True) -> str:
+    """Collapse whitespace; with *mnemonic*, drop shortcut ampersands (keeping ``&&``).
+
+    Mnemonics exist only in button, label, tab, group-box and menu text; window and dock
+    titles keep their ``&``."""
+    if mnemonic:
+        text = text.replace("&&", "\0").replace("&", "").replace("\0", "&")
     return " ".join(text.split())
 
 
@@ -60,7 +64,7 @@ def accessible_name(w: QWidget) -> str:
     if role == "menu":
         return clean(w.title()) or acc
     if role in ("window", "dialog", "dock"):
-        return clean(w.windowTitle()) or acc
+        return clean(w.windowTitle(), mnemonic=False) or acc
     if isinstance(w, QLabel):
         return clean(w.text())[:MAX_NAME]
     if acc:
