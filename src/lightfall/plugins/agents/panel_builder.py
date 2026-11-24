@@ -55,6 +55,26 @@ class PanelBuilderAgent(ToolPlugin):
         """Return priority (lower = higher in prompt order)."""
         return 25
 
+    @staticmethod
+    def _reload_installed_plugin(
+        name: str, extra_modules: list[str], user_plugin_path: Any,
+    ) -> dict[str, Any]:
+        """Reload panel/settings entries of a manifest plugin (installed or core)."""
+        from lightfall.claude._internal.threading import run_on_main_thread
+        from lightfall.plugins.live_reload import LiveReloadError, reload_installed_plugin
+
+        def _run() -> dict[str, Any]:
+            try:
+                report = reload_installed_plugin(name, extra_modules=tuple(extra_modules))
+            except LiveReloadError as e:
+                return {
+                    "success": False,
+                    "error": f"{e} (no user plugin file at {user_plugin_path} either)",
+                }
+            return report.to_dict()
+
+        return mcp_result(run_on_main_thread(_run))
+
     def _validate_plugin_code(
         self,
         code: str,
@@ -471,18 +491,43 @@ Returns information about each loaded plugin including:
 
         @tool(
             name="lightfall_reload_plugin",
-            description="""Force reload a user plugin after external edits.
+            description="""Reload a plugin after editing its code, without restarting Lightfall.
 
-Unloads the plugin (unregistering all its components) and reloads it
-from disk. Use this after editing a plugin file externally.
+`name` may be:
+- a user plugin: filename in ~/lightfall/plugins without .py. Unloads it
+  (unregistering all its components) and reloads it from disk.
+- an installed or core plugin: its manifest name (e.g. "lightfall-vibe",
+  "lightfall.builtin"), one entry ("lightfall-vibe:vibe_spectrum", or
+  "<manifest>:<type>:<entry>" if a name is used by two types), or a panel id
+  ("lightfall_vibe.panels.spectrum").
 
-Note: Hot-reload may cause instability if panel instances are still open.""",
+For installed/core plugins only panel and settings entries are reloaded:
+modules are re-imported, open panels are rebuilt in the same dock area, and
+settings pages take effect the next time Preferences opens (on_loaded() is
+not re-run). Other kinds (services, tools, device backends, ...) are listed
+as needing a restart. The Assistant panel is never reloaded.
+
+Only the modules that define the reloaded entries are re-imported. Pass
+helper modules the panel imports in `extra_modules` (dependencies first).
+Do not list modules that hold shared state (singletons, running workers):
+re-importing them creates a second copy of that state.""",
             input_schema={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Plugin name (filename without .py extension)",
+                        "description": (
+                            "User plugin filename (no .py), or an installed/core "
+                            "plugin's manifest name, manifest:entry, or panel id"
+                        ),
+                    },
+                    "extra_modules": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Installed/core plugins only: more modules to re-import "
+                            "first, e.g. a widgets module the panel imports"
+                        ),
                     },
                 },
                 "required": ["name"],
@@ -500,10 +545,9 @@ Note: Hot-reload may cause instability if panel instances are still open.""",
                 file_path = plugins_dir / f"{name}.py"
 
                 if not file_path.exists():
-                    return mcp_result({
-                        "success": False,
-                        "error": f"Plugin file not found: {file_path}",
-                    })
+                    return self._reload_installed_plugin(
+                        name, args.get("extra_modules") or [], file_path,
+                    )
 
                 success = service.reload_plugin(file_path)
 
