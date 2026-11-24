@@ -109,6 +109,9 @@ class DockingManager(QObject):
 
         # Panels the user removed from the sidebar (persisted)
         self._removed_panels: set[str] = set()
+        # in_default_sidebar=False panels already hidden once (persisted), so
+        # a user who restores one from View > Panels keeps it
+        self._default_hidden_seen: set[str] = set()
 
     def initialize(self) -> None:
         """Initialize the docking system.
@@ -166,6 +169,7 @@ class DockingManager(QObject):
 
         # Load persisted removed-from-sidebar set
         self._removed_panels = self._load_removed_panels()
+        self._default_hidden_seen = self._load_settings_set("sidebar/default_hidden_seen")
 
         logger.info("DockingManager initialized with QDockWidget + icon strip sidebar")
 
@@ -380,6 +384,7 @@ class DockingManager(QObject):
 
         self._deferred_panels[panel_id] = area
         self._deferred_metadata[panel_id] = metadata
+        self._apply_default_sidebar_visibility(panel_id, metadata)
 
         if add_sidebar_button and self._icon_sidebar and panel_id not in self._removed_panels:
             self._icon_sidebar.add_panel_button(
@@ -983,8 +988,13 @@ class DockingManager(QObject):
         Returns:
             Set of removed panel IDs.
         """
+        return self._load_settings_set("sidebar/removed_panels")
+
+    @staticmethod
+    def _load_settings_set(key: str) -> set[str]:
+        """Load a persisted string set from QSettings."""
         settings = QSettings("ALS", "NCS")
-        value = settings.value("sidebar/removed_panels", [])
+        value = settings.value(key, [])
         if isinstance(value, str):
             # QSettings round-trips single-element lists as a plain string
             value = [value]
@@ -994,6 +1004,24 @@ class DockingManager(QObject):
         """Persist the removed-panel set to QSettings."""
         settings = QSettings("ALS", "NCS")
         settings.setValue("sidebar/removed_panels", sorted(self._removed_panels))
+
+    def _apply_default_sidebar_visibility(
+        self, panel_id: str, metadata: PanelMetadata
+    ) -> None:
+        """Start an ``in_default_sidebar=False`` panel off the sidebar.
+
+        Applied once per panel per installation: the panel is added to the
+        removed set (exactly as if the user removed it), so View > Panels
+        restores it and that choice then sticks.
+        """
+        if metadata.in_default_sidebar or panel_id in self._default_hidden_seen:
+            return
+        self._default_hidden_seen.add(panel_id)
+        self._removed_panels.add(panel_id)
+        self._save_removed_panels()
+        QSettings("ALS", "NCS").setValue(
+            "sidebar/default_hidden_seen", sorted(self._default_hidden_seen)
+        )
 
     # Runtime panel registration handlers
 
@@ -1009,6 +1037,7 @@ class DockingManager(QObject):
 
         self._deferred_panels[panel_id] = metadata.default_area
         self._deferred_metadata[panel_id] = metadata
+        self._apply_default_sidebar_visibility(panel_id, metadata)
 
         if self._icon_sidebar and panel_id not in self._removed_panels:
             self._icon_sidebar.insert_panel_button_sorted(

@@ -86,7 +86,7 @@ def select(p, name):
 
 def test_panel_metadata():
     md = ContentPanel.panel_metadata
-    assert md.id == "shared_content" and md.name == "Shared content"
+    assert md.id == "shared_content" and md.name == "Shared Content"
 
 
 def test_panel_lists_rows_with_labels(panel):

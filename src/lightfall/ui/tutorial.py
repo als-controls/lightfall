@@ -992,15 +992,15 @@ def _build_welcome_tutorial() -> Tutorial:
             ),
             TutorialStep(
                 target=_find_sidebar_button("lightfall.panels.bluesky"),
-                title="Bluesky Plans",
+                title="Plans",
                 message=(
-                    "The Bluesky panel is your primary scan interface. "
+                    "The Plans panel is your primary scan interface. "
                     "Configure and launch scan plans, monitor progress "
                     "in real time, and review results when complete."
                 ),
                 position=CalloutPosition.RIGHT,
                 padding=4,
-                target_description="Bluesky sidebar button",
+                target_description="Plans sidebar button",
             ),
             TutorialStep(
                 target=_find_sidebar_button("lightfall.panels.tiled_browser"),
@@ -1028,7 +1028,7 @@ def _build_welcome_tutorial() -> Tutorial:
             ),
             TutorialStep(
                 target=_find_sidebar_button("lightfall.panels.visualization"),
-                title="Visualization",
+                title="Plots",
                 message=(
                     "Live and post-hoc data visualization. Plots update "
                     "in real time during scans and support 1D line plots, "
@@ -1036,7 +1036,7 @@ def _build_welcome_tutorial() -> Tutorial:
                 ),
                 position=CalloutPosition.RIGHT,
                 padding=4,
-                target_description="Visualization sidebar button",
+                target_description="Plots sidebar button",
             ),
             TutorialStep(
                 target=_find_sidebar_button("lightfall.panels.synoptic"),

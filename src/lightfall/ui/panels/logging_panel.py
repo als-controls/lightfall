@@ -255,12 +255,14 @@ class LoggingPanel(BasePanel):
         name="Logging",
         description="View application logs with level filtering",
         icon="scroll",
-        category="System",
+        category="Developer",
+        menu_order=20,
         singleton=True,
         closable=True,
         keywords=["logging", "logs", "debug", "trace", "errors", "console"],
         # Docking preferences - bottom sidebar (auto-hide icons on bottom edge)
         default_area="bottom",
+        in_default_sidebar=False,  # not on the default bar; View > Panels adds it
         sidebar_group="top",
         auto_hide=True,
         sidebar_order=2,

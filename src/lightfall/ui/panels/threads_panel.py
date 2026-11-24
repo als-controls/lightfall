@@ -226,12 +226,14 @@ class ThreadsPanel(BasePanel):
         description="Monitor and manage background threads",
         icon="spider-thread",
         category="Developer",
+        menu_order=30,
         required_permission=None,
         singleton=True,
         closable=True,
         keywords=["thread", "background", "task", "worker", "async", "concurrent"],
         # Docking preferences - bottom sidebar
         default_area="bottom",
+        in_default_sidebar=False,  # not on the default bar; View > Panels adds it
         sidebar_group="bottom",
         auto_hide=True,
         sidebar_order=4,

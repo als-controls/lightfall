@@ -105,7 +105,10 @@ class PanelMetadata:
     icon: str = ""                       # qtawesome name, e.g. "mdi6.chart-line"
                                          # (NOT a bare word like "chart-scatter" —
                                          #  unknown names render blank, no error)
-    category: str = "General"            # Menu grouping: "User", "Data", "Devices", etc.
+    category: str = "General"            # View > Panels submenu: Acquisition, Beamline, Data,
+                                         # Pipelines, Analysis, Logbook, Assistant, Developer
+                                         # (or "User" for user-built panels)
+    menu_order: int = 100                # Position within the submenu (lower first)
     required_permission: Permission | None = None  # Access control (usually None)
     singleton: bool = True               # Only one instance allowed
     closable: bool = True                # User can close the panel

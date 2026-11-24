@@ -35,12 +35,14 @@ class DocumentsPanel(BasePanel):
         name="Documents",
         description="View Bluesky document streams during acquisition",
         icon="receipt",
-        category="Acquisition",
+        category="Data",
+        menu_order=30,
         singleton=True,
         closable=True,
         keywords=["documents", "bluesky", "stream", "events", "data"],
         # Docking preferences - left sidebar (top icons)
         default_area="left",
+        in_default_sidebar=False,  # not on the default bar; View > Panels adds it
         sidebar_group="top",
         auto_hide=True,
         sidebar_order=2,

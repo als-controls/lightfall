@@ -68,14 +68,16 @@ def _default_client() -> Any:
 class ContentPanel(BasePanel):
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
         id="shared_content",
-        name="Shared content",
+        name="Shared Content",
         description="Plans, plugins, agents and skills: where each comes from; publish, "
                     "retract, view history or copy shared items",
         icon="mdi.share-variant-outline",
-        category="development",
+        category="Assistant",
+        menu_order=40,
         keywords=["publish", "scope", "plans", "plugins", "agents", "skills", "shared"],
         singleton=True,
         default_area="left",
+        in_default_sidebar=False,  # not on the default bar; View > Panels adds it
         proactive_init=False,
     )
 

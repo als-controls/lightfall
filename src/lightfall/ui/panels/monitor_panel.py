@@ -22,10 +22,11 @@ def format_observation(obs: Observation) -> str:
 class MonitorPanel(BasePanel):
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
         id="lightfall.panels.monitor",
-        name="Monitor",
+        name="Measurement Monitor",
         description="Proactive feedback about the running measurement.",
         icon="heart-pulse",
-        category="Data",
+        category="Assistant",
+        menu_order=20,
         default_area="right",
         proactive_init=False,  # stay lazy until opened
     )

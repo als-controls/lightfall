@@ -35,21 +35,28 @@ automatically when you quit and restored on the next launch.
 
 | Panel | Category | Default location | Notes |
 |-------|----------|------------------|-------|
-| Logbook | Core | Center | Always open, not closable |
-| Entries | Core | Left | Logbook entry list |
-| Bluesky | Acquisition | Left | Plan selection and execution |
-| Devices | Core | Left | Device tree and controllers |
-| Data Browser | Data | Left | Tiled catalog search |
-| Documents | Acquisition | Left | Raw Bluesky document stream |
-| Assistant | Tools | Bottom | Embedded agent chat |
-| IPython Console | Tools | Bottom | Interactive Python REPL |
-| Visualization | Acquisition | Bottom | Plots of run data |
-| Logging | System | Bottom | Application log viewer |
-| Synoptic | Core | Bottom | 2D beamline layout view |
+| Plans | Acquisition | Left | Plan selection and execution |
 | Queue | Acquisition | Bottom | RunEngine queue and history |
+| Checkpoints | Acquisition | — | Saved positioner positions; compare and restore |
+| Devices | Beamline | Left | Device tree and controllers |
+| Synoptic | Beamline | Bottom | 2D beamline layout view |
+| Plots | Data | Bottom | Plots of live and past run data |
+| Data Browser | Data | Left | Tiled catalog search |
+| Documents | Data | Left | Raw Bluesky document stream |
+| Data Movement | Data | — | Shussebora transfer daemon status |
+| Jobs / Triggers | Pipelines | Bottom / Left | Data pipeline jobs and automatic submissions |
+| Logbook | Logbook | Center | Always open, not closable |
+| Entries | Logbook | Left | Logbook entry list |
+| Assistant | Assistant | Bottom | Embedded agent chat |
+| Measurement Monitor | Assistant | — | Proactive feedback about the running measurement |
+| Agents & Skills | Assistant | — | Edit agent definitions and skills, approve drafts |
+| Shared Content | Assistant | — | Publish, retract, and inspect shared plans, plugins, agents, skills |
+| IPython Console | Developer | Bottom | Interactive Python REPL |
+| Logging | Developer | Bottom | Application log viewer |
 | Threads | Developer | Bottom | Background thread monitor |
-| Data Movement | Monitoring | — | Shussebora transfer daemon status |
-| Pipeline Jobs / Pipeline Triggers | Acquisition | Bottom / Left | Data pipeline monitoring |
+
+Endstation plugins add panels under **Acquisition** and **Analysis** (for
+example STXM Scan, QERLIN Focus, XPCS Live, SAXS).
 
 Plugins can add further panels; agent-built user panels appear under the
 **User** category (see
@@ -57,7 +64,7 @@ Plugins can add further panels; agent-built user panels appear under the
 
 ---
 
-### Bluesky
+### Plans
 
 **Purpose:** select, configure, and run data acquisition plans.
 
@@ -119,8 +126,8 @@ conversation. Requires Claude credentials (see
 **Purpose:** find runs in the Tiled data catalog.
 
 Filter by date range, plan name, and exit status; results are paginated.
-Double-click a run to open it in the Visualization panel. Right-click for
-*Copy UUID*, *Copy Scan ID*, *Show Visualization*, *Show Documents*, *Run
+Double-click a run to open it in the Plots panel. Right-click for
+*Copy UUID*, *Copy Scan ID*, *Show in Plots*, *Show Documents*, *Run
 pipeline...*, and *Export*.
 
 **Requires** a Tiled server configured in **File → Settings → Tiled Data
@@ -129,7 +136,7 @@ state.
 
 ---
 
-### Visualization
+### Plots
 
 **Purpose:** plot run data, live or post-hoc.
 

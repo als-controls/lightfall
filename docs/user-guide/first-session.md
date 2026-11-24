@@ -45,11 +45,11 @@ Icons in the upper section open panels docked on the left; icons in the
 lower section open panels docked along the bottom. The ones this walkthrough
 uses:
 
-- **Bluesky** (upper section) — select and run plans
+- **Plans** (upper section) — select and run plans
 - **Devices** (upper section) — browse and control hardware
 - **Data Browser** (upper section) — search collected runs in the Tiled
   catalog
-- **Visualization** (lower section) — plot run data, live or after the fact
+- **Plots** (lower section) — plot run data, live or after the fact
 
 Click an icon once to open its panel, again to hide it. Panels can be dragged
 by their title bars to rearrange, floated as separate windows, or stacked
@@ -88,7 +88,7 @@ documenting itself — more on this in [Using the Logbook](logbook.md).
 
 ## 4. Run a count
 
-Click the **Bluesky** icon in the left sidebar. The **Plans** tab lists the
+Click the **Plans** icon in the left sidebar. The **Plans** tab lists the
 available plans with a search box and category filter.
 
 Select **Count**. A configuration tab opens with the plan's parameters:
@@ -104,7 +104,7 @@ toolbar switch out of idle while it executes. A toast notification reports
 success or failure when it finishes, and the Logbook gains a plan fragment
 recording the run and its exit status.
 
-> 🖼️ **Image placeholder** — *Screenshot: Bluesky panel with the Count plan configured and the Run button highlighted*
+> 🖼️ **Image placeholder** — *Screenshot: Plans panel with the Count plan configured and the Run button highlighted*
 
 ## 5. Run a scan
 
@@ -166,20 +166,20 @@ At a deployed beamline none of this applies — Lightfall points at the
 facility's Tiled server instead (see
 [Deployment](../developer-guide/deployment.md)).
 
-## 6. Watch the data in the Visualization panel
+## 6. Watch the data in the Plots panel
 
 Open the **Data Browser** from the sidebar and click the refresh button in
 its title bar. Your runs appear in the table with their plan name, scan ID,
 and exit status.
 
-**Double-click the scan you just ran.** The **Visualization** panel opens
+**Double-click the scan you just ran.** The **Plots** panel opens
 with the run plotted — for a 1D scan over the Gaussian detector you get a
 line plot of `det` versus `motor` with a clean peak at zero. The toolbar lets
 you switch streams, fields, and visualization types, and **Export** saves the
 data out. If you double-click a run that is *still acquiring*, the plot
 refreshes every couple of seconds as new points land.
 
-> 🖼️ **Image placeholder** — *Screenshot: Visualization panel showing the Gaussian peak from the 1D scan of det vs motor*
+> 🖼️ **Image placeholder** — *Screenshot: Plots panel showing the Gaussian peak from the 1D scan of det vs motor*
 
 ## 7. Find the run again later
 
@@ -187,7 +187,7 @@ The Data Browser is also your way back to old data:
 
 - **Filter** by date range, plan name, or exit status using the filter bar.
 - **Right-click a run** for the context menu: *Copy UUID*, *Copy Scan ID*,
-  *Show Visualization*, *Show Documents* (the raw Bluesky documents), and
+  *Show in Plots*, *Show Documents* (the raw Bluesky documents), and
   *Export*.
 
 > 🖼️ **Image placeholder** — *Screenshot: Data Browser with the filter bar and a run's right-click context menu open*

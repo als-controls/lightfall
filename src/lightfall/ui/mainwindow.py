@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QMainWindow,
+    QMenu,
     QStatusBar,
     QWidget,
 )
@@ -584,14 +585,18 @@ class LFMainWindow(QMainWindow):
 
     def _update_panels_menu(self) -> None:
         """Update the panels submenu."""
+        # clear() drops the actions but not the category QMenus it created
+        # (they're children of _panels_menu), so they'd pile up per rebuild.
+        for child in self._panels_menu.findChildren(QMenu):
+            child.deleteLater()
         self._panels_menu.clear()
 
-        # Group by category
+        # Already in menu order (category order, then menu_order/name)
         by_category = self._panel_registry.list_by_category(
             self._session_manager.current_user
         )
 
-        for category in sorted(by_category.keys()):
+        for category in by_category:
             if len(by_category) > 1:
                 cat_menu = self._panels_menu.addMenu(category)
             else:

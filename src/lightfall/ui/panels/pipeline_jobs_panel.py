@@ -135,10 +135,11 @@ class PipelineJobsDockPanel(BasePanel):
 
     panel_metadata: ClassVar[PanelMetadata] = PanelMetadata(
         id="lightfall.panels.pipeline_jobs",
-        name="Pipeline Jobs",
+        name="Jobs",
         description="Queue and recent jobs from the notebook pipeline executor",
         icon="layers",
-        category="Acquisition",
+        category="Pipelines",
+        menu_order=10,
         singleton=True,
         closable=True,
         keywords=["pipeline", "notebook", "papermill", "jobs", "queue"],

@@ -82,7 +82,7 @@ Two things require configuration:
 - **The Claude assistant** needs credentials: set the `ANTHROPIC_API_KEY`
   environment variable, or use an existing Claude Code OAuth login. See
   [Assistant](claude-assistant.md).
-- **The Data Browser and Visualization panels** read runs from a
+- **The Data Browser and Plots panels** read runs from a
   [Tiled](https://blueskyproject.io/tiled/) data server, configured under
   **File → Settings → Tiled Data Catalog**. Without one, scans still run —
   there is just no catalog to browse. For evaluation, a throwaway local
@@ -121,7 +121,7 @@ The key elements:
   reorder. The strip has two sections: icons in the **upper section** open
   panels docked on the left (Bluesky, Devices, Data Browser, …); icons in
   the **lower section** open panels docked along the bottom (Claude
-  Assistant, Visualization, Logging, …).
+  Assistant, Plots, Logging, …).
 - **Logbook** sits in the center and cannot be closed — it is the running
   record of your session.
 - **RunEngine control** in the toolbar shows the engine state and provides

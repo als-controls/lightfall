@@ -69,7 +69,7 @@ class TestMetadata:
         md = AgentEditorPanel.panel_metadata
         assert md.id == "lightfall.panels.agent_editor"
         assert md.name == "Agents & Skills"
-        assert md.category == "development"
+        assert md.category == "Assistant"
         assert md.singleton is True
 
     def test_metadata_sidebar_visible(self):
