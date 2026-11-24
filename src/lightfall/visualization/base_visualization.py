@@ -46,6 +46,59 @@ class BaseVisualization(QWidget):
         self._run: Any | None = None
         self._stream_name: str = ""
         self._field_name: str = ""
+        if self.viz_display_name:
+            self.setAccessibleName(self.viz_display_name)
+
+    # ------------------------------------------------------------------
+    # Agent UI surface (lightfall.ui.surface.AgentDescribable)
+    # ------------------------------------------------------------------
+
+    def agent_role(self) -> str:
+        return "plot"
+
+    def agent_describe(self) -> dict[str, Any]:
+        """What the plot shows, for agents that cannot see pixels.
+
+        Series names, point counts and ranges, axis labels, and image shape/levels for
+        image items. Opaque: pyqtgraph's internal widgets are not walked."""
+        out: dict[str, Any] = {"opaque": True}
+        if self._stream_name:
+            out["stream"] = self._stream_name
+        if self._field_name:
+            out["field"] = self._field_name
+        pw = getattr(self, "_plot_widget", None)
+        if pw is None:
+            return out
+        try:
+            item = pw.getPlotItem()
+        except Exception:  # noqa: BLE001 - not a PlotWidget
+            return out
+        out["x_label"] = item.getAxis("bottom").labelText or ""
+        out["y_label"] = item.getAxis("left").labelText or ""
+        series = []
+        for d in item.listDataItems():
+            x, y = d.getData()
+            n = 0 if x is None else len(x)
+            entry: dict[str, Any] = {"name": d.name() or "", "points": n}
+            if n:
+                finite_y = np.asarray(y, dtype=float)
+                finite_y = finite_y[np.isfinite(finite_y)]
+                entry["x"] = [round(float(np.nanmin(x)), 6), round(float(np.nanmax(x)), 6)]
+                if finite_y.size:
+                    entry["y"] = [round(float(finite_y.min()), 6), round(float(finite_y.max()), 6)]
+            series.append(entry)
+        if series:
+            out["series"] = series[:8]
+        from pyqtgraph import ImageItem
+
+        for it in item.items:
+            if isinstance(it, ImageItem) and it.image is not None:
+                out["image"] = list(it.image.shape[:2])
+                levels = it.getLevels()
+                if levels is not None and np.size(levels) == 2:
+                    out["levels"] = [round(float(v), 6) for v in np.ravel(levels)]
+                break
+        return out
 
     # ------------------------------------------------------------------
     # Export (used by VisualizationPanel's "Export..." button)
