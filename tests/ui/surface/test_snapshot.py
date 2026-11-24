@@ -1,5 +1,7 @@
 """ui_snapshot: outline, refs, scope, summary mode."""
 
+import re
+
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -69,7 +71,7 @@ def window(qtbot):
 
 def test_scoped_dock_outline(window):
     text = snapshot(scope="Plans")
-    assert text.splitlines()[0].startswith('dock "Plans" [p1]')
+    assert text.splitlines()[0].startswith('dock "Plans" [p')
     assert 'list "Plans"' in text and "30 items, showing 1-" in text
     assert 'item "plan_00"' in text
     assert 'field "Start"' in text and 'field "Points"' in text
@@ -113,7 +115,7 @@ def test_modal_dialog_is_a_root(window, qtbot):
     dlg.open()
     qtbot.waitExposed(dlg)
     text = snapshot()
-    assert 'dialog "Confirm plan" [d1] modal' in text
+    assert re.search(r'dialog "Confirm plan" \[d\d+\] modal', text)
     assert 'button "Submit"' in text
     dlg.close()
 

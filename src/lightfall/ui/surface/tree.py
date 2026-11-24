@@ -96,18 +96,22 @@ _PREFIXES = {"dock": "p", "dialog": "d", "window": "w", "toast": "t"}
 
 
 class RefTable:
-    """Refs handed out by the latest snapshot."""
+    """Refs handed out by the latest snapshot.
+
+    Numbers keep counting across snapshots and are never reused, so an old ref is
+    reported stale instead of silently naming a different widget."""
 
     def __init__(self) -> None:
         self.generation = 0
         self._refs: dict[str, Node] = {}
         self._widgets: dict[str, weakref.ref] = {}
+        self._counters: dict[str, int] = {}
 
     def assign(self, nodes: list[Node]) -> None:
         self.generation += 1
         self._refs.clear()
         self._widgets.clear()
-        counters: dict[str, int] = {}
+        counters = self._counters
         for root in nodes:
             for n in root.walk():
                 prefix = _PREFIXES.get(n.role, "e")
