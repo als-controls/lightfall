@@ -138,7 +138,7 @@ class PipelineTriggersDockPanel(BasePanel):
         id="lightfall.panels.pipeline_triggers",
         name="Triggers",
         description="Manage automatic pipeline submissions on engine events",
-        icon="zap",
+        icon="mdi6.lightning-bolt-outline",
         category="Pipelines",
         menu_order=20,
         singleton=True,
@@ -148,6 +148,7 @@ class PipelineTriggersDockPanel(BasePanel):
         sidebar_group="bottom",
         auto_hide=True,
         sidebar_order=20,
+        in_default_sidebar=False,  # not on the default bar; View > Panels adds it
     )
 
     def _setup_ui(self) -> None:
