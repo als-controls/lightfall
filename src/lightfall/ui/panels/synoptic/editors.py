@@ -125,6 +125,7 @@ class SynopticPropertyEditor(QWidget):
         # Color button
         color_row = QHBoxLayout()
         self._color_button = QPushButton()
+        self._color_button.setAccessibleName("Color")
         self._color_button.setFixedSize(40, 24)
         self._color_button.clicked.connect(self._on_color_clicked)
         self._color_label = QLabel("(0.5, 0.5, 0.5)")

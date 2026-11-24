@@ -148,6 +148,7 @@ class AgentEditorPanel(BasePanel):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         self._agent_list = QListWidget()
+        self._agent_list.setAccessibleName("Agents")
         self._agent_list.currentItemChanged.connect(
             lambda cur, _prev: self._on_agent_selected(cur)
         )
@@ -223,6 +224,7 @@ class AgentEditorPanel(BasePanel):
         layout.addWidget(hint)
 
         self._prompt_edit = QPlainTextEdit()
+        self._prompt_edit.setAccessibleName("Prompt")
         layout.addWidget(self._prompt_edit, 1)
 
         self._save_btn = QPushButton("Save")
@@ -238,6 +240,7 @@ class AgentEditorPanel(BasePanel):
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         self._skill_list = QListWidget()
+        self._skill_list.setAccessibleName("Skills")
         self._skill_list.currentItemChanged.connect(
             lambda cur, _prev: self._on_skill_selected(cur)
         )
@@ -261,14 +264,17 @@ class AgentEditorPanel(BasePanel):
         # drafts and plain skills only the right-hand view is shown.
         views = QHBoxLayout()
         self._active_view = QPlainTextEdit()
+        self._active_view.setAccessibleName("Active skill")
         self._active_view.setReadOnly(True)
         self._proposed_view = QPlainTextEdit()
+        self._proposed_view.setAccessibleName("Skill content")
         self._proposed_view.setReadOnly(True)
         views.addWidget(self._active_view)
         views.addWidget(self._proposed_view)
         layout.addLayout(views, 1)
 
         self._diff_view = QPlainTextEdit()
+        self._diff_view.setAccessibleName("Skill diff")
         self._diff_view.setReadOnly(True)
         self._diff_view.setMaximumHeight(150)
         self._diff_view.setVisible(False)

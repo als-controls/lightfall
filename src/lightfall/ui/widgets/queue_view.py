@@ -283,6 +283,7 @@ class QueueTableView(QTableView):
             parent: Parent widget.
         """
         super().__init__(parent)
+        self.setAccessibleName("Queue")
         self._setup_view()
 
     def _setup_view(self) -> None:
@@ -591,6 +592,7 @@ class RecentTableView(QTableView):
             parent: Parent widget.
         """
         super().__init__(parent)
+        self.setAccessibleName("Recent runs")
         self._setup_view()
 
     def _setup_view(self) -> None:

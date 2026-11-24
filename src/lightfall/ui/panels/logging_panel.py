@@ -315,6 +315,7 @@ class LoggingPanel(BasePanel):
         # Table view
         self._model = LogTableModel()
         self._table = QTableView()
+        self._table.setAccessibleName("Log records")
         self._table.setModel(self._model)
         self._table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self._table.setAlternatingRowColors(True)

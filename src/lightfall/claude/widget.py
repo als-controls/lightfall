@@ -98,6 +98,7 @@ class _ChatInput(QPlainTextEdit):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setAccessibleName("Message")
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # Scrollbar is toggled in _adjust_height: hidden while the field
         # auto-grows, shown only once content exceeds _MAX_LINES.

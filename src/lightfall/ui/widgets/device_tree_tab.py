@@ -114,6 +114,7 @@ class DeviceTreeTab(QWidget):
         layout.addLayout(filter_layout)
 
         self._tree_view = QTreeView()
+        self._tree_view.setAccessibleName("Devices")
         self._tree_view.setModel(self._proxy_model)
         self._tree_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._tree_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)

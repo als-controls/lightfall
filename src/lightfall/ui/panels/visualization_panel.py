@@ -202,6 +202,7 @@ class VisualizationPanel(BasePanel):
         # Stream selector
         self._stream_label = QLabel("Stream:")
         self._stream_combo = QComboBox()
+        self._stream_combo.setAccessibleName("Stream")
         self._stream_combo.setMinimumWidth(100)
         self._stream_combo.currentTextChanged.connect(self._on_stream_changed)
         toolbar.addWidget(self._stream_label)
@@ -212,6 +213,7 @@ class VisualizationPanel(BasePanel):
         # Field selector
         self._field_label = QLabel("Field:")
         self._field_combo = QComboBox()
+        self._field_combo.setAccessibleName("Field")
         self._field_combo.setMinimumWidth(100)
         self._field_combo.currentTextChanged.connect(self._on_field_changed)
         toolbar.addWidget(self._field_label)
@@ -222,6 +224,7 @@ class VisualizationPanel(BasePanel):
         # Visualization type selector
         viz_label = QLabel("Visualization:")
         self._viz_combo = QComboBox()
+        self._viz_combo.setAccessibleName("Plot type")
         self._viz_combo.setMinimumWidth(120)
         self._viz_combo.addItem("Auto", None)
         for cls in _widget_classes():

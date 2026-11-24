@@ -121,6 +121,7 @@ class TiledFilterWidget(QWidget):
         row1.addWidget(plan_label)
 
         self._plan_combo = QComboBox()
+        self._plan_combo.setAccessibleName("Plan")
         self._plan_combo.setMinimumWidth(100)
         self._plan_combo.addItem("All", None)
         self._plan_combo.currentIndexChanged.connect(self._on_filter_changed)
@@ -131,6 +132,7 @@ class TiledFilterWidget(QWidget):
         row1.addWidget(status_label)
 
         self._status_combo = QComboBox()
+        self._status_combo.setAccessibleName("Status")
         self._status_combo.setMinimumWidth(80)
         self._status_combo.addItem("All", None)
         self._status_combo.addItem("Success", "success")
@@ -150,6 +152,7 @@ class TiledFilterWidget(QWidget):
         row2.addWidget(from_label)
 
         self._from_date = QDateEdit()
+        self._from_date.setAccessibleName("Date from")
         self._from_date.setCalendarPopup(True)
         self._from_date.setDate(datetime.now().date() - timedelta(days=30))
         self._from_date.setSpecialValueText("Any")
@@ -161,6 +164,7 @@ class TiledFilterWidget(QWidget):
         row2.addWidget(to_label)
 
         self._to_date = QDateEdit()
+        self._to_date.setAccessibleName("Date to")
         self._to_date.setCalendarPopup(True)
         self._to_date.setDate(datetime.now().date())
         self._to_date.setSpecialValueText("Any")

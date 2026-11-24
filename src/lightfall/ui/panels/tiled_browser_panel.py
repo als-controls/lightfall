@@ -129,6 +129,7 @@ class TiledBrowserPanel(BasePanel):
 
         # Table view
         self._table_view = QTableView()
+        self._table_view.setAccessibleName("Runs")
         self._table_view.setModel(self._proxy_model)
         self._table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)

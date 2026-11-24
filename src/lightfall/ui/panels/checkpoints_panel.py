@@ -63,6 +63,7 @@ class CheckpointsPanel(BasePanel):
 
         self._list = QListWidget()
         self._list.setObjectName("checkpointList")
+        self._list.setAccessibleName("Checkpoints")
         self._list.currentItemChanged.connect(lambda *_: self._show_selected())
 
         right = QWidget()
@@ -72,6 +73,7 @@ class CheckpointsPanel(BasePanel):
         self._detail.setWordWrap(True)
         self._table = QTableWidget(0, len(_COLUMNS))
         self._table.setObjectName("checkpointTable")
+        self._table.setAccessibleName("Positioners")
         self._table.setHorizontalHeaderLabels(_COLUMNS)
         self._table.verticalHeader().setVisible(False)
         self._table.horizontalHeader().setStretchLastSection(True)
