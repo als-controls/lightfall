@@ -57,8 +57,8 @@ class PermissionManager(QObject):
         "ListFiles", "list_files",
         # Qt inspection tools
         tool_id("qt", "screenshot"),
-        tool_id("qt", "get_widget_tree"),
-        tool_id("qt", "find_widget"),
+        tool_id("qt", "ui_snapshot"),
+        tool_id("qt", "ui_wait"),
         tool_id("qt", "get_recent_logs"),
         tool_id("qt", "get_diagnostics"),
         # Read-only Lightfall tools (per-plugin namespaces after SDK-native migration).

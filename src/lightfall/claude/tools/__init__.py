@@ -2,8 +2,6 @@
 
 from .controller import create_controller_tool
 from .diagnostics import create_diagnostics_tools
-from .interaction import create_interaction_tools
-from .introspection import create_introspection_tools
 from .logs import create_logs_tool
 from .screenshot import create_screenshot_tool
 
@@ -19,11 +17,11 @@ def create_qt_tools_server(target_window):
         ToolServer with Qt tools
     """
     from lightfall.agents.tooling import ToolServer, as_tool_spec
+    from lightfall.ui.surface.tools import create_surface_tools
 
     tools = [
         create_screenshot_tool(target_window),
-        *create_introspection_tools(target_window),
-        *create_interaction_tools(target_window),
+        *create_surface_tools(target_window),
         create_controller_tool(target_window),
         create_logs_tool(),
         *create_diagnostics_tools(target_window),
