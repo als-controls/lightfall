@@ -49,3 +49,14 @@ def test_add_widget_does_not_scroll_when_scrolled_up(widget, qtbot):
     assert widget._scroll_calls == 0
     # The widget is still added to the transcript, just not scrolled to.
     assert widget._chat_layout.count() == 1
+
+
+def test_scroll_timer_is_parented_to_widget(widget):
+    from PySide6.QtCore import QTimer
+
+    widget._at_bottom = True
+    widget._add_widget(QLabel("msg"))
+    timers = widget.findChildren(QTimer)
+    assert any(t.isActive() and t.isSingleShot() for t in timers)
+    _flush()
+    assert widget._scroll_calls == 1

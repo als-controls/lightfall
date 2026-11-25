@@ -130,7 +130,6 @@ class ServiceManager(QObject):
         self._local_server: LocalNatsServer | None = None
         self._local_url: str | None = None
         self._broker_thread: threading.Thread | None = None
-        self._broker_result: tuple[str | None, LocalNatsServer | None, str] | None = None
         self._broker_gen = 0
         self._broker_error = ""
         self._broker_failed_at: float | None = None
@@ -378,9 +377,11 @@ class ServiceManager(QObject):
         thread, self._broker_thread = self._broker_thread, None
         if thread is not None:
             thread.join(_BROKER_JOIN_S)
-            result, self._broker_result = self._broker_result, None
-            if result is not None and result[1] is not None:
-                self._stop_server(result[1])  # the in-flight attempt started a broker
+            box: list[LocalNatsServer | None] = getattr(thread, "_broker_box", [])
+            while box:
+                srv = box.pop()
+                if srv is not None:
+                    self._stop_server(srv)
         clients, self._clients = self._clients, {}
         self._stop_clients(clients)
         server, self._local_server = self._local_server, None
@@ -396,29 +397,41 @@ class ServiceManager(QObject):
         initialize_main_thread_invoker()
         self._broker_gen += 1
         gen, port = self._broker_gen, self._local_port()
-        self._broker_result = None
+        box: list[LocalNatsServer | None] = []
 
         def run() -> None:
             try:
                 result = _probe_or_start_broker(port)
             except Exception as e:  # never leave the attempt hanging
                 result = (None, None, f"local broker failed to start: {e}")
-            self._broker_result = result
-            invoke_in_main_thread(self._on_broker_done, gen)
+            if gen != self._broker_gen:
+                if result[1] is not None:
+                    self._stop_server(result[1])
+                return
+            box.append(result[1])
+            invoke_in_main_thread(self._on_broker_done, gen, result, box)
 
         t = threading.Thread(target=run, name="svc-local-broker", daemon=True)
+        t._broker_box = box  # type: ignore[attr-defined]
         self._broker_thread = t
         t.start()
 
-    def _on_broker_done(self, gen: int) -> None:
+    def _on_broker_done(
+        self,
+        gen: int,
+        result: tuple[str | None, LocalNatsServer | None, str],
+        box: list[LocalNatsServer | None],
+    ) -> None:
         if gen != self._broker_gen:
-            return  # stale (stop() ran, and handled any started broker)
+            while box:
+                srv = box.pop()
+                if srv is not None:
+                    self._stop_server(srv)
+            return
+        box.clear()
         thread, self._broker_thread = self._broker_thread, None
         if thread is not None:
             thread.join(1.0)
-        result, self._broker_result = self._broker_result, None
-        if result is None:
-            return
         url, server, error = result
         pending, self._pending = self._pending, set()
         if url is None:

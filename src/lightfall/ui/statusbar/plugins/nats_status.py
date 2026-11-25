@@ -40,6 +40,8 @@ class NatsStatusPlugin(StatusBarPlugin):
         super().__init__()
         self._ipc = ipc
         self._services = services
+        self._connected: bool = False
+        self._services_wired: bool = False
         self._peers: list[dict] = []
         self._last_refreshed: str | None = None
         self._icon_name: str = "mdi6.message-outline"
@@ -64,16 +66,18 @@ class NatsStatusPlugin(StatusBarPlugin):
                 self._services = ServiceRegistry.get_instance().get(ServiceManager, None)
             except Exception as e:
                 logger.debug("NatsStatus: no ServiceManager: {}", e)
+        if self._services is not None and self._connected and not self._services_wired:
+            self._services.services_changed.connect(self.update)
+            self._services_wired = True
         return self._services
 
     # -- wiring ---------------------------------------------------------------
 
     def connect_signals(self) -> None:
         self._alive = True
+        self._connected = True
         # The manager re-emits services_changed on every client state_changed.
-        services = self._get_services()
-        if services is not None:
-            services.services_changed.connect(self.update)
+        self._get_services()
 
         ipc = self._get_ipc()
         if ipc is not None:
@@ -83,6 +87,8 @@ class NatsStatusPlugin(StatusBarPlugin):
 
     def disconnect_signals(self) -> None:
         self._alive = False
+        self._connected = False
+        self._services_wired = False
         if self._services is not None:
             try:
                 self._services.services_changed.disconnect(self.update)

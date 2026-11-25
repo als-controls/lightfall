@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
-from lightfall.ui.dialogs.export_dialog import build_job_message
+from lightfall.ui.dialogs.export_dialog import (
+    build_job_message,
+    load_sample_frame,
+    ping_or_spawn_exporter,
+)
 
 
 class TestBuildJobMessage:
@@ -41,11 +46,6 @@ class TestBuildJobMessage:
         assert msg["export_type"] == "nxsas"
         assert msg["params"]["roi"] == roi
         assert msg["tiled_api_key"] is None
-
-
-from unittest.mock import patch, MagicMock
-
-from lightfall.ui.dialogs.export_dialog import ping_or_spawn_exporter
 
 
 class TestPingOrSpawnExporter:
@@ -100,11 +100,6 @@ class TestPingOrSpawnExporter:
             nats_url="nats://localhost:4222",
         )
         assert result is False
-
-
-import numpy as np
-
-from lightfall.ui.dialogs.export_dialog import load_sample_frame
 
 
 class TestLoadSampleFrame:
@@ -164,3 +159,43 @@ class TestLoadSampleFrame:
 
         with pytest.raises(ValueError, match="No image field"):
             load_sample_frame(client, "run-key")
+
+
+def test_send_to_exporter_reads_public_nats_url(monkeypatch):
+    from lightfall.core.services import ServiceRegistry
+    from lightfall.ipc.service import IPCService
+    from lightfall.ui.dialogs.export_dialog import ExportDialog
+    from lightfall.ui.toast import ToastManager
+
+    class PublicOnlyIPC:
+        nats_url = "nats://public-accessor:4222"
+
+    ipc = PublicOnlyIPC()
+    reg = MagicMock()
+    reg.get.side_effect = lambda cls, default=None: ipc if cls is IPCService else default
+    monkeypatch.setattr(ServiceRegistry, "get_instance", classmethod(lambda cls: reg))
+    monkeypatch.setattr(ToastManager, "get_instance", classmethod(lambda cls: MagicMock()))
+
+    seen_urls: list[str] = []
+
+    def fake_ping(ipc_arg, ping_subj, url):
+        seen_urls.append(url)
+        return False
+
+    monkeypatch.setattr("lightfall.ui.dialogs.export_dialog.ping_or_spawn_exporter", fake_ping)
+
+    class ImmediateFuture:
+        def __init__(self, fn, callback_slot=None, except_slot=None, name=None):
+            self._fn = fn
+            self._cb = callback_slot
+
+        def start(self):
+            res = self._fn()
+            if self._cb:
+                self._cb(res)
+
+    monkeypatch.setattr("lightfall.utils.threads.QThreadFuture", ImmediateFuture)
+
+    dlg = ExportDialog.__new__(ExportDialog)
+    dlg._send_to_exporter({"job_id": "j1", "run_uids": ["u1"]})
+    assert seen_urls == ["nats://public-accessor:4222"]

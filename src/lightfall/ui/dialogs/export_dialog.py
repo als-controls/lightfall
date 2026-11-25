@@ -522,7 +522,7 @@ class ExportDialog(LFDialog):
         job_subject = f"lightfall.export.{hostname}"
         progress_subject = f"lightfall.export.{hostname}.progress"
         ping_subject = f"lightfall.export.{hostname}.ping"
-        nats_url = ipc._nats_url
+        nats_url = ipc.nats_url
 
         job_id = message["job_id"]
 

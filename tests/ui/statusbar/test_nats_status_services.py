@@ -82,3 +82,32 @@ def test_no_update_after_disconnect(qtbot):
     mgr._statuses = [_st("stxm", "up", "2.0")]
     mgr.services_changed.emit()
     assert "stxm" not in tip(plugin)
+
+
+def test_lazy_service_manager_connects_and_disconnects(qtbot, monkeypatch):
+    from lightfall.core.services import ServiceRegistry
+    from lightfall.services.manager import ServiceManager
+
+    reg = ServiceRegistry()
+    monkeypatch.setattr(ServiceRegistry, "get_instance", classmethod(lambda cls: reg))
+
+    # Manager absent at connect_signals() time.
+    plugin = NatsStatusPlugin(ipc=FakeIPC(), services=None)
+    qtbot.addWidget(plugin.create_widget())
+    plugin.connect_signals()
+    plugin.update()
+    assert "Services" not in tip(plugin)
+
+    # Manager registered later; next update resolves and connects it lazily.
+    mgr = StubManager([])
+    reg.register(ServiceManager, lambda: mgr)
+    plugin.update()
+    mgr._statuses = [_st("lazy_svc", "up", "1.0")]
+    mgr.services_changed.emit()
+    assert "lazy_svc — up (1.0)" in tip(plugin)
+
+    # Disconnect must also disconnect the lazily resolved manager.
+    plugin.disconnect_signals()
+    mgr._statuses = [_st("after_disc", "up", "1.0")]
+    mgr.services_changed.emit()
+    assert "after_disc" not in tip(plugin)

@@ -282,15 +282,29 @@ def test_placeholder_flash_restores(w, qtbot):
 
 
 def test_stop_during_permission_card_does_not_jam_queue(w):
+    resolved: list[tuple[str, bool]] = []
+    w.approval_resolved.connect(lambda rid, ok: resolved.append((rid, ok)))
     w.submit_user_prompt("one")
     w.agent.permission_requested.emit("r1", "Bash", {"command": "ls"})
     assert w.submit_user_prompt("two") == "queued"
     w.send_button.click()  # Stop: the worker releases the wait without permission_expired
     w.agent.settle_cancel()
     assert w._pending_permission_widgets == {}
+    assert resolved == []
     assert w.agent.sent == ["one", "two"]
     w.agent.complete()
     assert w.submit_user_prompt("three") == "sent"
+
+
+def test_voice_queue_strip_reapplies_style_on_theme_changed(w):
+    from lightfall.ui.theme import ThemeManager
+
+    strip = _strip(w)
+    mgr = ThemeManager.get_instance()
+    mgr.set_font_size(10)
+    assert "font-size: 8pt" in strip.paused_label.styleSheet()
+    mgr.set_font_size(20)
+    assert "font-size: 16pt" in strip.paused_label.styleSheet()
 
 
 def test_resolving_permission_card_while_idle_drains_one(w):

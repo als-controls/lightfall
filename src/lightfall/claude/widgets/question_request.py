@@ -50,7 +50,10 @@ def _match_one(part: str, labels: list[str]) -> str | None:
     exact = [lb for lb, n in normed if n == norm]
     if exact:
         return exact[0]
-    partial = [lb for lb, n in normed if norm in n and n not in _WHOLE_WORD_ONLY]
+    pattern = re.compile(rf"\b{re.escape(norm)}\b")
+    partial = [
+        lb for lb, n in normed if pattern.search(n) and n not in _WHOLE_WORD_ONLY
+    ]
     return partial[0] if len(partial) == 1 else None
 
 
@@ -227,11 +230,12 @@ class QuestionRequestWidget(QFrame):
 
     def _highlight_current(self) -> None:
         cur = self.current_index
+        color = self.palette().color(QPalette.ColorRole.Highlight).name()
         for i, box in enumerate(self._boxes):
             if i == cur and not self._is_resolved:
                 box.setStyleSheet(
-                    "QGroupBox#questionBox { border: 2px solid #9b82d4; "
-                    "border-radius: 4px; }"
+                    f"QGroupBox#questionBox {{ border: 2px solid {color}; "
+                    f"border-radius: 4px; }}"
                 )
             else:
                 box.setStyleSheet("")
@@ -255,6 +259,9 @@ class QuestionRequestWidget(QFrame):
             return "rejected"
         i = self.current_index
         if i >= len(self._question_widgets):
+            if _normalise(text) in {"submit", "done", "send"}:
+                self._on_submit()
+                return "completed"
             return "rejected"
         q, widgets = self._question_widgets[i]
         other = self.other_edits[i]
@@ -273,15 +280,19 @@ class QuestionRequestWidget(QFrame):
         else:
             checked: list[str] = []
             unmatched: list[str] = []
-            for part in re.split(r",|\band\b", text):
-                if not part.strip():
-                    continue
-                m = match_options(part, labels)
-                if m:
-                    if m[0] not in checked:
-                        checked.append(m[0])
-                else:
-                    unmatched.append(part.strip())
+            whole = match_options(text, labels)
+            if whole:
+                checked.append(whole[0])
+            else:
+                for part in re.split(r",|\band\b", text, flags=re.IGNORECASE):
+                    if not part.strip():
+                        continue
+                    m = match_options(part, labels)
+                    if m:
+                        if m[0] not in checked:
+                            checked.append(m[0])
+                    else:
+                        unmatched.append(part.strip())
             if not checked and not unmatched:
                 return "rejected"
             for cb in widgets:

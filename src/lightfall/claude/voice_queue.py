@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lightfall.ui.theme import scaled_pt
+from lightfall.ui.theme import ThemeManager, scaled_pt
 
 PAUSED_TEXT = "Paused after error"
 HELD_TEXT = "Held: waiting for resumed session"
@@ -168,6 +168,7 @@ class VoiceQueueStrip(QWidget):
         self._layout.addWidget(self._items_box)
 
         self._apply_style()
+        ThemeManager.get_instance().theme_changed.connect(self._apply_style)
         self.set_queue(queue)
 
     def set_queue(self, queue: VoiceQueue) -> None:
@@ -180,7 +181,7 @@ class VoiceQueueStrip(QWidget):
         queue.changed.connect(self._rebuild)
         self._rebuild()
 
-    def _apply_style(self) -> None:
+    def _apply_style(self, *_args: object) -> None:
         # Same box as the transcript cards (``_create_card``), with a muted accent.
         base = self.palette().color(QPalette.ColorRole.Base)
         is_dark = base.lightness() < 128
@@ -193,6 +194,9 @@ class VoiceQueueStrip(QWidget):
             f"font-weight: bold; font-size: {scaled_pt(8)}pt; color: #e0a030; "
             f"letter-spacing: 1px;"
         )
+        muted = self._muted_color()
+        for label in self._items_box.findChildren(QLabel, "voiceQueueItemLabel"):
+            label.setStyleSheet(f"color: {muted}; font-style: italic;")
 
     def _muted_color(self) -> str:
         pal = self.palette()

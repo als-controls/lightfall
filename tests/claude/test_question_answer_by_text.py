@@ -49,14 +49,27 @@ def test_unique_partial_and_filler_words(qtbot):
     assert match_options("the second", ["First", "Second"]) == ["Second"]
     assert match_options("option a", ["Option A", "Option AB"]) == ["Option A"]
     assert match_options("a", ["Option A", "Option AB"]) == ["Option A"]
-    assert match_options("sec", ["First", "Second"]) == ["Second"]
+    assert match_options("second", ["First choice", "Second choice"]) == ["Second choice"]
+    # Partial match requires word boundaries: "cat" must not match "Scatter".
+    assert match_options("cat", ["Scatter", "Dog"]) == []
+    assert match_options("sec", ["First", "Second"]) == []
 
 
 def test_multiselect_split_and_other(qtbot):
     w = _make(qtbot, [_q("Colors?", ["Red", "Green", "Blue"], multi=True)])
     with qtbot.waitSignal(w.submitted) as blocker:
-        w.answer_by_text("red and blue, purple")
+        w.answer_by_text("red And blue, purple")
     assert blocker.args[1] == {"Colors?": "Red,Blue,purple"}
+
+
+def test_multiselect_whole_utterance_match_before_split(qtbot):
+    w = _make(
+        qtbot,
+        [_q("Action?", ["Search and Replace", "Search only", "Lint"], multi=True)],
+    )
+    with qtbot.waitSignal(w.submitted) as blocker:
+        assert w.answer_by_text("search and replace") is True
+    assert blocker.args[1] == {"Action?": "Search and Replace"}
 
 
 def test_multi_question_one_utterance_each(qtbot):
@@ -107,8 +120,8 @@ def test_allow_needs_the_whole_word():
     assert match_options("allow", labels) == ["Allow"]
     assert match_options("Allow.", labels) == ["Allow"]
     assert match_options("ALLOW!", labels) == ["Allow"]
-    # Other labels keep partial matching.
-    assert match_options("den", labels) == ["Deny"]
+    # Other labels keep word-boundary partial matching.
+    assert match_options("deny", ["Allow", "Deny always"]) == ["Deny always"]
 
 
 def test_allow_fragment_on_a_card_goes_to_other(qtbot):
@@ -116,3 +129,29 @@ def test_allow_fragment_on_a_card_goes_to_other(qtbot):
     with qtbot.waitSignal(w.submitted) as blocker:
         w.answer_by_text("low")
     assert blocker.args[1] == {"Publish xafs?": "low"}
+
+
+def test_highlight_uses_theme_palette_color(qtbot):
+    from PySide6.QtGui import QColor, QPalette
+
+    w = _make(qtbot, [_q("Go?", ["Yes", "No"])])
+    pal = w.palette()
+    pal.setColor(QPalette.ColorRole.Highlight, QColor("#123456"))
+    w.setPalette(pal)
+    w._highlight_current()
+    assert "#123456" in w._boxes[0].styleSheet()
+    assert "#9b82d4" not in w._boxes[0].styleSheet()
+
+
+def test_hand_ticked_card_submits_on_spoken_submit(qtbot):
+    from PySide6.QtWidgets import QRadioButton
+
+    w = _make(qtbot, [_q("Go?", ["Yes", "No"])])
+    w.findChildren(QRadioButton)[0].setChecked(True)
+    assert w.current_index == 1
+    assert w.answer_text("unrelated words") == "rejected"
+    assert not w.is_resolved
+    with qtbot.waitSignal(w.submitted) as blocker:
+        assert w.answer_by_text("Submit!") is True
+    assert blocker.args == ["rid", {"Go?": "Yes"}]
+    assert w.is_resolved

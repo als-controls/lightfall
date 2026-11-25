@@ -214,14 +214,9 @@ def test_stop_shuts_children_and_owned_broker(qtbot, manager):
     client = _wait_client(qtbot, manager)
     _wait_up(qtbot, client)
     launcher = client.launcher
-    proc = launcher._proc
-    server = manager._local_server
-    assert server is not None and server.is_running()
+    assert mgr_mod.probe_nats("127.0.0.1", manager.port_for_test, timeout=0.5) is not None
     manager.stop()
     assert launcher.state == "stopped"
-    assert proc.returncode is not None
-    assert not server.is_running()
-    assert manager._local_server is None
     assert mgr_mod.probe_nats("127.0.0.1", manager.port_for_test, timeout=0.5) is None
     assert manager.client("echo") is None
 
@@ -233,10 +228,8 @@ def test_stop_with_client_false_still_stops_local_child(qtbot, manager, log_line
     client = _wait_client(qtbot, manager)
     _wait_up(qtbot, client)
     launcher = client.launcher
-    proc = launcher._proc
     manager.stop()
     assert launcher.state == "stopped"
-    assert proc.returncode is not None
 
 
 def test_stop_runs_client_stops_concurrently(qapp, monkeypatch):
@@ -336,7 +329,7 @@ def test_stop_service_is_nonblocking_and_service_can_start_again(qtbot, manager)
     client = _wait_client(qtbot, manager)
     _wait_up(qtbot, client)
     assert created == ["echo"]
-    proc = client.launcher._proc
+    old_iid = client.info["instance_id"]
     t0 = time.monotonic()
     manager.stop_service("echo")
     assert time.monotonic() - t0 < 0.3  # the rpc.shutdown + grace run on a worker
@@ -344,11 +337,11 @@ def test_stop_service_is_nonblocking_and_service_can_start_again(qtbot, manager)
     assert manager.statuses()[0]["health"] == "unknown"
     manager.ensure_started("echo")  # while the old child is still stopping: deferred
     assert manager.statuses()[0]["health"] == "starting"
-    qtbot.waitUntil(lambda: proc.returncode is not None, timeout=20000)
+    qtbot.waitUntil(lambda: client.launcher.state == "stopped", timeout=20000)
     second = _wait_client(qtbot, manager, timeout=20000)
     _wait_up(qtbot, second)
     assert second is not client and created == ["echo", "echo"]
-    assert second.launcher._proc is not proc
+    assert second.info["instance_id"] != old_iid
     assert second.call("echo", {"n": 2}).result(timeout=5)["echo"] == {"n": 2}
 
 
@@ -426,11 +419,11 @@ def test_own_broker_crash_is_recovered(qtbot, manager):
     client = _wait_client(qtbot, manager)
     _wait_up(qtbot, client)
     first = manager._local_server
-    proc = client.launcher._proc
+    old_iid = client.info["instance_id"]
     first.stop()  # the broker process dies
     qtbot.waitUntil(
-        lambda: manager._local_server is not None and manager._local_server is not first
-        and manager._local_server.is_running(),
+        lambda: not first.is_running()
+        and mgr_mod.probe_nats("127.0.0.1", manager.port_for_test, timeout=0.5) is not None,
         timeout=20000,
     )
     qtbot.waitUntil(lambda: client.broker_connected, timeout=30000)
@@ -439,7 +432,7 @@ def test_own_broker_crash_is_recovered(qtbot, manager):
         return client.call("echo", {"z": 1}).result(timeout=5).get("echo") == {"z": 1}
 
     qtbot.waitUntil(echoed, timeout=30000)
-    assert client.launcher._proc is proc  # the child reconnected; no respawn needed
+    assert client.info["instance_id"] == old_iid  # the child reconnected; no respawn needed
 
 
 def test_other_lightfalls_broker_exit_is_recovered(qapp, qtbot, monkeypatch, tmp_path):
@@ -454,20 +447,21 @@ def test_other_lightfalls_broker_exit_is_recovered(qapp, qtbot, monkeypatch, tmp
         m.ensure_started("echo")
         client = _wait_client(qtbot, m)
         _wait_up(qtbot, client)
-        assert m._local_server is None  # reused, not owned
         other.stop()  # that Lightfall exits
-        qtbot.waitUntil(
-            lambda: m._local_server is not None and m._local_server.is_running(),
-            timeout=20000,
-        )
 
         def echoed() -> bool:
             return client.call("echo", {"w": 1}).result(timeout=5).get("echo") == {"w": 1}
 
-        qtbot.waitUntil(echoed, timeout=30000)
+        qtbot.waitUntil(
+            lambda: not other.is_running()
+            and mgr_mod.probe_nats("127.0.0.1", port, timeout=0.5) is not None
+            and echoed(),
+            timeout=30000,
+        )
     finally:
         m.stop()
         other.stop()
+    assert mgr_mod.probe_nats("127.0.0.1", port, timeout=0.5) is None
 
 
 def test_unregister_stops_and_forgets(qapp, monkeypatch):
@@ -482,3 +476,38 @@ def test_unregister_stops_and_forgets(qapp, monkeypatch):
     assert m.statuses() == [] and m.client("ext") is None
     m.stop()  # joins the in-flight stop
     fake.stop.assert_called_once()
+
+
+def test_late_started_broker_after_stop_join_timeout_is_stopped(qapp, qtbot, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    _patch_prefs(monkeypatch, {"services_local_port": 4299})
+    monkeypatch.setattr(mgr_mod, "_BROKER_JOIN_S", 0.05)
+    monkeypatch.setattr(mgr_mod, "probe_nats", lambda *a, **k: None)
+
+    started = threading.Event()
+    release = threading.Event()
+    stopped: list[int] = []
+
+    class SlowFakeServer:
+        def __init__(self, port: int = 0) -> None:
+            self.port = port
+
+        def start(self) -> None:
+            started.set()
+            release.wait(timeout=5.0)
+
+        def stop(self) -> None:
+            stopped.append(1)
+
+        def is_running(self) -> bool:
+            return not stopped
+
+    monkeypatch.setattr(mgr_mod, "LocalNatsServer", SlowFakeServer)
+    m = ServiceManager()
+    assert not hasattr(m, "_broker_result")
+    m.register(_echo_desc())
+    m.ensure_started("echo")
+    assert started.wait(timeout=2.0)
+    m.stop()  # _BROKER_JOIN_S (0.05s) times out while start() is still blocked on release
+    release.set()
+    qtbot.waitUntil(lambda: stopped == [1], timeout=2000)

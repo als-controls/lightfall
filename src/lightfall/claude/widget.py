@@ -1474,7 +1474,6 @@ class ClaudeAssistantWidget(QWidget):
         ``_can_send_now`` False forever.
         """
         for request_id in list(getattr(self, "_pending_permission_widgets", {})):
-            self.approval_resolved.emit(request_id, False)
             self._cleanup_permission_widget(request_id)
         for request_id in list(getattr(self, "_pending_question_widgets", {})):
             self._cleanup_question_widget(request_id)
@@ -1628,9 +1627,12 @@ class ClaudeAssistantWidget(QWidget):
 
     def _scroll_to_bottom_if_needed(self) -> None:
         """Defer a scroll-to-bottom; no-op if user has scrolled up."""
-        from PySide6.QtCore import QTimer
         if self._at_bottom:
-            QTimer.singleShot(0, self._scroll_to_bottom)
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._scroll_to_bottom)
+            timer.timeout.connect(timer.deleteLater)
+            timer.start(0)
 
     def _add_widget(self, widget: QWidget) -> None:
         """Add a widget to the chat layout, auto-scrolling only if already at the
