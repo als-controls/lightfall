@@ -110,6 +110,7 @@ class ContentPanel(BasePanel):
     def _setup_ui(self) -> None:
         bar = QHBoxLayout()
         self.type_filter = QComboBox()
+        self.type_filter.setAccessibleName("Content type")
         self.type_filter.addItem("All types", None)
         for key, label in _TYPES:
             self.type_filter.addItem(label, key)
@@ -125,6 +126,7 @@ class ContentPanel(BasePanel):
         self.retracted_check.toggled.connect(self._on_retracted_toggled)
         bar.addWidget(self.retracted_check)
         self.retracted_scope = QComboBox()
+        self.retracted_scope.setAccessibleName("Scope")
         self.retracted_scope.setToolTip("Scope whose retracted items are listed")
         self.retracted_scope.setVisible(False)
         self.retracted_scope.currentIndexChanged.connect(self._on_retracted_scope)
@@ -132,6 +134,7 @@ class ContentPanel(BasePanel):
         self._layout.addLayout(bar)
 
         self.table = QTableWidget(0, len(_COLUMNS))
+        self.table.setAccessibleName("Shared content")
         self.table.setHorizontalHeaderLabels(list(_COLUMNS))
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)

@@ -97,7 +97,7 @@ Authorization checks use `lightfall.auth.policy.Permission` (e.g. `DEVICE_CONTRO
 
 `QtClaudeAgent` (`lightfall.claude.agent`) embeds a Claude Agent SDK session inside the Qt process. At construction it assembles the session from two sources:
 
-1. **A fixed set of generic Qt tools** (`lightfall.claude.tools`): `screenshot`, `get_widget_tree`, `find_widget`, `click_widget`, `type_text`, `show_controller`, and `get_recent_logs`.
+1. **A fixed set of generic Qt tools** (`lightfall.claude.tools`): `screenshot`, the agent UI surface's `ui_snapshot`, `ui_act` and `ui_wait` (see [Agent UI surface](agent-surface.md)), `show_controller`, and `get_recent_logs`.
 2. **The enabled `AgentPlugin` instances** from `AgentRegistry`: each contributes a skill prompt (materialized as a `SKILL.md`) and/or an in-process MCP server of domain tools. Built-in agent plugins cover panels (`lightfall_list_panels`, `lightfall_open_panel`, `lightfall_invoke_panel_action`, …), devices, plans, the engine, the IPython console, and panel/plan authoring expertise.
 
 The addressability story is deliberately simple: the agent's tools are a **fixed, generic set**, and their *results* come from the same registries the GUI renders — `PanelRegistry`, `DeviceCatalog`, `PlanRegistry`, and panel introspection data. Tool schemas are not generated at runtime. When a plugin adds a new panel or plan, the existing `list_*` tools report it and the existing `open_panel` / `run_plan` / `invoke_panel_action` tools can act on it, because those tools query the registries rather than hard-coding what exists.

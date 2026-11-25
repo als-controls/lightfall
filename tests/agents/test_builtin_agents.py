@@ -25,18 +25,18 @@ def test_builtin_agent_names(specs):
 
 def test_operator_prompt_drops_widget_interaction(specs):
     prompt = specs["lightfall"].prompt
+    assert "ui_act" not in prompt
     assert "click_widget" not in prompt
-    assert "type_text" not in prompt
     # inspection-only Qt guidance stays
     assert "screenshot" in prompt
-    assert "get_widget_tree" in prompt
+    assert "ui_snapshot" in prompt
     assert "get_recent_logs" in prompt
 
 
 def test_dev_prompt_owns_widget_interaction(specs):
     prompt = specs["lightfall-dev"].prompt
-    assert "click_widget" in prompt
-    assert "type_text" in prompt
+    assert "ui_act" in prompt
+    assert "ui_snapshot" in prompt
     assert "Qt Tool Notes" in prompt
 
 

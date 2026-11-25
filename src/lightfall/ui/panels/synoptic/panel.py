@@ -245,6 +245,7 @@ class SynopticPanel(BasePanel):
 
         # View preset dropdown (2D projections only)
         self._view_preset_combo = QComboBox()
+        self._view_preset_combo.setAccessibleName("View preset")
         self._view_preset_combo.addItem("Side (X-Z)", ViewPreset.SIDE)
         self._view_preset_combo.addItem("Top (X-Y)", ViewPreset.TOP)
         self._view_preset_combo.addItem("Front (Y-Z)", ViewPreset.FRONT)

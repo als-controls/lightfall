@@ -59,8 +59,17 @@ def create_screenshot_tool(target_window: QWidget):
 
     @tool(
         name="screenshot",
-        description="Capture a screenshot of the Qt window to see its current visual state",
-        input_schema={}
+        description=(
+            "Capture a screenshot of the Lightfall window to see its current visual state. "
+            "Pass scope=<panel or dialog name, or a ui_snapshot ref> to capture just that part."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "scope": {"type": "string",
+                          "description": "Panel/dialog name or ref; omit for the whole window."},
+            },
+        },
     )
     async def take_screenshot(args: dict) -> dict[str, Any]:
         """
@@ -70,10 +79,18 @@ def create_screenshot_tool(target_window: QWidget):
             MCP tool result with image content
         """
         try:
-            print(f"[DEBUG] Screenshot: Starting capture of {target_window}")
-            # Run on main thread since Qt widgets can only be accessed from main thread
-            img_data = run_on_main_thread(capture_screenshot_b64, target_window)
-            print("[DEBUG] Screenshot: capture complete")
+            scope = (args or {}).get("scope")
+
+            def grab():
+                widget = target_window
+                if scope:
+                    from lightfall.ui.surface.tools import widget_for_scope
+
+                    widget = widget_for_scope(str(scope))
+                return capture_screenshot_b64(widget)
+
+            # Qt widgets can only be touched on the main thread.
+            img_data = run_on_main_thread(grab)
 
             if img_data is None:
                 return {
@@ -90,9 +107,10 @@ def create_screenshot_tool(target_window: QWidget):
             }
 
         except Exception as e:
-            import traceback
+            # run_on_main_thread appends a traceback; the agent only needs the reason.
+            reason = str(e).split("\n", 1)[0]
             return {
-                "content": [{"type": "text", "text": f"Screenshot error: {str(e)}\n{traceback.format_exc()}"}],
+                "content": [{"type": "text", "text": f"Screenshot error: {reason}"}],
                 "is_error": True
             }
 

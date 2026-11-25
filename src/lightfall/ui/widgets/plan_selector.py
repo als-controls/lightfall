@@ -256,6 +256,7 @@ class PlanSelectorWidget(QWidget):
         # Category filter
         filter_layout.addWidget(QLabel("Category:"))
         self._category_combo = QComboBox()
+        self._category_combo.setAccessibleName("Category")
         self._category_combo.addItem("All", None)
         self._category_combo.currentIndexChanged.connect(self._on_category_changed)
         filter_layout.addWidget(self._category_combo)
@@ -277,6 +278,7 @@ class PlanSelectorWidget(QWidget):
 
         # Plan list
         self._list_view = QListView()
+        self._list_view.setAccessibleName("Plans")
         self._list_view.setSelectionBehavior(QListView.SelectionBehavior.SelectRows)
         self._list_view.setAlternatingRowColors(True)
 
@@ -293,6 +295,7 @@ class PlanSelectorWidget(QWidget):
 
         # Details panel
         self._details_panel = QTextEdit()
+        self._details_panel.setAccessibleName("Plan description")
         self._details_panel.setReadOnly(True)
         self._details_panel.setPlaceholderText("Select a plan to view details")
         splitter.addWidget(self._details_panel)

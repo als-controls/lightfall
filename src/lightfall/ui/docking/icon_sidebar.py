@@ -68,6 +68,9 @@ class IconStripButton(QToolButton):
         self.panel_id = panel_id
         self.setIcon(icon)
         self.setToolTip(tooltip)
+        # Icon-only: the tooltip (the panel name) is also its accessible name, so screen
+        # readers and the agent UI surface can name it.
+        self.setAccessibleName(tooltip)
         self.setCheckable(True)
         self.setAutoRaise(True)
         self.apply_font_scale()
@@ -265,6 +268,7 @@ class IconStripSidebar(QFrame):
         if icon_name:
             self.update_button_icon(panel_id, icon_name)
         button.setToolTip(tooltip)
+        button.setAccessibleName(tooltip)
         return button
 
     def _show_button_context_menu(self, panel_id: str, pos: QPoint) -> None:

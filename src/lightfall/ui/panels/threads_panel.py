@@ -286,6 +286,7 @@ class ThreadsPanel(BasePanel):
         # Status filter
         filter_layout.addWidget(QLabel("Status:"))
         self._status_filter = QComboBox()
+        self._status_filter.setAccessibleName("Thread filter")
         self._status_filter.addItem("All", None)
         self._status_filter.addItem("Running", {ThreadStatus.RUNNING})
         self._status_filter.addItem("Completed", {ThreadStatus.COMPLETED})
@@ -306,6 +307,7 @@ class ThreadsPanel(BasePanel):
 
         # Table view
         self._table_view = QTableView()
+        self._table_view.setAccessibleName("Threads")
         self._table_view.setModel(self._proxy_model)
         self._table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)

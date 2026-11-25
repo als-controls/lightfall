@@ -219,10 +219,9 @@ You have domain-specific tools provided by the application - use these FIRST whe
 
 You also have general Qt inspection and interaction tools as a fallback:
 - screenshot: Capture the window's current visual state
-- get_widget_tree: View the widget hierarchy and structure
-- find_widget: Locate widgets by object name
-- click_widget: Click buttons and interactive widgets
-- type_text: Enter text into input fields
+- ui_snapshot: See what is on screen as an outline of roles and names with [refs]; pass scope=<panel name> to see one panel in full
+- ui_act: Operate the UI with real mouse and keyboard input (click, fill, select, check, press, open_panel, close, ...)
+- ui_wait: Wait until an element appears or disappears, a notification arrives, or a run finishes
 - get_recent_logs: Read recent log records from the running Lightfall process. Use this when something unexpected happened outside your own tool calls (e.g., a panel didn't update as expected, a plan failed, a device went offline). Defaults to WARNING+ in the last two minutes; widen the filter (e.g., level="DEBUG", since_seconds=600) only when narrower scopes don't surface the issue.
 - get_diagnostics: Lightfall's own health report: recent errors with tracebacks, this and the previous session's fault.log (crash and hang thread dumps), and version info. Use it when Lightfall itself misbehaves or crashed last time.
 - draft_bug_report: Open the Report-a-Bug dialog pre-filled with your write-up for the user to review and submit. Offer it once you have evidence from get_diagnostics; never claim a report was sent.
@@ -353,7 +352,7 @@ class QtClaudeAgent(QObject):
             max_turns: Maximum conversation turns
             additional_system_prompt: Optional additional text to append to the system prompt.
             require_approval: If True, show UI approval for tool calls (default True).
-                            Read-only tools (screenshot, get_widget_tree, find_widget) are
+                            Read-only tools (screenshot, ui_snapshot, ui_wait) are
                             auto-approved. Interactive tools require user confirmation.
             parent: Parent QObject
 
@@ -426,8 +425,8 @@ class QtClaudeAgent(QObject):
 
         # Build allowed tools list - start with Qt tools
         allowed_tools = [tool_id("qt", n) for n in (
-            "screenshot", "get_widget_tree", "find_widget", "click_widget",
-            "type_text", "show_controller", "get_recent_logs",
+            "screenshot", "ui_snapshot", "ui_act", "ui_wait",
+            "show_controller", "get_recent_logs",
             "get_diagnostics", "draft_bug_report",
         )]
 
@@ -1087,7 +1086,7 @@ class QtClaudeAgent(QObject):
         Add a tool to the always-allowed list.
 
         Args:
-            tool_name: Full tool name (e.g., "mcp__qt__click_widget")
+            tool_name: Full tool name (e.g., "mcp__qt__ui_act")
         """
         if self._permission_manager:
             self._permission_manager.add_always_allowed(tool_name)
