@@ -55,6 +55,22 @@ def _import_modules(module_names: list[str]) -> None:
             logger.exception("Import warmup failed for {}", name)
 
 
+def _coerce_status(status: PanelStatus) -> PanelStatus:
+    """Return the member of *this module's* PanelStatus matching ``status``.
+
+    Live-reloading ``lightfall.ui.panels.base`` re-executes the Enum and makes
+    a second PanelStatus class; panels built afterwards report members of it,
+    which are neither ``is`` nor ``==`` to ours (GlitchTip LIGHTFALL-M). Match
+    by value instead; anything unrecognized counts as UNINITIALIZED.
+    """
+    if isinstance(status, PanelStatus):
+        return status
+    try:
+        return PanelStatus(getattr(status, "value", status))
+    except ValueError:
+        return PanelStatus.UNINITIALIZED
+
+
 class DockingManager(QObject):
     """Manages the docking system using native QDockWidget.
 
@@ -316,11 +332,8 @@ class DockingManager(QObject):
 
         # The panel instance now exists: mark it loaded unless the panel
         # already chose a status during construction.
-        initial = (
-            panel.status
-            if panel.status is not PanelStatus.UNINITIALIZED
-            else PanelStatus.SUCCESS
-        )
+        status = _coerce_status(panel.status)
+        initial = status if status is not PanelStatus.UNINITIALIZED else PanelStatus.SUCCESS
         self.set_panel_status(panel_id, initial)
 
         logger.debug("Added panel {} to area {}", panel_id, area)
@@ -702,7 +715,7 @@ class DockingManager(QObject):
             panel_id: Panel identifier.
             status: New status.
         """
-        self._panel_status[panel_id] = status
+        self._panel_status[panel_id] = _coerce_status(status)
         self._refresh_sidebar_icon(panel_id)
 
     def _status_color(self, status: PanelStatus) -> str:
@@ -727,7 +740,7 @@ class DockingManager(QObject):
             PanelStatus.WARNING: colors.warning,
             PanelStatus.ERROR: colors.error,
             PanelStatus.INFO: colors.info,
-        }[status]
+        }.get(status, "")
 
     def _refresh_sidebar_icon(self, panel_id: str, icon_name: str = "") -> None:
         """Re-apply the icon tint for a panel.
